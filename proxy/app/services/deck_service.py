@@ -1,9 +1,9 @@
+from app.clients.caldav_client import CalDavClient
 from app.model.deck import DeckBoard
-from app.services.nextcloud_client import NextcloudClient
 
 
 class DeckService:
-    def __init__(self, client: NextcloudClient) -> None:
+    def __init__(self, client: CalDavClient) -> None:
         self.client = client
 
     async def list_boards(self) -> list[DeckBoard]:

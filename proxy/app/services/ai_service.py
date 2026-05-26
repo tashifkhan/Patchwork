@@ -8,10 +8,10 @@ from typing import Any
 from fastapi import HTTPException, UploadFile, status
 from pydantic import TypeAdapter, ValidationError
 
+from app.clients.gemini_client import GeminiClient
 from app.core.config import Settings
 from app.model.ai import AiGeneratedTask, AiOcrRequest, AiRefineRequest, AiTasksResponse
 from app.model.task import TaskList
-from app.services.gemini_client import GeminiClient
 
 TASK_LIST_ADAPTER = TypeAdapter(list[TaskList])
 STRING_LIST_ADAPTER = TypeAdapter(list[str])

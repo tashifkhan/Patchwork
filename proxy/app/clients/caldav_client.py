@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 from app.core.config import Settings
 
 
-class NextcloudClient:
+class CalDavClient:
     def __init__(self, settings: Settings) -> None:
         if not settings.nextcloud_configured:
             raise HTTPException(

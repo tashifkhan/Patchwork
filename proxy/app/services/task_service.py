@@ -2,6 +2,7 @@ from xml.etree import ElementTree as ET
 
 from fastapi import HTTPException, status
 
+from app.clients.caldav_client import CalDavClient
 from app.model.task import Task, TaskCreate, TaskList
 from app.services.caldav_codec import (
     attach_children,
@@ -9,7 +10,6 @@ from app.services.caldav_codec import (
     parse_vtodo,
     serialize_new_vtodo,
 )
-from app.services.nextcloud_client import NextcloudClient
 
 DAV_NS = "DAV:"
 CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
@@ -17,7 +17,7 @@ NS = {"d": DAV_NS, "cal": CALDAV_NS}
 
 
 class TaskService:
-    def __init__(self, client: NextcloudClient) -> None:
+    def __init__(self, client: CalDavClient) -> None:
         self.client = client
 
     async def list_task_calendars(self, *, include_deck: bool = False) -> list[TaskList]:
