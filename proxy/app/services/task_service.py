@@ -22,7 +22,9 @@ class TaskService:
         self.client = client
 
     async def list_task_calendars(
-        self, *, include_deck: bool = False
+        self,
+        *,
+        include_deck: bool = False,
     ) -> list[TaskList]:
         body = textwrap.dedent(
             """
@@ -43,15 +45,23 @@ class TaskService:
             headers={"Depth": "1"},
         )
         calendars = _parse_calendar_list(response.text)
+
         if include_deck:
             return calendars
-        return [calendar for calendar in calendars if not calendar.is_deck]
+
+        return [
+            calendar
+            for calendar in calendars
+            if not calendar.is_deck
+        ]
 
     async def list_tasks(self) -> list[Task]:
         calendars = await self.list_task_calendars()
         tasks: list[Task] = []
+
         for calendar in calendars:
             tasks.extend(await self._list_calendar_tasks(calendar))
+
         return attach_children(tasks)
 
     async def create_task(self, task: TaskCreate) -> Task:
@@ -59,6 +69,7 @@ class TaskService:
         target = next(
             (calendar for calendar in calendars if calendar.id == task.list_id), None
         )
+
         if target is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Task list not found"
@@ -66,12 +77,14 @@ class TaskService:
 
         uid, calendar_data = serialize_new_vtodo(task)
         href = f"{target.href.rstrip('/')}/{uid}.ics"
+
         response = await self.client.request(
             "PUT",
             self.client.absolute_url(href),
             content=calendar_data,
             headers={"Content-Type": "text/calendar; charset=utf-8"},
         )
+
         created = parse_vtodo(
             calendar_data=calendar_data,
             href=href,
@@ -79,10 +92,12 @@ class TaskService:
             list_id=target.id,
             list_name=target.name,
         )
+
         if created is None:
             raise HTTPException(
                 status_code=500, detail="Created task could not be parsed"
             )
+
         return created
 
     async def _list_calendar_tasks(self, calendar: TaskList) -> list[Task]:
@@ -101,26 +116,32 @@ class TaskService:
             </cal:calendar-query>
             """
         ).strip()
+
         response = await self.client.request(
             "REPORT",
             self.client.absolute_url(calendar.href),
             content=body,
             headers={"Depth": "1"},
         )
+
         return _parse_task_report(response.text, calendar)
 
 
 def _parse_calendar_list(xml_text: str) -> list[TaskList]:
     root = ET.fromstring(xml_text)
     calendars: list[TaskList] = []
+
     for response in root.findall("d:response", NS):
         href = _node_text(response, "d:href")
         name = _node_text(response, "d:propstat/d:prop/d:displayname")
+
         if not href or not name:
             continue
         resource_type = response.find("d:propstat/d:prop/d:resourcetype", NS)
+
         if resource_type is None or resource_type.find("cal:calendar", NS) is None:
             continue
+
         calendars.append(
             TaskList(
                 id=href.strip("/").rsplit("/", 1)[-1],
@@ -129,18 +150,22 @@ def _parse_calendar_list(xml_text: str) -> list[TaskList]:
                 is_deck=is_deck_calendar(name, href),
             )
         )
+
     return calendars
 
 
 def _parse_task_report(xml_text: str, calendar: TaskList) -> list[Task]:
     root = ET.fromstring(xml_text)
     tasks: list[Task] = []
+
     for response in root.findall("d:response", NS):
         href = _node_text(response, "d:href")
         etag = _node_text(response, "d:propstat/d:prop/d:getetag")
         calendar_data = _node_text(response, "d:propstat/d:prop/cal:calendar-data")
+
         if not href or not calendar_data:
             continue
+
         task = parse_vtodo(
             calendar_data=calendar_data,
             href=href,
@@ -148,6 +173,7 @@ def _parse_task_report(xml_text: str, calendar: TaskList) -> list[Task]:
             list_id=calendar.id,
             list_name=calendar.name,
         )
+
         if task is not None:
             tasks.append(task)
     return tasks
