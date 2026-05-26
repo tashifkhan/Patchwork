@@ -1,0 +1,120 @@
+// Mirrors the FastAPI proxy Pydantic models in proxy/app/model.
+// The backend uses snake_case; keep these names identical to the JSON shape.
+
+export interface TaskList {
+  id: string;
+  href: string;
+  name: string;
+  is_deck: boolean;
+}
+
+export interface Task {
+  id: string;
+  uid: string;
+  list_id: string;
+  list_name: string;
+  title: string;
+  description: string;
+  markdown: string;
+  completed: boolean;
+  priority: number | null;
+  due_at: string | null;
+  reminder_at: string | null;
+  tags: string[];
+  parent_uid: string | null;
+  children: Task[];
+  etag: string | null;
+  updated_at: string | null;
+}
+
+export interface TaskCreate {
+  list_id: string;
+  title: string;
+  markdown?: string;
+  tags?: string[];
+  due_at?: string | null;
+  reminder_at?: string | null;
+  parent_uid?: string | null;
+  priority?: number | null;
+}
+
+export interface TaskUpdate {
+  title?: string;
+  markdown?: string;
+  completed?: boolean;
+  tags?: string[];
+  due_at?: string | null;
+  reminder_at?: string | null;
+  parent_uid?: string | null;
+  priority?: number | null;
+  etag?: string | null;
+}
+
+export interface HealthResponse {
+  status: 'ok';
+  nextcloud_configured: boolean;
+  gemini_configured: boolean;
+}
+
+export interface DeckBoard {
+  id: number;
+  title: string;
+  raw: Record<string, unknown>;
+}
+
+// Deck card/stack shapes are passed through as `raw` JSON from the Nextcloud
+// Deck REST API, so they are loosely typed.
+export interface DeckLabel {
+  id?: number;
+  title?: string;
+  color?: string;
+}
+
+export interface DeckCard {
+  id?: number;
+  title?: string;
+  description?: string;
+  duedate?: string | null;
+  labels?: DeckLabel[];
+  assignedUsers?: { participant?: { displayname?: string } }[];
+  [key: string]: unknown;
+}
+
+export interface DeckStack {
+  id?: number;
+  title?: string;
+  cards?: DeckCard[];
+  [key: string]: unknown;
+}
+
+export interface DeckBoardDetail {
+  board_id: number;
+  stacks: DeckStack[];
+}
+
+export interface AiGeneratedSubtask {
+  title: string;
+  description?: string | null;
+}
+
+export interface AiGeneratedTask {
+  title: string;
+  description?: string | null;
+  list_id?: string | null;
+  tags: string[];
+  due_at?: string | null;
+  reminder_at?: string | null;
+  priority?: number | null;
+  subtasks: AiGeneratedSubtask[];
+}
+
+export interface AiTasksResponse {
+  tasks: AiGeneratedTask[];
+}
+
+export interface AiRefineRequest {
+  instruction: string;
+  tasks: AiGeneratedTask[];
+  available_lists?: TaskList[];
+  available_tags?: string[];
+}
