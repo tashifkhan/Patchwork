@@ -72,7 +72,9 @@ class AiService:
         available_tags: list[str],
     ) -> AiTasksResponse:
         if not image_bytes:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is empty")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Image is empty"
+            )
 
         prompt = _build_ocr_prompt(available_lists, available_tags)
         response_text = await self._generate_text(
@@ -128,7 +130,9 @@ def parse_tags_form(value: str | None) -> list[str]:
 
 
 def _decode_base64_image(value: str) -> bytes:
-    encoded = value.split(",", 1)[1] if value.startswith("data:") and "," in value else value
+    encoded = (
+        value.split(",", 1)[1] if value.startswith("data:") and "," in value else value
+    )
     try:
         return base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -138,7 +142,9 @@ def _decode_base64_image(value: str) -> bytes:
         ) from exc
 
 
-def _build_ocr_prompt(available_lists: list[TaskList], available_tags: list[str]) -> str:
+def _build_ocr_prompt(
+    available_lists: list[TaskList], available_tags: list[str]
+) -> str:
     return f"""
 You are an OCR and task parsing assistant for a Nextcloud CalDAV todo app.
 Read the uploaded handwritten note, photo, or screenshot and extract actionable tasks.
