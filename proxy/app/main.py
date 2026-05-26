@@ -1,23 +1,12 @@
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, HTTPException, status
 
-from app.config import Settings, get_settings
-from app.models import AiOcrRequest, AiRefineRequest, HealthResponse, Task, TaskCreate, TaskList, TaskUpdate
-from app.nextcloud import NextcloudClient
-
-
-def create_app() -> FastAPI:
-    settings = get_settings()
-    api = FastAPI(title="CalDAV Todo Proxy", version="0.1.0")
-    api.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origin_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    return api
+from app.core.application import create_app
+from app.core.config import Settings, get_settings
+from app.model import AiOcrRequest, AiRefineRequest, HealthResponse, Task, TaskCreate, TaskList, TaskUpdate
+from app.services.ai_service import AiService
+from app.services.deck_service import DeckService
+from app.services.nextcloud_client import NextcloudClient
+from app.services.task_service import TaskService
 
 
 app = create_app()
@@ -25,6 +14,18 @@ app = create_app()
 
 def get_nextcloud_client(settings: Settings = Depends(get_settings)) -> NextcloudClient:
     return NextcloudClient(settings)
+
+
+def get_task_service(client: NextcloudClient = Depends(get_nextcloud_client)) -> TaskService:
+    return TaskService(client)
+
+
+def get_deck_service(client: NextcloudClient = Depends(get_nextcloud_client)) -> DeckService:
+    return DeckService(client)
+
+
+def get_ai_service() -> AiService:
+    return AiService()
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -36,20 +37,20 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
 
 
 @app.get("/api/task-lists", response_model=list[TaskList])
-async def list_task_lists(client: NextcloudClient = Depends(get_nextcloud_client)) -> list[TaskList]:
-    return await client.list_task_calendars()
+async def list_task_lists(service: TaskService = Depends(get_task_service)) -> list[TaskList]:
+    return await service.list_task_calendars()
 
 
 @app.get("/api/tasks", response_model=list[Task])
-async def list_tasks(client: NextcloudClient = Depends(get_nextcloud_client)) -> list[Task]:
-    return await client.list_tasks()
+async def list_tasks(service: TaskService = Depends(get_task_service)) -> list[Task]:
+    return await service.list_tasks()
 
 
 @app.post("/api/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
 async def create_task(
-    task: TaskCreate, client: NextcloudClient = Depends(get_nextcloud_client)
+    task: TaskCreate, service: TaskService = Depends(get_task_service)
 ) -> Task:
-    return await client.create_task(task)
+    return await service.create_task(task)
 
 
 @app.patch("/api/tasks/{task_id}")
@@ -63,22 +64,26 @@ async def delete_task(task_id: str) -> None:
 
 
 @app.get("/api/deck/boards")
-async def list_deck_boards(client: NextcloudClient = Depends(get_nextcloud_client)) -> object:
-    return await client.list_deck_boards()
+async def list_deck_boards(service: DeckService = Depends(get_deck_service)) -> object:
+    return await service.list_boards()
 
 
 @app.get("/api/deck/boards/{board_id}")
 async def get_deck_board(
-    board_id: int, client: NextcloudClient = Depends(get_nextcloud_client)
+    board_id: int, service: DeckService = Depends(get_deck_service)
 ) -> object:
-    return await client.get_deck_board(board_id)
+    return await service.get_board(board_id)
 
 
 @app.post("/api/ai/ocr")
-async def parse_image_tasks(request: AiOcrRequest) -> None:
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Gemini OCR is next")
+async def parse_image_tasks(
+    request: AiOcrRequest, service: AiService = Depends(get_ai_service)
+) -> None:
+    await service.parse_image_tasks(request)
 
 
 @app.post("/api/ai/refine-tasks")
-async def refine_tasks(request: AiRefineRequest) -> None:
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Gemini refinement is next")
+async def refine_tasks(
+    request: AiRefineRequest, service: AiService = Depends(get_ai_service)
+) -> None:
+    await service.refine_tasks(request)

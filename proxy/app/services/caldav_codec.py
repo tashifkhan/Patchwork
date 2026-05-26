@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import vobject
 
-from app.models import Task, TaskCreate
+from app.model.task import Task, TaskCreate
 
 
 def is_deck_calendar(name: str, href: str = "") -> bool:

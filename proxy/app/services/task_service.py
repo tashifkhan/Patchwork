@@ -1,32 +1,26 @@
 from xml.etree import ElementTree as ET
 
-import httpx
 from fastapi import HTTPException, status
 
-from app.caldav_codec import attach_children, is_deck_calendar, parse_vtodo, serialize_new_vtodo
-from app.config import Settings
-from app.models import DeckBoard, Task, TaskCreate, TaskList
+from app.model.task import Task, TaskCreate, TaskList
+from app.services.caldav_codec import (
+    attach_children,
+    is_deck_calendar,
+    parse_vtodo,
+    serialize_new_vtodo,
+)
+from app.services.nextcloud_client import NextcloudClient
 
 DAV_NS = "DAV:"
 CALDAV_NS = "urn:ietf:params:xml:ns:caldav"
 NS = {"d": DAV_NS, "cal": CALDAV_NS}
 
 
-class NextcloudClient:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        if not settings.nextcloud_configured:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Nextcloud settings are not configured",
-            )
-
-        self.base_url = str(settings.nextcloud_base_url).rstrip("/")
-        self.username = settings.nextcloud_username or ""
-        self.auth = (self.username, settings.nextcloud_app_password or "")
+class TaskService:
+    def __init__(self, client: NextcloudClient) -> None:
+        self.client = client
 
     async def list_task_calendars(self, *, include_deck: bool = False) -> list[TaskList]:
-        url = self._calendar_home_url()
         body = """
 <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
   <d:prop>
@@ -37,7 +31,9 @@ class NextcloudClient:
 </d:propfind>
 """.strip()
 
-        response = await self._request("PROPFIND", url, content=body, headers={"Depth": "1"})
+        response = await self.client.request(
+            "PROPFIND", self.client.calendar_home_url(), content=body, headers={"Depth": "1"}
+        )
         calendars = _parse_calendar_list(response.text)
         if include_deck:
             return calendars
@@ -58,10 +54,9 @@ class NextcloudClient:
 
         uid, calendar_data = serialize_new_vtodo(task)
         href = f"{target.href.rstrip('/')}/{uid}.ics"
-        url = self._absolute_url(href)
-        response = await self._request(
+        response = await self.client.request(
             "PUT",
-            url,
+            self.client.absolute_url(href),
             content=calendar_data,
             headers={"Content-Type": "text/calendar; charset=utf-8"},
         )
@@ -75,17 +70,6 @@ class NextcloudClient:
         if created is None:
             raise HTTPException(status_code=500, detail="Created task could not be parsed")
         return created
-
-    async def list_deck_boards(self) -> list[DeckBoard]:
-        response = await self._request("GET", f"{self.base_url}/index.php/apps/deck/api/v1.0/boards")
-        payload = response.json()
-        return [DeckBoard(id=item["id"], title=item.get("title", "Untitled board"), raw=item) for item in payload]
-
-    async def get_deck_board(self, board_id: int) -> dict:
-        response = await self._request(
-            "GET", f"{self.base_url}/index.php/apps/deck/api/v1.0/boards/{board_id}/stacks"
-        )
-        return {"board_id": board_id, "stacks": response.json()}
 
     async def _list_calendar_tasks(self, calendar: TaskList) -> list[Task]:
         body = """
@@ -101,25 +85,10 @@ class NextcloudClient:
   </cal:filter>
 </cal:calendar-query>
 """.strip()
-        response = await self._request(
-            "REPORT", self._absolute_url(calendar.href), content=body, headers={"Depth": "1"}
+        response = await self.client.request(
+            "REPORT", self.client.absolute_url(calendar.href), content=body, headers={"Depth": "1"}
         )
         return _parse_task_report(response.text, calendar)
-
-    async def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
-        async with httpx.AsyncClient(auth=self.auth, timeout=30) as client:
-            response = await client.request(method, url, **kwargs)
-        if response.status_code >= 400:
-            raise HTTPException(status_code=response.status_code, detail=response.text)
-        return response
-
-    def _calendar_home_url(self) -> str:
-        return f"{self.base_url}/remote.php/dav/calendars/{self.username}/"
-
-    def _absolute_url(self, href: str) -> str:
-        if href.startswith("http://") or href.startswith("https://"):
-            return href
-        return f"{self.base_url}/{href.lstrip('/')}"
 
 
 def _parse_calendar_list(xml_text: str) -> list[TaskList]:

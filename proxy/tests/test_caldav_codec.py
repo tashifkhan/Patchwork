@@ -1,5 +1,10 @@
-from app.caldav_codec import attach_children, is_deck_calendar, parse_vtodo, serialize_new_vtodo
-from app.models import Task, TaskCreate
+from app.model.task import Task, TaskCreate
+from app.services.caldav_codec import (
+    attach_children,
+    is_deck_calendar,
+    parse_vtodo,
+    serialize_new_vtodo,
+)
 
 
 def test_is_deck_calendar_detects_prefixed_lists() -> None:
