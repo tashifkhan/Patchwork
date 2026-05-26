@@ -19,6 +19,7 @@ import {
 export const Link = (
   props: React.ComponentProps<typeof RouterLink> & { className?: string }
 ) => {
+  // @ts-expect-error react-native-css generic inference is excessively deep here
   return useCssElement(RouterLink, props, { className: "style" });
 };
 
@@ -54,6 +55,7 @@ export const ScrollView = (
     contentContainerClassName?: string;
   }
 ) => {
+  // @ts-expect-error react-native-css generic inference is excessively deep here
   return useCssElement(RNScrollView, props, {
     className: "style",
     contentContainerClassName: "contentContainerStyle",
@@ -82,6 +84,7 @@ export const AnimatedScrollView = (
     contentContainerClassName?: string;
   }
 ) => {
+  // @ts-expect-error react-native-css generic inference is excessively deep here
   return useCssElement(Animated.ScrollView, props, {
     className: "style",
     contentClassName: "contentContainerStyle",
@@ -92,7 +95,8 @@ export const AnimatedScrollView = (
 function XXTouchableHighlight(
   props: React.ComponentProps<typeof RNTouchableHighlight>
 ) {
-  const { underlayColor, ...style } = StyleSheet.flatten(props.style) || {};
+  const { underlayColor, ...style } =
+    (StyleSheet.flatten(props.style) as { underlayColor?: string } & Record<string, unknown>) || {};
   return (
     <RNTouchableHighlight
       underlayColor={underlayColor as string | undefined}

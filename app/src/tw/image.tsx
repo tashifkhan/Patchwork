@@ -30,6 +30,7 @@ function CSSImage(props: React.ComponentProps<typeof AnimatedExpoImage>) {
 export const Image = (
   props: React.ComponentProps<typeof CSSImage> & { className?: string }
 ) => {
+  // @ts-expect-error react-native-css generic inference is excessively deep here
   return useCssElement(CSSImage, props, { className: "style" });
 };
 
