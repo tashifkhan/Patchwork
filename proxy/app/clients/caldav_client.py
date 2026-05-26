@@ -16,11 +16,18 @@ class CalDavClient:
         self.username = settings.nextcloud_username or ""
         self.auth = (self.username, settings.nextcloud_app_password or "")
 
-    async def request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+    async def request(
+        self,
+        method: str,
+        url: str,
+        **kwargs: object,
+    ) -> httpx.Response:
         async with httpx.AsyncClient(auth=self.auth, timeout=30) as client:
             response = await client.request(method, url, **kwargs)
+
         if response.status_code >= 400:
             raise HTTPException(status_code=response.status_code, detail=response.text)
+
         return response
 
     def calendar_home_url(self) -> str:
@@ -29,4 +36,5 @@ class CalDavClient:
     def absolute_url(self, href: str) -> str:
         if href.startswith("http://") or href.startswith("https://"):
             return href
+
         return f"{self.base_url}/{href.lstrip('/')}"

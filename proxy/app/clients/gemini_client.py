@@ -29,7 +29,9 @@ class GeminiClient:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Image MIME type is required",
                 )
-            contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+            contents.append(
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+            )
 
         client = genai.Client(api_key=self.settings.gemini_api_key)
         response = client.models.generate_content(
@@ -37,10 +39,13 @@ class GeminiClient:
             contents=contents,
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
+
         text = getattr(response, "text", None)
+
         if not text:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Gemini returned an empty response",
             )
+
         return text
