@@ -6,21 +6,21 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
-from google import genai
-from google.genai import types
 from pydantic import TypeAdapter, ValidationError
 
 from app.core.config import Settings
 from app.model.ai import AiGeneratedTask, AiOcrRequest, AiRefineRequest, AiTasksResponse
 from app.model.task import TaskList
+from app.services.gemini_client import GeminiClient
 
 TASK_LIST_ADAPTER = TypeAdapter(list[TaskList])
 STRING_LIST_ADAPTER = TypeAdapter(list[str])
 
 
 class AiService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, gemini_client: GeminiClient) -> None:
         self.settings = settings
+        self.gemini_client = gemini_client
 
     async def parse_image_tasks(self, request: AiOcrRequest) -> AiTasksResponse:
         image_bytes = _decode_base64_image(request.image_base64)
@@ -61,7 +61,7 @@ class AiService:
 
     async def refine_tasks(self, request: AiRefineRequest) -> AiTasksResponse:
         prompt = _build_refine_prompt(request)
-        response_text = await self._generate_text(prompt)
+        response_text = await self.gemini_client.generate_json(prompt)
         return AiTasksResponse(tasks=_parse_task_json(response_text))
 
     async def _parse_image_bytes(
@@ -78,32 +78,12 @@ class AiService:
             )
 
         prompt = _build_ocr_prompt(available_lists, available_tags)
-        response_text = await self._generate_text(
+        response_text = await self.gemini_client.generate_json(
             prompt,
-            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            image_bytes=image_bytes,
+            mime_type=mime_type,
         )
         return AiTasksResponse(tasks=_parse_task_json(response_text))
-
-    async def _generate_text(self, *contents: object) -> str:
-        if not self.settings.gemini_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="GEMINI_API_KEY is not configured",
-            )
-
-        client = genai.Client(api_key=self.settings.gemini_api_key)
-        response = client.models.generate_content(
-            model=self.settings.gemini_model,
-            contents=list(contents),
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
-        )
-        text = getattr(response, "text", None)
-        if not text:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Gemini returned an empty response",
-            )
-        return text
 
 
 def parse_task_lists_form(value: str | None) -> list[TaskList]:
