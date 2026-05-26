@@ -89,8 +89,10 @@ class AiService:
 def parse_task_lists_form(value: str | None) -> list[TaskList]:
     if not value:
         return []
+
     try:
         return TASK_LIST_ADAPTER.validate_json(value)
+
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -101,8 +103,10 @@ def parse_task_lists_form(value: str | None) -> list[TaskList]:
 def parse_tags_form(value: str | None) -> list[str]:
     if not value:
         return []
+
     try:
         return STRING_LIST_ADAPTER.validate_json(value)
+
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -114,8 +118,10 @@ def _decode_base64_image(value: str) -> bytes:
     encoded = (
         value.split(",", 1)[1] if value.startswith("data:") and "," in value else value
     )
+
     try:
         return base64.b64decode(encoded, validate=True)
+
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -193,6 +199,7 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
     cleaned = _strip_markdown_fence(response_text)
     try:
         payload: Any = json.loads(cleaned)
+
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -201,6 +208,7 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
 
     if isinstance(payload, dict):
         payload = payload.get("tasks")
+
     if not isinstance(payload, list):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -209,6 +217,7 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
 
     try:
         return TypeAdapter(list[AiGeneratedTask]).validate_python(payload)
+
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -218,11 +227,14 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
 
 def _strip_markdown_fence(value: str) -> str:
     stripped = value.strip()
+
     if not stripped.startswith("```"):
         return stripped
     lines = stripped.splitlines()
+
     if len(lines) >= 3 and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
+
     return stripped
 
 
