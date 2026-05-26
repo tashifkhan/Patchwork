@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+import textwrap
 from datetime import UTC, datetime
 from typing import Any
 
@@ -145,63 +146,67 @@ def _decode_base64_image(value: str) -> bytes:
 def _build_ocr_prompt(
     available_lists: list[TaskList], available_tags: list[str]
 ) -> str:
-    return f"""
-You are an OCR and task parsing assistant for a Nextcloud CalDAV todo app.
-Read the uploaded handwritten note, photo, or screenshot and extract actionable tasks.
+    return textwrap.dedent(
+        f"""
+        You are an OCR and task parsing assistant for a Nextcloud CalDAV todo app.
+        Read the uploaded handwritten note, photo, or screenshot and extract actionable tasks.
 
-Current date/time: {datetime.now(UTC).isoformat()}
-Available lists: {_list_context(available_lists)}
-Available tags: {json.dumps(available_tags)}
+        Current date/time: {datetime.now(UTC).isoformat()}
+        Available lists: {_list_context(available_lists)}
+        Available tags: {json.dumps(available_tags)}
 
-Return STRICT JSON only. Do not wrap it in markdown.
-Return either an array of tasks or an object with a "tasks" array.
+        Return STRICT JSON only. Do not wrap it in markdown.
+        Return either an array of tasks or an object with a "tasks" array.
 
-Schema:
-{{
-  "tasks": [
-    {{
-      "title": "string, required, concise action item",
-      "description": "string or null, supports GitHub-flavored Markdown",
-      "list_id": "string or null, must match an available list id when obvious",
-      "tags": ["strings matching existing tags when possible"],
-      "due_at": "ISO-8601 datetime string or null",
-      "reminder_at": "ISO-8601 datetime string or null",
-      "priority": "integer 0-9 or null",
-      "subtasks": [{{"title": "string", "description": "string or null"}}]
-    }}
-  ]
-}}
+        Schema:
+        {{
+          "tasks": [
+            {{
+              "title": "string, required, concise action item",
+              "description": "string or null, supports GitHub-flavored Markdown",
+              "list_id": "string or null, must match an available list id when obvious",
+              "tags": ["strings matching existing tags when possible"],
+              "due_at": "ISO-8601 datetime string or null",
+              "reminder_at": "ISO-8601 datetime string or null",
+              "priority": "integer 0-9 or null",
+              "subtasks": [{{"title": "string", "description": "string or null"}}]
+            }}
+          ]
+        }}
 
-Rules:
-- Do not invent due dates, reminders, lists, or tags unless the image clearly implies them.
-- Preserve uncertain context in description instead of guessing.
-- Use subtasks for indented checklist items or clearly nested items.
-- Keep Markdown syntax from screenshots when useful.
-- The app will show these in a staging editor; optimize for editable draft tasks.
-""".strip()
+        Rules:
+        - Do not invent due dates, reminders, lists, or tags unless the image clearly implies them.
+        - Preserve uncertain context in description instead of guessing.
+        - Use subtasks for indented checklist items or clearly nested items.
+        - Keep Markdown syntax from screenshots when useful.
+        - The app will show these in a staging editor; optimize for editable draft tasks.
+        """
+    ).strip()
 
 
 def _build_refine_prompt(request: AiRefineRequest) -> str:
-    return f"""
-You are editing staged tasks before they are saved to Nextcloud.
-Apply the user's instruction to the current staged tasks and return the full updated task list.
+    return textwrap.dedent(
+        f"""
+        You are editing staged tasks before they are saved to Nextcloud.
+        Apply the user's instruction to the current staged tasks and return the full updated task list.
 
-Current date/time: {datetime.now(UTC).isoformat()}
-Instruction: {request.instruction}
-Available lists: {_list_context(request.available_lists)}
-Available tags: {json.dumps(request.available_tags)}
-Current tasks JSON: {json.dumps([task.model_dump(mode="json") for task in request.tasks])}
+        Current date/time: {datetime.now(UTC).isoformat()}
+        Instruction: {request.instruction}
+        Available lists: {_list_context(request.available_lists)}
+        Available tags: {json.dumps(request.available_tags)}
+        Current tasks JSON: {json.dumps([task.model_dump(mode="json") for task in request.tasks])}
 
-Return STRICT JSON only. Do not wrap it in markdown.
-Return either an array of tasks or an object with a "tasks" array.
+        Return STRICT JSON only. Do not wrap it in markdown.
+        Return either an array of tasks or an object with a "tasks" array.
 
-Rules:
-- You may edit, add, remove, split, merge, or reorder staged tasks if the instruction asks for it.
-- Preserve user edits unless the instruction explicitly changes them.
-- Use only available list IDs when assigning list_id.
-- Prefer existing tags. Only create a new tag if the instruction explicitly asks for it.
-- Do not save anything; this response is still only a staging draft.
-""".strip()
+        Rules:
+        - You may edit, add, remove, split, merge, or reorder staged tasks if the instruction asks for it.
+        - Preserve user edits unless the instruction explicitly changes them.
+        - Use only available list IDs when assigning list_id.
+        - Prefer existing tags. Only create a new tag if the instruction explicitly asks for it.
+        - Do not save anything; this response is still only a staging draft.
+        """
+    ).strip()
 
 
 def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
@@ -243,5 +248,11 @@ def _strip_markdown_fence(value: str) -> str:
 
 def _list_context(available_lists: list[TaskList]) -> str:
     return json.dumps(
-        [{"id": task_list.id, "name": task_list.name} for task_list in available_lists]
+        [
+            {
+                "id": task_list.id,
+                "name": task_list.name,
+            }
+            for task_list in available_lists
+        ]
     )
