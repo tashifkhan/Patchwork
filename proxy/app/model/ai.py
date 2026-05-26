@@ -21,6 +21,10 @@ class AiGeneratedTask(BaseModel):
     subtasks: list[AiGeneratedSubtask] = Field(default_factory=list)
 
 
+class AiTasksResponse(BaseModel):
+    tasks: list[AiGeneratedTask]
+
+
 class AiRefineRequest(BaseModel):
     instruction: str
     tasks: list[AiGeneratedTask]

@@ -1,4 +1,10 @@
-from app.model.ai import AiGeneratedSubtask, AiGeneratedTask, AiOcrRequest, AiRefineRequest
+from app.model.ai import (
+    AiGeneratedSubtask,
+    AiGeneratedTask,
+    AiOcrRequest,
+    AiRefineRequest,
+    AiTasksResponse,
+)
 from app.model.deck import DeckBoard
 from app.model.health import HealthResponse
 from app.model.task import Task, TaskCreate, TaskList, TaskUpdate
@@ -8,6 +14,7 @@ __all__ = [
     "AiGeneratedTask",
     "AiOcrRequest",
     "AiRefineRequest",
+    "AiTasksResponse",
     "DeckBoard",
     "HealthResponse",
     "Task",

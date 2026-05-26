@@ -1,9 +1,18 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, File, Form, HTTPException, UploadFile, status
 
 from app.core.application import create_app
 from app.core.config import Settings, get_settings
-from app.model import AiOcrRequest, AiRefineRequest, HealthResponse, Task, TaskCreate, TaskList, TaskUpdate
-from app.services.ai_service import AiService
+from app.model import (
+    AiOcrRequest,
+    AiRefineRequest,
+    AiTasksResponse,
+    HealthResponse,
+    Task,
+    TaskCreate,
+    TaskList,
+    TaskUpdate,
+)
+from app.services.ai_service import AiService, parse_tags_form, parse_task_lists_form
 from app.services.deck_service import DeckService
 from app.services.nextcloud_client import NextcloudClient
 from app.services.task_service import TaskService
@@ -24,8 +33,8 @@ def get_deck_service(client: NextcloudClient = Depends(get_nextcloud_client)) ->
     return DeckService(client)
 
 
-def get_ai_service() -> AiService:
-    return AiService()
+def get_ai_service(settings: Settings = Depends(get_settings)) -> AiService:
+    return AiService(settings)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -75,15 +84,29 @@ async def get_deck_board(
     return await service.get_board(board_id)
 
 
-@app.post("/api/ai/ocr")
+@app.post("/api/ai/ocr", response_model=AiTasksResponse)
 async def parse_image_tasks(
     request: AiOcrRequest, service: AiService = Depends(get_ai_service)
-) -> None:
-    await service.parse_image_tasks(request)
+) -> AiTasksResponse:
+    return await service.parse_image_tasks(request)
 
 
-@app.post("/api/ai/refine-tasks")
+@app.post("/api/ai/ocr-upload", response_model=AiTasksResponse)
+async def upload_image_tasks(
+    file: UploadFile = File(...),
+    available_lists: str | None = Form(default=None),
+    available_tags: str | None = Form(default=None),
+    service: AiService = Depends(get_ai_service),
+) -> AiTasksResponse:
+    return await service.parse_uploaded_image_tasks(
+        file=file,
+        available_lists=parse_task_lists_form(available_lists),
+        available_tags=parse_tags_form(available_tags),
+    )
+
+
+@app.post("/api/ai/refine-tasks", response_model=AiTasksResponse)
 async def refine_tasks(
     request: AiRefineRequest, service: AiService = Depends(get_ai_service)
-) -> None:
-    await service.refine_tasks(request)
+) -> AiTasksResponse:
+    return await service.refine_tasks(request)
