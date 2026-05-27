@@ -69,7 +69,7 @@ export function ThemeShell({
       <VariableContextProvider value={variables}>
         <NavThemeProvider value={theme}>
           <View style={{ flex: 1, backgroundColor: colors.bg }}>
-            <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} backgroundColor={colors.bg2} />
+            <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
             {children}
           </View>
         </NavThemeProvider>

@@ -87,7 +87,9 @@ export default function AiImportScreen() {
           style={{ borderCurve: 'continuous' }}>
           <Icon name="exclamationmark.triangle" size={18} color={colors.orange} />
           <Text className="text-sf-text-2 flex-1 text-sm">
-            Gemini is not configured on the proxy. Importing will fail until GEMINI_API_KEY is set.
+            {Platform.OS === 'web'
+              ? 'Gemini is not configured on the proxy. Importing will fail until GEMINI_API_KEY is set.'
+              : 'Gemini API key is not saved on this device. Add your key in Settings to import tasks.'}
           </Text>
         </View>
       ) : null}

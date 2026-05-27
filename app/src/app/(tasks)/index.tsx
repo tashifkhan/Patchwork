@@ -164,7 +164,7 @@ function EmptyState({
   }
 
   if (error) {
-    const message = error instanceof ApiError ? error.message : 'Could not reach the proxy.';
+    const message = error instanceof ApiError ? error.message : 'Could not load tasks.';
     return (
       <View className="items-center gap-3 py-20">
         <Icon name="exclamationmark.triangle" size={28} color={blue as string} />
