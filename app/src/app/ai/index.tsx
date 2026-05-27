@@ -6,14 +6,14 @@ import { ActivityIndicator, Alert, Platform, Pressable } from 'react-native';
 import { ocrUploadImage } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import { Icon } from '@/components/ui/icon';
+import { useTheme } from '@/components/theme/context';
 import { useHealth } from '@/hooks/use-health';
 import { useTaskLists } from '@/hooks/use-tasks';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
-import { ScrollView, Text, View, useCSSVariable } from '@/tw';
+import { ScrollView, Text, View } from '@/tw';
 
 export default function AiImportScreen() {
-  const blue = useCSSVariable('--sf-blue');
-  const purple = useCSSVariable('--sf-purple');
+  const { colors } = useTheme();
   const [busy, setBusy] = useState(false);
 
   const healthQuery = useHealth();
@@ -71,7 +71,7 @@ export default function AiImportScreen() {
       contentInsetAdjustmentBehavior="automatic"
       contentContainerClassName="gap-6 px-4 py-6">
       <View className="items-center gap-3 py-6">
-        <Icon name="sparkles" size={44} color={purple as string} />
+        <Icon name="sparkles" size={44} color={colors.purple} />
         <Text className="text-sf-text text-center text-xl font-semibold">
           Import tasks from an image
         </Text>
@@ -85,7 +85,7 @@ export default function AiImportScreen() {
         <View
           className="bg-sf-bg-2 flex-row items-center gap-2 rounded-xl px-3 py-3"
           style={{ borderCurve: 'continuous' }}>
-          <Icon name="exclamationmark.triangle" size={18} color={blue as string} />
+          <Icon name="exclamationmark.triangle" size={18} color={colors.orange} />
           <Text className="text-sf-text-2 flex-1 text-sm">
             Gemini is not configured on the proxy. Importing will fail until GEMINI_API_KEY is set.
           </Text>
@@ -129,15 +129,15 @@ function ActionButton({
   onPress: () => void;
   secondary?: boolean;
 }) {
-  const white = '#ffffff';
-  const blue = useCSSVariable('--sf-blue');
+  const { colors } = useTheme();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
       <View
         className={`flex-row items-center justify-center gap-2 rounded-xl py-3.5 ${secondary ? 'bg-sf-bg-2' : 'bg-sf-blue'}`}
         style={{ borderCurve: 'continuous' }}>
-        <Icon name={icon as never} size={20} color={secondary ? (blue as string) : white} />
-        <Text className={`text-base font-semibold ${secondary ? 'text-sf-blue' : 'text-white'}`}>
+        <Icon name={icon as never} size={20} color={secondary ? colors.accent : colors.onAccent} />
+        <Text
+          className={`text-base font-semibold ${secondary ? 'text-sf-blue' : 'text-sf-on-accent'}`}>
           {label}
         </Text>
       </View>

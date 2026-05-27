@@ -1,8 +1,26 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { Platform } from 'react-native';
+
+import { useTheme } from '@/components/theme/context';
 
 export default function AppTabs() {
+  const { colors, scheme } = useTheme();
+  const inactiveColor = colors.text2;
+
   return (
-    <NativeTabs minimizeBehavior="onScrollDown">
+    <NativeTabs
+      minimizeBehavior="onScrollDown"
+      backgroundColor={colors.bg2}
+      tintColor={colors.accent}
+      iconColor={{ default: inactiveColor, selected: colors.text }}
+      indicatorColor={colors.bg3}
+      rippleColor={colors.gray3}
+      shadowColor={colors.separator}
+      blurEffect={Platform.OS === 'ios' ? (scheme === 'dark' ? 'systemMaterialDark' : 'systemMaterialLight') : undefined}
+      labelStyle={{
+        default: { color: inactiveColor, fontSize: 12, fontWeight: '500' },
+        selected: { color: colors.text, fontSize: 12, fontWeight: '500' },
+      }}>
       <NativeTabs.Trigger name="(tasks)">
         <NativeTabs.Trigger.Icon sf="checklist" md="checklist" />
         <NativeTabs.Trigger.Label>Tasks</NativeTabs.Trigger.Label>

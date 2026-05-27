@@ -57,7 +57,7 @@ function Chip({
     <View
       className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
       style={{ borderCurve: 'continuous' }}>
-      <Text className={`text-sm ${selected ? 'text-white' : 'text-sf-text-2'}`}>{label}</Text>
+      <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>{label}</Text>
     </View>
   );
 

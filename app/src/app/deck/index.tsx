@@ -39,7 +39,7 @@ export default function DeckScreen() {
                 <View
                   className={`rounded-full px-4 py-1.5 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
                   style={{ borderCurve: 'continuous' }}>
-                  <Text className={`text-sm ${selected ? 'text-white' : 'text-sf-text-2'}`}>
+                  <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
                     {board.title}
                   </Text>
                 </View>

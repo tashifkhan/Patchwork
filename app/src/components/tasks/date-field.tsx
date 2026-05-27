@@ -1,10 +1,11 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker from '@expo/ui/community/datetime-picker';
 import { useState } from 'react';
 import { Platform, Pressable } from 'react-native';
 
+import { useTheme } from '@/components/theme/context';
 import { Icon } from '@/components/ui/icon';
 import { formatDateTime } from '@/lib/format';
-import { Text, View, useCSSVariable } from '@/tw';
+import { Text, View } from '@/tw';
 
 interface DateFieldProps {
   label: string;
@@ -13,28 +14,49 @@ interface DateFieldProps {
   onChange: (iso: string | null) => void;
 }
 
+type AndroidStage = 'date' | 'time' | null;
+
 export function DateField({ label, iconName, value, onChange }: DateFieldProps) {
-  const [show, setShow] = useState(false);
-  const red = useCSSVariable('--sf-red');
-  const blue = useCSSVariable('--sf-blue');
+  const { colors } = useTheme();
+  const [showIos, setShowIos] = useState(false);
+  const [stage, setStage] = useState<AndroidStage>(null);
+  const [draft, setDraft] = useState<Date | null>(null);
   const date = value ? new Date(value) : null;
 
-  function handlePickerChange(_event: unknown, selected?: Date) {
-    // Android dialog dismisses itself; iOS inline picker stays open.
-    if (Platform.OS !== 'ios') setShow(false);
-    if (selected) onChange(selected.toISOString());
+  function openPicker() {
+    if (Platform.OS === 'ios') {
+      setShowIos((prev) => !prev);
+      return;
+    }
+    // Android: native Material 3 dialogs, date first then time.
+    setDraft(date ?? new Date());
+    setStage('date');
   }
 
-  const showInlineIos = Platform.OS === 'ios' && show;
+  function handleAndroidDate(_event: unknown, selected: Date) {
+    const base = draft ?? new Date();
+    const next = new Date(base);
+    next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    setDraft(next);
+    setStage('time');
+  }
+
+  function handleAndroidTime(_event: unknown, selected: Date) {
+    const base = draft ?? new Date();
+    const next = new Date(base);
+    next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+    setStage(null);
+    onChange(next.toISOString());
+  }
 
   return (
     <View className="gap-2">
       <View className="flex-row items-center justify-between">
         <Pressable
-          onPress={() => setShow((prev) => !prev)}
+          onPress={openPicker}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
           <View className="flex-row items-center gap-3 py-1">
-            <Icon name={iconName as never} size={20} color={blue as string} />
+            <Icon name={iconName as never} size={20} color={colors.accent} />
             <View>
               <Text className="text-sf-text text-base">{label}</Text>
               {date ? <Text className="text-sf-text-2 text-sm">{formatDateTime(value)}</Text> : null}
@@ -47,25 +69,40 @@ export function DateField({ label, iconName, value, onChange }: DateFieldProps) 
             onPress={() => onChange(null)}
             hitSlop={8}
             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-            <Icon name="xmark.circle.fill" size={20} color={red as string} />
+            <Icon name="xmark.circle.fill" size={20} color={colors.red} />
           </Pressable>
         ) : null}
       </View>
 
-      {showInlineIos ? (
+      {Platform.OS === 'ios' && showIos ? (
         <DateTimePicker
           mode="datetime"
           display="inline"
+          accentColor={colors.accent}
           value={date ?? new Date()}
-          onChange={handlePickerChange}
+          onValueChange={(_event, selected) => onChange(selected.toISOString())}
         />
       ) : null}
 
-      {Platform.OS === 'android' && show ? (
+      {Platform.OS === 'android' && stage === 'date' ? (
         <DateTimePicker
           mode="date"
-          value={date ?? new Date()}
-          onChange={handlePickerChange}
+          presentation="dialog"
+          accentColor={colors.accent}
+          value={draft ?? new Date()}
+          onValueChange={handleAndroidDate}
+          onDismiss={() => setStage(null)}
+        />
+      ) : null}
+
+      {Platform.OS === 'android' && stage === 'time' ? (
+        <DateTimePicker
+          mode="time"
+          presentation="dialog"
+          accentColor={colors.accent}
+          value={draft ?? new Date()}
+          onValueChange={handleAndroidTime}
+          onDismiss={() => setStage(null)}
         />
       ) : null}
     </View>

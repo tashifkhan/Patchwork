@@ -1,10 +1,12 @@
+import SegmentedControl from '@expo/ui/community/segmented-control';
 import { useState } from 'react';
 import { Pressable } from 'react-native';
 
 import type { TaskList } from '@/api/types';
+import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
 import { Icon } from '@/components/ui/icon';
-import { Text, TextInput, View, useCSSVariable } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 export interface TaskFormValues {
   title: string;
@@ -40,8 +42,9 @@ export function TaskForm({
   onSubmit,
   onDelete,
 }: TaskFormProps) {
-  const textColor = useCSSVariable('--sf-text-2');
-  const red = useCSSVariable('--sf-red');
+  const { colors } = useTheme();
+  const textColor = colors.text2;
+  const red = colors.red;
 
   const [title, setTitle] = useState(initial?.title ?? '');
   const [markdown, setMarkdown] = useState(initial?.markdown ?? '');
@@ -99,7 +102,7 @@ export function TaskForm({
                   <View
                     className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
                     style={{ borderCurve: 'continuous' }}>
-                    <Text className={`text-sm ${selected ? 'text-white' : 'text-sf-text-2'}`}>
+                    <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
                       {list.name}
                     </Text>
                   </View>
@@ -161,25 +164,17 @@ export function TaskForm({
       </View>
 
       <Field label="Priority">
-        <View className="flex-row gap-2">
-          {PRIORITIES.map((option) => {
-            const selected = option.value === priority;
-            return (
-              <Pressable
-                key={option.label}
-                onPress={() => setPriority(option.value)}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
-                <View
-                  className={`items-center rounded-lg py-2 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
-                  style={{ borderCurve: 'continuous' }}>
-                  <Text className={`text-sm ${selected ? 'text-white' : 'text-sf-text-2'}`}>
-                    {option.label}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
+        <SegmentedControl
+          values={PRIORITIES.map((option) => option.label)}
+          selectedIndex={Math.max(
+            0,
+            PRIORITIES.findIndex((option) => option.value === priority)
+          )}
+          tintColor={colors.accent}
+          onChange={(event) =>
+            setPriority(PRIORITIES[event.nativeEvent.selectedSegmentIndex]?.value ?? null)
+          }
+        />
       </Field>
 
       <Pressable
@@ -189,7 +184,7 @@ export function TaskForm({
         <View
           className="bg-sf-blue items-center rounded-xl py-3.5"
           style={{ borderCurve: 'continuous' }}>
-          <Text className="text-base font-semibold text-white">{submitLabel}</Text>
+          <Text className="text-sf-on-accent text-base font-semibold">{submitLabel}</Text>
         </View>
       </Pressable>
 

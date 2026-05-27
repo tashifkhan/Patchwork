@@ -4,6 +4,7 @@ import { Alert, FlatList, Platform, Pressable, RefreshControl } from 'react-nati
 
 import { ApiError } from '@/api/client';
 import type { Task } from '@/api/types';
+import { useTheme } from '@/components/theme/context';
 import { TagChipList } from '@/components/tasks/tag-chip-list';
 import { TaskItem } from '@/components/tasks/task-item';
 import { Icon } from '@/components/ui/icon';
@@ -24,6 +25,7 @@ function collectTags(tasks: Task[]): string[] {
 }
 
 export default function TasksScreen() {
+  const { colors } = useTheme();
   const blue = useCSSVariable('--sf-blue');
   const tasksQuery = useTasks();
   const listsQuery = useTaskLists();
@@ -97,8 +99,14 @@ export default function TasksScreen() {
         data={visibleTasks}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingHorizontal: 16,
+          paddingBottom: 32,
+          justifyContent: visibleTasks.length === 0 ? 'center' : 'flex-start',
+        }}
         refreshControl={
           <RefreshControl
             refreshing={tasksQuery.isFetching && !tasksQuery.isLoading}

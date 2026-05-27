@@ -51,7 +51,7 @@ function StagedTaskCardComponent({ index, task, lists, onChange, onRemove }: Sta
                 <View
                   className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-3'}`}
                   style={{ borderCurve: 'continuous' }}>
-                  <Text className={`text-xs ${selected ? 'text-white' : 'text-sf-text-2'}`}>
+                  <Text className={`text-xs ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
                     {list.name}
                   </Text>
                 </View>

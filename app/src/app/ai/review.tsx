@@ -167,7 +167,7 @@ export default function AiReviewScreen() {
         <View
           className="bg-sf-blue items-center rounded-xl py-3.5"
           style={{ borderCurve: 'continuous' }}>
-          <Text className="text-base font-semibold text-white">
+          <Text className="text-sf-on-accent text-base font-semibold">
             {creating ? 'Creating…' : `Create ${staged.length} task${staged.length === 1 ? '' : 's'}`}
           </Text>
         </View>
