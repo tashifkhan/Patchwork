@@ -1,0 +1,357 @@
+import { ApiError } from './client';
+import type { Task, TaskCreate, TaskList, TaskUpdate } from './types';
+import { getCredentials, type NextcloudCredentials } from '@/lib/credentials';
+
+const DAV_NS = 'DAV:';
+const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
+
+export async function fetchTaskLists() {
+  const client = await createClient();
+  return client.listTaskCalendars();
+}
+
+export async function fetchTasks() {
+  const client = await createClient();
+  const lists = await client.listTaskCalendars();
+  const tasks = (await Promise.all(lists.map((list) => client.listCalendarTasks(list)))).flat();
+  return attachChildren(tasks);
+}
+
+export async function createTask(payload: TaskCreate) {
+  const client = await createClient();
+  const lists = await client.listTaskCalendars();
+  const target = lists.find((list) => list.id === payload.list_id);
+  if (!target) {
+    throw new ApiError(404, 'Task list not found');
+  }
+
+  const { uid, calendarData } = serializeVtodo(payload);
+  const href = `${target.href.replace(/\/+$/, '')}/${uid}.ics`;
+  const response = await client.request('PUT', client.absoluteUrl(href), {
+    body: calendarData,
+    headers: { 'Content-Type': 'text/calendar; charset=utf-8' },
+  });
+  const created = parseVtodo(calendarData, href, response.headers.get('etag'), target);
+
+  if (!created) {
+    throw new ApiError(500, 'Created task could not be parsed');
+  }
+  return created;
+}
+
+export async function updateTask(taskId: string, payload: TaskUpdate) {
+  const client = await createClient();
+  const existing = await client.fetchTaskByHref(taskId);
+  const calendarData = updateVtodo(existing.calendarData, payload);
+  const response = await client.request('PUT', client.absoluteUrl(taskId), {
+    body: calendarData,
+    headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      ...(payload.etag ? { 'If-Match': payload.etag } : {}),
+    },
+  });
+  const updated = parseVtodo(calendarData, taskId, response.headers.get('etag'), existing.list);
+  if (!updated) {
+    throw new ApiError(500, 'Updated task could not be parsed');
+  }
+  return updated;
+}
+
+export async function deleteTask(taskId: string) {
+  const client = await createClient();
+  await client.request('DELETE', client.absoluteUrl(taskId));
+}
+
+class CalDavClient {
+  private baseUrl: string;
+  private username: string;
+  private authHeader: string;
+
+  constructor(credentials: NextcloudCredentials) {
+    this.baseUrl = credentials.baseUrl.replace(/\/+$/, '');
+    this.username = credentials.username;
+    this.authHeader = `Basic ${base64Encode(`${credentials.username}:${credentials.appPassword}`)}`;
+  }
+
+  calendarHomeUrl() {
+    return `${this.baseUrl}/remote.php/dav/calendars/${encodeURIComponent(this.username)}/`;
+  }
+
+  absoluteUrl(href: string) {
+    return href.startsWith('http://') || href.startsWith('https://')
+      ? href
+      : `${this.baseUrl}/${href.replace(/^\/+/, '')}`;
+  }
+
+  async request(method: string, url: string, options: RequestInit = {}) {
+    const response = await fetch(url, {
+      ...options,
+      method,
+      headers: {
+        Authorization: this.authHeader,
+        Accept: 'application/xml,text/calendar,*/*',
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new ApiError(response.status, detail || `CalDAV request failed with status ${response.status}`, detail);
+    }
+    return response;
+  }
+
+  async listTaskCalendars(): Promise<TaskList[]> {
+    const response = await this.request('PROPFIND', this.calendarHomeUrl(), {
+      body: `
+        <d:propfind xmlns:d="${DAV_NS}" xmlns:cal="${CALDAV_NS}" xmlns:cs="http://calendarserver.org/ns/">
+          <d:prop>
+            <d:displayname />
+            <d:resourcetype />
+            <cs:getctag />
+          </d:prop>
+        </d:propfind>
+      `.trim(),
+      headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' },
+    });
+    return parseCalendarList(await response.text()).filter((list) => !list.is_deck);
+  }
+
+  async listCalendarTasks(calendar: TaskList): Promise<Task[]> {
+    const response = await this.request('REPORT', this.absoluteUrl(calendar.href), {
+      body: `
+        <cal:calendar-query xmlns:d="${DAV_NS}" xmlns:cal="${CALDAV_NS}">
+          <d:prop>
+            <d:getetag />
+            <cal:calendar-data />
+          </d:prop>
+          <cal:filter>
+            <cal:comp-filter name="VCALENDAR">
+              <cal:comp-filter name="VTODO" />
+            </cal:comp-filter>
+          </cal:filter>
+        </cal:calendar-query>
+      `.trim(),
+      headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' },
+    });
+    return parseTaskReport(await response.text(), calendar);
+  }
+
+  async fetchTaskByHref(href: string): Promise<{ calendarData: string; list: TaskList }> {
+    const lists = await this.listTaskCalendars();
+    const list = lists.find((item) => href.startsWith(item.href) || href.startsWith(this.absoluteUrl(item.href)));
+    if (!list) {
+      throw new ApiError(404, 'Task list not found for task');
+    }
+
+    const response = await this.request('GET', this.absoluteUrl(href));
+    const calendarData = await response.text();
+    if (!calendarData) {
+      throw new ApiError(404, 'Task calendar data not found');
+    }
+    return { calendarData, list };
+  }
+}
+
+async function createClient() {
+  const { nextcloud } = await getCredentials();
+  if (!nextcloud) {
+    throw new ApiError(503, 'Nextcloud credentials are not configured on this device.');
+  }
+  return new CalDavClient(nextcloud);
+}
+
+function parseCalendarList(xml: string): TaskList[] {
+  return responseBlocks(xml).flatMap((block) => {
+    const href = readTagText(block, 'href');
+    const name = readTagText(block, 'displayname');
+    if (!href || !name || !block.includes(':calendar')) return [];
+    return [{ id: href.replace(/\/+$/, '').split('/').pop() ?? href, href, name, is_deck: isDeckCalendar(name, href) }];
+  });
+}
+
+function parseTaskReport(xml: string, calendar: TaskList): Task[] {
+  return responseBlocks(xml).flatMap((block) => {
+    const href = readTagText(block, 'href');
+    const etag = readTagText(block, 'getetag');
+    const calendarData = readTagText(block, 'calendar-data');
+    if (!href || !calendarData) return [];
+    const task = parseVtodo(calendarData, href, etag, calendar);
+    return task ? [task] : [];
+  });
+}
+
+function responseBlocks(xml: string) {
+  return [...xml.matchAll(/<[^>]*response\b[^>]*>([\s\S]*?)<\/[^>]*response>/gi)].map((match) => match[1] ?? '');
+}
+
+function readTagText(xml: string, localName: string) {
+  const match = xml.match(new RegExp(`<[^>/]*(?::)?${escapeRegExp(localName)}\\b[^>]*>([\\s\\S]*?)<\\/[^>]*(?::)?${escapeRegExp(localName)}>`, 'i'));
+  return match?.[1] ? decodeXml(match[1].trim()) : null;
+}
+
+function parseVtodo(calendarData: string, href: string, etag: string | null, list: TaskList): Task | null {
+  const fields = parseIcs(calendarData);
+  if (!fields.has('BEGIN') || !fields.get('BEGIN')?.includes('VTODO')) return null;
+  const description = fields.get('DESCRIPTION')?.[0] ?? '';
+  const uid = fields.get('UID')?.[0] ?? href.split('/').pop()?.replace(/\.ics$/, '') ?? href;
+  const status = fields.get('STATUS')?.[0]?.toUpperCase() ?? '';
+
+  return {
+    id: href,
+    uid,
+    list_id: list.id,
+    list_name: list.name,
+    title: fields.get('SUMMARY')?.[0] ?? 'Untitled task',
+    description,
+    markdown: description,
+    completed: status === 'COMPLETED',
+    priority: parseOptionalInt(fields.get('PRIORITY')?.[0]),
+    due_at: parseIcsDate(fields.get('DUE')?.[0]),
+    reminder_at: parseIcsDate(fields.get('TRIGGER')?.[0]),
+    tags: (fields.get('CATEGORIES') ?? []).flatMap((value) => value.split(',').map((tag) => tag.trim()).filter(Boolean)),
+    parent_uid: fields.get('RELATED-TO')?.[0] ?? null,
+    children: [],
+    etag,
+    updated_at: parseIcsDate(fields.get('LAST-MODIFIED')?.[0]),
+  };
+}
+
+function serializeVtodo(task: TaskCreate) {
+  const uid = randomUuid();
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//CalDAV Todo//Expo//EN',
+    'BEGIN:VTODO',
+    `UID:${escapeIcs(uid)}`,
+    `SUMMARY:${escapeIcs(task.title)}`,
+    `DESCRIPTION:${escapeIcs(task.markdown ?? '')}`,
+    `DTSTAMP:${formatIcsDate(new Date().toISOString())}`,
+    'STATUS:NEEDS-ACTION',
+  ];
+  if (task.priority != null) lines.push(`PRIORITY:${task.priority}`);
+  if (task.due_at) lines.push(`DUE:${formatIcsDate(task.due_at)}`);
+  if (task.tags?.length) lines.push(`CATEGORIES:${task.tags.map(escapeIcs).join(',')}`);
+  if (task.parent_uid) lines.push(`RELATED-TO:${escapeIcs(task.parent_uid)}`);
+  if (task.reminder_at) {
+    lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeIcs(task.title)}`, `TRIGGER:${formatIcsDate(task.reminder_at)}`, 'END:VALARM');
+  }
+  lines.push('END:VTODO', 'END:VCALENDAR', '');
+  return { uid, calendarData: lines.join('\r\n') };
+}
+
+function updateVtodo(calendarData: string, patch: TaskUpdate) {
+  let next = calendarData;
+  if (patch.title !== undefined) next = setIcsField(next, 'SUMMARY', patch.title);
+  if (patch.markdown !== undefined) next = setIcsField(next, 'DESCRIPTION', patch.markdown);
+  if (patch.completed !== undefined) next = setIcsField(next, 'STATUS', patch.completed ? 'COMPLETED' : 'NEEDS-ACTION');
+  if (patch.priority !== undefined) next = setIcsField(next, 'PRIORITY', patch.priority == null ? null : String(patch.priority));
+  if (patch.due_at !== undefined) next = setIcsField(next, 'DUE', patch.due_at ? formatIcsDate(patch.due_at) : null, false);
+  if (patch.tags !== undefined) next = setIcsField(next, 'CATEGORIES', patch.tags.length ? patch.tags.join(',') : null);
+  if (patch.parent_uid !== undefined) next = setIcsField(next, 'RELATED-TO', patch.parent_uid);
+  next = setIcsField(next, 'LAST-MODIFIED', formatIcsDate(new Date().toISOString()), false);
+  return next;
+}
+
+function setIcsField(calendarData: string, name: string, value: string | null, escape = true) {
+  const line = value == null || value === '' ? null : `${name}:${escape ? escapeIcs(value) : value}`;
+  const regex = new RegExp(`^${name}(?:;[^:]*)?:.*(?:\\r?\\n[ \\t].*)*\\r?$`, 'im');
+  if (regex.test(calendarData)) {
+    return line ? calendarData.replace(regex, line) : calendarData.replace(regex, '').replace(/\r?\n\r?\n/g, '\r\n');
+  }
+  if (!line) return calendarData;
+  return calendarData.replace(/END:VTODO/i, `${line}\r\nEND:VTODO`);
+}
+
+function parseIcs(calendarData: string) {
+  const fields = new Map<string, string[]>();
+  const unfolded = calendarData.replace(/\r?\n[ \t]/g, '');
+  for (const rawLine of unfolded.split(/\r?\n/)) {
+    const separator = rawLine.indexOf(':');
+    if (separator < 0) continue;
+    const name = rawLine.slice(0, separator).split(';')[0]?.toUpperCase();
+    if (!name) continue;
+    const value = unescapeIcs(rawLine.slice(separator + 1));
+    fields.set(name, [...(fields.get(name) ?? []), value]);
+  }
+  return fields;
+}
+
+function attachChildren(tasks: Task[]) {
+  const byUid = new Map(tasks.map((task) => [task.uid, { ...task, children: [] as Task[] }]));
+  const roots: Task[] = [];
+  for (const task of byUid.values()) {
+    if (task.parent_uid && byUid.has(task.parent_uid)) {
+      byUid.get(task.parent_uid)?.children.push(task);
+    } else {
+      roots.push(task);
+    }
+  }
+  return roots;
+}
+
+function isDeckCalendar(name: string, href = '') {
+  return name.trim().toLowerCase().startsWith('deck:') || href.toLowerCase().includes('/deck');
+}
+
+function parseOptionalInt(value: string | undefined) {
+  if (value == null) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function parseIcsDate(value: string | undefined) {
+  if (!value) return null;
+  if (/^\d{8}T\d{6}Z$/.test(value)) {
+    return new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}Z`).toISOString();
+  }
+  if (/^\d{8}$/.test(value)) {
+    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T00:00:00.000Z`;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function formatIcsDate(value: string) {
+  return new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+
+function escapeIcs(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+}
+
+function unescapeIcs(value: string) {
+  return value.replace(/\\n/gi, '\n').replace(/\\([\\,;])/g, '$1');
+}
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function randomUuid() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function base64Encode(value: string) {
+  if (typeof btoa !== 'undefined') {
+    return btoa(unescape(encodeURIComponent(value)));
+  }
+  throw new ApiError(500, 'Base64 encoding is unavailable in this runtime.');
+}
