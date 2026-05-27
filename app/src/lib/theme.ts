@@ -37,6 +37,10 @@ export interface ThemeColors {
   separator: string;
   /** Foreground color to use on top of `accent` (white on iOS, onPrimary on Android). */
   onAccent: string;
+  /** Background of a selected control container — the tab-bar pill (M3 secondaryContainer). */
+  selectionBg: string;
+  /** Content color on top of `selectionBg`. */
+  onSelectionBg: string;
 }
 
 // Apple system colors (resolved values, not platformColor) so they render
@@ -59,6 +63,8 @@ const APPLE_LIGHT: ThemeColors = {
   bg3: '#FFFFFF',
   separator: 'rgba(60,60,67,0.29)',
   onAccent: '#FFFFFF',
+  selectionBg: '#E5E5EA',
+  onSelectionBg: '#007AFF',
 };
 
 const APPLE_DARK: ThemeColors = {
@@ -79,11 +85,14 @@ const APPLE_DARK: ThemeColors = {
   bg3: '#2C2C2E',
   separator: 'rgba(84,84,88,0.6)',
   onAccent: '#FFFFFF',
+  selectionBg: '#2C2C2E',
+  onSelectionBg: '#0A84FF',
 };
 
 export function appleColors(scheme: SchemeName, accent?: string | null): ThemeColors {
   const base = scheme === 'dark' ? APPLE_DARK : APPLE_LIGHT;
-  return accent ? { ...base, accent } : base;
+  // The selected-tab content tint follows the active accent on iOS.
+  return accent ? { ...base, accent, onSelectionBg: accent } : base;
 }
 
 /**
@@ -112,6 +121,9 @@ export interface MaterialPalette {
   onPrimary: string;
   error: string;
   tertiary: string;
+  /** Wallpaper-derived tint used for the navigation-bar selected pill. */
+  secondaryContainer: string;
+  onSecondaryContainer: string;
   onSurface: string;
   onSurfaceVariant: string;
   outline: string;
@@ -145,6 +157,8 @@ export function materialColors(m: MaterialPalette, scheme: SchemeName): ThemeCol
     bg3: m.surfaceContainerHigh,
     separator: m.outlineVariant,
     onAccent: m.onPrimary,
+    selectionBg: m.secondaryContainer,
+    onSelectionBg: m.onSecondaryContainer,
   };
 }
 
@@ -174,6 +188,8 @@ export function themeVariables(c: ThemeColors): Record<`--${string}`, string> {
     'sf-bg-3': c.bg3,
     'sf-separator': c.separator,
     'sf-on-accent': c.onAccent,
+    'sf-selection': c.selectionBg,
+    'sf-on-selection': c.onSelectionBg,
   };
 
   const out: Record<`--${string}`, string> = {};

@@ -12,14 +12,14 @@ export default function AppTabs() {
       minimizeBehavior="onScrollDown"
       backgroundColor={colors.bg2}
       tintColor={colors.accent}
-      iconColor={{ default: inactiveColor, selected: colors.text }}
-      indicatorColor={colors.bg3}
+      iconColor={{ default: inactiveColor, selected: colors.onSelectionBg }}
+      indicatorColor={colors.selectionBg}
       rippleColor={colors.gray3}
       shadowColor={colors.separator}
       blurEffect={Platform.OS === 'ios' ? (scheme === 'dark' ? 'systemMaterialDark' : 'systemMaterialLight') : undefined}
       labelStyle={{
         default: { color: inactiveColor, fontSize: 12, fontWeight: '500' },
-        selected: { color: colors.text, fontSize: 12, fontWeight: '500' },
+        selected: { color: colors.onSelectionBg, fontSize: 12, fontWeight: '500' },
       }}>
       <NativeTabs.Trigger name="(tasks)">
         <NativeTabs.Trigger.Icon sf="checklist" md="checklist" />
