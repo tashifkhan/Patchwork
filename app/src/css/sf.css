@@ -25,6 +25,9 @@
   --sf-bg-3: light-dark(rgb(255 255 255), rgb(44 44 46));
 
   --sf-separator: light-dark(rgb(60 60 67 / 0.29), rgb(84 84 88 / 0.6));
+
+  /* Foreground on top of the accent color. Overridden at runtime (onPrimary on Android Material You). */
+  --sf-on-accent: #ffffff;
 }
 
 @media ios {
@@ -70,5 +73,6 @@
     --color-sf-bg-2: var(--sf-bg-2);
     --color-sf-bg-3: var(--sf-bg-3);
     --color-sf-separator: var(--sf-separator);
+    --color-sf-on-accent: var(--sf-on-accent);
   }
 }

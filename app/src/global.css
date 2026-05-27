@@ -6,9 +6,9 @@
 @media android {
   :root {
     --font-mono: monospace;
-    --font-rounded: normal;
+    --font-rounded: sans-serif;
     --font-serif: serif;
-    --font-sans: normal;
+    --font-sans: sans-serif;
   }
 }
 
@@ -22,8 +22,7 @@
 }
 
 :root {
-  --font-display:
-    Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,
-    Segoe UI Symbol, Noto Color Emoji;
-  --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
+  --font-display: sans-serif;
+  --font-rounded: sans-serif;
 }
+

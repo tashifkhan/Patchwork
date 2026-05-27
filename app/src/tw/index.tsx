@@ -42,10 +42,36 @@ export const View = (props: ViewProps) => {
 };
 View.displayName = "CSS(View)";
 
+function fixStyle(style: any): any {
+  if (!style) return style;
+  const flatStyle = StyleSheet.flatten(style);
+  const fixed = { ...flatStyle, includeFontPadding: false };
+  if (fixed.lineHeight && typeof fixed.lineHeight === 'number' && fixed.lineHeight < 10) {
+    fixed.lineHeight = Math.round(fixed.lineHeight * (fixed.fontSize || 16));
+  }
+  return fixed;
+}
+
+const BaseText = React.forwardRef<RNText, React.ComponentProps<typeof RNText>>((props, ref) => {
+  return <RNText {...props} style={fixStyle(props.style)} ref={ref} />;
+});
+BaseText.displayName = 'BaseText';
+
 export const Text = (
   props: React.ComponentProps<typeof RNText> & { className?: string }
 ) => {
-  return useCssElement(RNText, props, { className: "style" });
+  return useCssElement(BaseText, props, { className: "style" });
+};
+
+const BaseTextInput = React.forwardRef<RNTextInput, React.ComponentProps<typeof RNTextInput>>((props, ref) => {
+  return <RNTextInput {...props} style={fixStyle(props.style)} ref={ref} />;
+});
+BaseTextInput.displayName = 'BaseTextInput';
+
+export const TextInput = (
+  props: React.ComponentProps<typeof RNTextInput> & { className?: string }
+) => {
+  return useCssElement(BaseTextInput, props, { className: "style" });
 };
 Text.displayName = "CSS(Text)";
 
@@ -69,13 +95,6 @@ export const Pressable = (
   return useCssElement(RNPressable, props, { className: "style" });
 };
 Pressable.displayName = "CSS(Pressable)";
-
-export const TextInput = (
-  props: React.ComponentProps<typeof RNTextInput> & { className?: string }
-) => {
-  return useCssElement(RNTextInput, props, { className: "style" });
-};
-TextInput.displayName = "CSS(TextInput)";
 
 export const AnimatedScrollView = (
   props: React.ComponentProps<typeof Animated.ScrollView> & {
