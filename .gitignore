@@ -2,3 +2,9 @@
 .antigravitycli/
 plan.md
 Nextcloud Task API Integration.md
+.env
+.env.*
+app/.env
+app/.env.*
+!.env.example
+!app/.env.example
