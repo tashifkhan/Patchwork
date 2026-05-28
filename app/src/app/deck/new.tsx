@@ -3,25 +3,42 @@ import { useMemo, useState } from 'react';
 import { Pressable } from 'react-native';
 
 import { DeckCardForm, type DeckCardFormValues } from '@/components/deck/deck-card-form';
+import { NewBoardChip } from '@/components/deck/new-board-chip';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { ScrollView, Text, View } from '@/tw';
 
-export default function NewDeckCardScreen() {
+export default function NewDeckScreen() {
   const { boardId, stackId } = useLocalSearchParams<{ boardId?: string; stackId?: string }>();
-  const boardsQuery = useDeckBoards();
-  const createCard = useCreateDeckCard();
+
+  return (
+    <ScrollView
+      className="bg-sf-bg flex-1"
+      contentInsetAdjustmentBehavior="automatic"
+      keyboardDismissMode="interactive">
+      <Stack.Screen options={{ title: 'New Card' }} />
+      <NewCardBody boardId={boardId} stackId={stackId} />
+    </ScrollView>
+  );
+}
+
+function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string }) {
   const requestedBoardId = parseOptionalNumber(boardId);
   const requestedStackId = parseOptionalNumber(stackId);
+  const boardsQuery = useDeckBoards();
+  const createCard = useCreateDeckCard();
   const [selectedBoardId, setSelectedBoardId] = useState<number | null>(requestedBoardId);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   const boards = boardsQuery.data ?? [];
   const activeBoardId = boards.some((board) => board.id === selectedBoardId)
     ? selectedBoardId
     : (boards[0]?.id ?? null);
   const boardQuery = useDeckBoard(activeBoardId);
-  const stacks = useMemo(() => boardQuery.data?.stacks.filter((stack) => typeof stack.id === 'number') ?? [], [boardQuery.data]);
+  const stacks = useMemo(
+    () => boardQuery.data?.stacks.filter((stack) => typeof stack.id === 'number') ?? [],
+    [boardQuery.data]
+  );
 
   async function handleSubmit(values: DeckCardFormValues) {
     if (activeBoardId == null) return;
@@ -35,38 +52,48 @@ export default function NewDeckCardScreen() {
       });
       router.back();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Could not create the card.');
+      setAlert({ title: 'Create failed', message: error instanceof Error ? error.message : 'Could not create the card.' });
     }
   }
 
-  if (boardsQuery.isLoading || boardQuery.isLoading) {
+  if (boardsQuery.isLoading || (activeBoardId != null && boardQuery.isLoading)) {
     return <Centered text="Loading Deck…" />;
   }
 
-  if (!activeBoardId || stacks.length === 0) {
-    return <Centered text="No Deck stacks available." />;
+  if (activeBoardId == null || stacks.length === 0) {
+    return (
+      <View className="gap-4 px-4 py-8">
+        <Centered text={activeBoardId == null ? 'No Deck boards found.' : 'No Deck stacks available.'} />
+        {activeBoardId == null ? <NewBoardChip /> : null}
+        <BoardAlert alert={alert} onDismiss={() => setAlert(null)} />
+      </View>
+    );
   }
 
   return (
-    <ScrollView
-      className="bg-sf-bg flex-1"
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive">
-      <Stack.Screen options={{ title: 'New Card' }} />
-      {boards.length > 1 ? (
+    <>
+      {boards.length > 0 ? (
         <View className="gap-2 px-4 pt-4">
           <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Board</Text>
           <View className="flex-row flex-wrap gap-2">
             {boards.map((board) => {
               const selected = board.id === activeBoardId;
               return (
-                <Pressable key={board.id} onPress={() => setSelectedBoardId(board.id)} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-                  <View className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`} style={{ borderCurve: 'continuous' }}>
-                    <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>{board.title}</Text>
+                <Pressable
+                  key={board.id}
+                  onPress={() => setSelectedBoardId(board.id)}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                  <View
+                    className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
+                    style={{ borderCurve: 'continuous' }}>
+                    <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
+                      {board.title}
+                    </Text>
                   </View>
                 </Pressable>
               );
             })}
+            <NewBoardChip />
           </View>
         </View>
       ) : null}
@@ -78,19 +105,31 @@ export default function NewDeckCardScreen() {
         submitLabel={createCard.isPending ? 'Creating…' : 'Create Card'}
         onSubmit={handleSubmit}
       />
-      <NativeAlert
-        visible={errorMessage != null}
-        title="Create failed"
-        message={errorMessage ?? ''}
-        onDismiss={() => setErrorMessage(null)}
-      />
-    </ScrollView>
+      <BoardAlert alert={alert} onDismiss={() => setAlert(null)} />
+    </>
+  );
+}
+
+function BoardAlert({
+  alert,
+  onDismiss,
+}: {
+  alert: { title: string; message: string } | null;
+  onDismiss: () => void;
+}) {
+  return (
+    <NativeAlert
+      visible={alert != null}
+      title={alert?.title ?? ''}
+      message={alert?.message ?? ''}
+      onDismiss={onDismiss}
+    />
   );
 }
 
 function Centered({ text }: { text: string }) {
   return (
-    <View className="bg-sf-bg flex-1 items-center justify-center px-8">
+    <View className="items-center justify-center px-8 py-16">
       <Text className="text-sf-text-2 text-center">{text}</Text>
     </View>
   );
