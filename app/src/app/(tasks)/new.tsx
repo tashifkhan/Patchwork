@@ -1,18 +1,22 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { ApiError } from '@/api/client';
 import { TaskForm, type TaskFormValues } from '@/components/tasks/task-form';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useCreateTask, useTaskLists } from '@/hooks/use-tasks';
+import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
+import { addTaskToCalendar } from '@/lib/calendar';
 import { scheduleTaskReminder } from '@/lib/notifications';
+import { collectAllTags } from '@/lib/tags';
 import { ScrollView, Text, View } from '@/tw';
 
 export default function NewTaskScreen() {
   const listsQuery = useTaskLists();
+  const tasksQuery = useTasks();
   const createTask = useCreateTask();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
+  const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
 
   async function handleSubmit(values: TaskFormValues) {
     try {
@@ -29,6 +33,15 @@ export default function NewTaskScreen() {
         await scheduleTaskReminder({
           taskUid: created.uid,
           title: created.title,
+          reminderAt: created.reminder_at,
+        });
+      }
+      if (values.calendar_id) {
+        await addTaskToCalendar({
+          calendarId: values.calendar_id,
+          title: created.title,
+          notes: created.markdown,
+          dueAt: created.due_at,
           reminderAt: created.reminder_at,
         });
       }
@@ -56,6 +69,7 @@ export default function NewTaskScreen() {
       keyboardDismissMode="interactive">
       <TaskForm
         lists={lists}
+        availableTags={availableTags}
         submitting={createTask.isPending}
         submitLabel={createTask.isPending ? 'Creating…' : 'Create Task'}
         onSubmit={handleSubmit}

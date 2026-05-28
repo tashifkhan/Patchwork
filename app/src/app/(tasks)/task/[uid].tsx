@@ -1,13 +1,27 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { Alert } from 'react-native';
+import { useMemo, useState } from 'react';
 
 import { ApiError } from '@/api/client';
 import type { Task } from '@/api/types';
+import { useTheme } from '@/components/theme/context';
 import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
+import { MoveToDeck } from '@/components/tasks/move-to-deck';
 import { TaskForm, type TaskFormValues } from '@/components/tasks/task-form';
-import { useDeleteTask, useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
+import { TaskItem } from '@/components/tasks/task-item';
+import { NativeAlert } from '@/components/ui/native-alert';
+import {
+  useCreateTask,
+  useDeleteTask,
+  useTaskLists,
+  useTasks,
+  useUpdateTask,
+} from '@/hooks/use-tasks';
+import { addTaskToCalendar } from '@/lib/calendar';
+import { formatDateTime } from '@/lib/format';
 import { scheduleTaskReminder } from '@/lib/notifications';
-import { ScrollView, Text, View } from '@/tw';
+import { collectAllTags } from '@/lib/tags';
+import { ScrollView, Text, TextInput, View } from '@/tw';
 
 function findByUid(tasks: Task[], uid: string): Task | null {
   for (const task of tasks) {
@@ -23,14 +37,20 @@ function notImplemented(error: unknown) {
 }
 
 export default function TaskDetailScreen() {
+  const { colors } = useTheme();
   const { uid } = useLocalSearchParams<{ uid: string }>();
   const tasksQuery = useTasks();
   const listsQuery = useTaskLists();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
+  const createTask = useCreateTask();
+  const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [deleteVisible, setDeleteVisible] = useState(false);
 
   const task = uid ? findByUid(tasksQuery.data ?? [], decodeURIComponent(uid)) : null;
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
+  const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
 
   if (!task) {
     return (
@@ -65,41 +85,68 @@ export default function TaskDetailScreen() {
           reminderAt: values.reminder_at,
         });
       }
+      if (values.calendar_id) {
+        await addTaskToCalendar({
+          calendarId: values.calendar_id,
+          title: values.title,
+          notes: values.markdown,
+          dueAt: values.due_at,
+          reminderAt: values.reminder_at,
+        });
+      }
       router.back();
     } catch (error) {
-      Alert.alert(
-        notImplemented(error) ? 'Not available yet' : 'Update failed',
-        notImplemented(error)
+      setAlert({
+        title: notImplemented(error) ? 'Not available yet' : 'Update failed',
+        message: notImplemented(error)
           ? 'The server does not support editing tasks yet.'
           : error instanceof ApiError
             ? error.message
-            : 'Could not update the task.'
-      );
+            : 'Could not update the task.',
+      });
     }
   }
 
-  function handleDelete() {
+  async function confirmDelete() {
     if (!task) return;
-    Alert.alert('Delete task', `Delete “${task.title}”?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteTask.mutateAsync(task.id);
-            router.back();
-          } catch (error) {
-            Alert.alert(
-              notImplemented(error) ? 'Not available yet' : 'Delete failed',
-              notImplemented(error)
-                ? 'The server does not support deleting tasks yet.'
-                : 'Could not delete the task.'
-            );
-          }
-        },
-      },
-    ]);
+    setDeleteVisible(false);
+    try {
+      await deleteTask.mutateAsync(task.id);
+      router.back();
+    } catch (error) {
+      setAlert({
+        title: notImplemented(error) ? 'Not available yet' : 'Delete failed',
+        message: notImplemented(error)
+          ? 'The server does not support deleting tasks yet.'
+          : 'Could not delete the task.',
+      });
+    }
+  }
+
+  async function addSubtask() {
+    if (!task) return;
+    const title = subtaskDraft.trim();
+    if (!title) return;
+    setSubtaskDraft('');
+    try {
+      await createTask.mutateAsync({ list_id: task.list_id, title, parent_uid: task.uid });
+    } catch (error) {
+      setAlert({
+        title: 'Could not add subtask',
+        message: error instanceof ApiError ? error.message : 'Try again.',
+      });
+    }
+  }
+
+  async function toggleSubtask(child: Task) {
+    try {
+      await updateTask.mutateAsync({
+        taskId: child.id,
+        patch: { completed: !child.completed, etag: child.etag },
+      });
+    } catch {
+      // optimistic cache already rolled back by the hook
+    }
   }
 
   return (
@@ -127,10 +174,63 @@ export default function TaskDetailScreen() {
           priority: task.priority,
         }}
         lists={lists.length > 0 ? lists : [{ id: task.list_id, href: '', name: task.list_name, is_deck: false }]}
+        availableTags={availableTags}
         submitting={updateTask.isPending}
         submitLabel={updateTask.isPending ? 'Saving…' : 'Save Changes'}
+        showList={!task.parent_uid}
         onSubmit={handleSubmit}
-        onDelete={handleDelete}
+        onDelete={() => setDeleteVisible(true)}
+      />
+
+      <View className="gap-2 px-4 pb-4">
+        <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Subtasks</Text>
+        <View className="bg-sf-bg-2 rounded-xl px-3 py-1" style={{ borderCurve: 'continuous' }}>
+          {task.children.map((child) => (
+            <TaskItem
+              key={child.id}
+              task={child}
+              onToggle={toggleSubtask}
+              onOpen={(t) => router.push(`/task/${encodeURIComponent(t.uid)}`)}
+              showChildren={false}
+            />
+          ))}
+          <View className="flex-row items-center gap-3 py-2">
+            <MaterialCommunityIcons name="plus" size={22} color={colors.accent} />
+            <TextInput
+              value={subtaskDraft}
+              onChangeText={setSubtaskDraft}
+              onSubmitEditing={addSubtask}
+              placeholder="Add subtask"
+              placeholderTextColor={colors.text2}
+              returnKeyType="done"
+              className="text-sf-text flex-1 text-base"
+            />
+          </View>
+        </View>
+      </View>
+
+      {!task.parent_uid ? <MoveToDeck task={task} /> : null}
+
+      {task.updated_at ? (
+        <View className="px-5 pb-8">
+          <Text className="text-sf-text-3 text-xs">Modified {formatDateTime(task.updated_at)}</Text>
+        </View>
+      ) : null}
+
+      <NativeAlert
+        visible={deleteVisible}
+        title="Delete task"
+        message={`Delete “${task.title}”?`}
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteVisible(false)}
+        onConfirm={confirmDelete}
+      />
+      <NativeAlert
+        visible={alert != null}
+        title={alert?.title ?? ''}
+        message={alert?.message ?? ''}
+        onDismiss={() => setAlert(null)}
       />
     </ScrollView>
   );
