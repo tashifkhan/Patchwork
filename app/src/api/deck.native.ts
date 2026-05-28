@@ -1,5 +1,5 @@
 import { ApiError } from './client';
-import type { DeckBoard, DeckBoardDetail, DeckStack } from './types';
+import type { DeckBoard, DeckBoardDetail, DeckCard, DeckCardCreate, DeckCardDelete, DeckCardUpdate, DeckStack } from './types';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 
 const boardClients = new Map<number, DeckClient>();
@@ -16,6 +16,24 @@ export async function fetchDeckBoard(boardId: number): Promise<DeckBoardDetail> 
   return client.getBoard(boardId);
 }
 
+export async function createDeckCard(payload: DeckCardCreate): Promise<DeckCard> {
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.createCard(payload);
+}
+
+export async function updateDeckCard(payload: DeckCardUpdate): Promise<DeckCard> {
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.updateCard(payload);
+}
+
+export async function deleteDeckCard(payload: DeckCardDelete): Promise<void> {
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  await client.deleteCard(payload);
+}
+
 class DeckClient {
   private baseUrl: string;
   private authHeader: string;
@@ -26,7 +44,7 @@ class DeckClient {
   }
 
   async listBoards(): Promise<DeckBoard[]> {
-    const payload = await this.request<unknown[]>('/index.php/apps/deck/api/v1.0/boards');
+    const payload = await this.request<unknown[]>('GET', '/index.php/apps/deck/api/v1.0/boards');
     if (!Array.isArray(payload)) return [];
 
     return payload.flatMap((item) => {
@@ -46,19 +64,47 @@ class DeckClient {
   }
 
   async getBoard(boardId: number): Promise<DeckBoardDetail> {
-    const stacks = await this.request<unknown[]>(`/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`);
+    const stacks = await this.request<unknown[]>('GET', `/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`);
     return { board_id: boardId, stacks: (Array.isArray(stacks) ? stacks : []) as DeckStack[] };
   }
 
-  private async request<T>(path: string): Promise<T> {
+  async createCard(payload: DeckCardCreate): Promise<DeckCard> {
+    return this.request<DeckCard>('POST', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards`, {
+      title: payload.title,
+      description: payload.description ?? '',
+      duedate: payload.duedate ?? null,
+      type: 'plain',
+      order: 999,
+    });
+  }
+
+  async updateCard(payload: DeckCardUpdate): Promise<DeckCard> {
+    const path = `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`;
+    const existing = await this.request<DeckCard>('GET', path);
+    return this.request<DeckCard>('PUT', path, {
+      ...existing,
+      title: payload.title ?? existing.title ?? 'Untitled',
+      description: payload.description ?? existing.description ?? '',
+      duedate: payload.duedate ?? null,
+    });
+  }
+
+  async deleteCard(payload: DeckCardDelete): Promise<void> {
+    await this.request<DeckCard>('DELETE', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`);
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
+        method,
         headers: {
           Authorization: this.authHeader,
           Accept: 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           'OCS-APIRequest': 'true',
         },
+        body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (error) {
       throw new ApiError(0, error instanceof Error ? error.message : 'Deck network request failed', error);

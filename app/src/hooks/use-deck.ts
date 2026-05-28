@@ -1,7 +1,7 @@
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchDeckBoard, fetchDeckBoards } from '@/api/deck';
-import type { DeckBoard, DeckStack } from '@/api/types';
+import { createDeckCard, deleteDeckCard, fetchDeckBoard, fetchDeckBoards, updateDeckCard } from '@/api/deck';
+import type { DeckBoard, DeckCardCreate, DeckCardDelete, DeckCardUpdate, DeckStack } from '@/api/types';
 import { queryKeys } from '@/lib/query-client';
 
 export function useDeckBoards() {
@@ -36,4 +36,37 @@ export function useAllDeckCards(boards: DeckBoard[]): DeckBoardCards[] {
     boardTitle: board.title,
     stacks: results[index]?.data?.stacks ?? [],
   }));
+}
+
+export function useCreateDeckCard() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DeckCardCreate) => createDeckCard(payload),
+    onSuccess: (_card, payload) => {
+      client.invalidateQueries({ queryKey: queryKeys.deckBoards });
+      client.invalidateQueries({ queryKey: queryKeys.deckBoard(payload.board_id) });
+    },
+  });
+}
+
+export function useUpdateDeckCard() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DeckCardUpdate) => updateDeckCard(payload),
+    onSuccess: (_card, payload) => {
+      client.invalidateQueries({ queryKey: queryKeys.deckBoards });
+      client.invalidateQueries({ queryKey: queryKeys.deckBoard(payload.board_id) });
+    },
+  });
+}
+
+export function useDeleteDeckCard() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DeckCardDelete) => deleteDeckCard(payload),
+    onSuccess: (_result, payload) => {
+      client.invalidateQueries({ queryKey: queryKeys.deckBoards });
+      client.invalidateQueries({ queryKey: queryKeys.deckBoard(payload.board_id) });
+    },
+  });
 }

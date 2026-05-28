@@ -100,6 +100,29 @@ export interface DeckBoardDetail {
   stacks: DeckStack[];
 }
 
+export interface DeckCardCreate {
+  board_id: number;
+  stack_id: number;
+  title: string;
+  description?: string;
+  duedate?: string | null;
+}
+
+export interface DeckCardUpdate {
+  board_id: number;
+  stack_id: number;
+  card_id: number;
+  title?: string;
+  description?: string;
+  duedate?: string | null;
+}
+
+export interface DeckCardDelete {
+  board_id: number;
+  stack_id: number;
+  card_id: number;
+}
+
 export interface AiGeneratedSubtask {
   title: string;
   description?: string | null;
