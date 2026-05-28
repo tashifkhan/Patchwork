@@ -4,7 +4,7 @@ from xml.etree import ElementTree as ET
 from fastapi import HTTPException, status
 
 from app.clients.caldav_client import CalDavClient
-from app.model.task import Task, TaskCreate, TaskList
+from app.model.task import Task, TaskCreate, TaskList, TaskListCreate
 from app.services.caldav_codec import (
     attach_children,
     is_deck_calendar,
@@ -100,6 +100,31 @@ class TaskService:
 
         return created
 
+    async def create_task_calendar(self, task_list: TaskListCreate) -> TaskList:
+        slug = _slugify(task_list.name)
+        href = f"{self.client.calendar_home_url()}{slug}/"
+        body = textwrap.dedent(
+            f"""
+            <cal:mkcalendar xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+              <d:set>
+                <d:prop>
+                  <d:displayname>{_escape_xml(task_list.name)}</d:displayname>
+                  <cal:supported-calendar-component-set>
+                    <cal:comp name="VTODO" />
+                  </cal:supported-calendar-component-set>
+                </d:prop>
+              </d:set>
+            </cal:mkcalendar>
+            """
+        ).strip()
+        await self.client.request(
+            "MKCALENDAR",
+            href,
+            content=body,
+            headers={"Content-Type": "application/xml; charset=utf-8"},
+        )
+        return TaskList(id=slug, href=href, name=task_list.name, is_deck=False)
+
     async def _list_calendar_tasks(self, calendar: TaskList) -> list[Task]:
         body = textwrap.dedent(
             """
@@ -182,3 +207,19 @@ def _parse_task_report(xml_text: str, calendar: TaskList) -> list[Task]:
 def _node_text(node: ET.Element, path: str) -> str | None:
     child = node.find(path, NS)
     return child.text if child is not None else None
+
+
+def _slugify(value: str) -> str:
+    slug = "".join(char.lower() if char.isalnum() else "-" for char in value.strip())
+    slug = "-".join(part for part in slug.split("-") if part)
+    return slug or "tasks"
+
+
+def _escape_xml(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )

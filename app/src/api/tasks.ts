@@ -1,8 +1,12 @@
 import { api } from './client';
-import type { Task, TaskCreate, TaskList, TaskUpdate } from './types';
+import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from './types';
 
 export function fetchTaskLists() {
   return api.get<TaskList[]>('/api/task-lists');
+}
+
+export function createTaskList(payload: TaskListCreate) {
+  return api.post<TaskList>('/api/task-lists', payload);
 }
 
 export function fetchTasks() {

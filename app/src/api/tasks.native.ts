@@ -1,5 +1,5 @@
 import { ApiError } from './client';
-import type { Task, TaskCreate, TaskList, TaskUpdate } from './types';
+import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from './types';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 
 const DAV_NS = 'DAV:';
@@ -29,6 +29,12 @@ export async function fetchTasks() {
     })
   );
   return perAccount.flat();
+}
+
+export async function createTaskList(payload: TaskListCreate) {
+  const client = (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.createTaskCalendar(payload);
 }
 
 export async function createTask(payload: TaskCreate) {
@@ -147,6 +153,35 @@ class CalDavClient {
         account_id: this.account.id,
         account_name: this.account.displayName,
       }));
+  }
+
+  async createTaskCalendar(payload: TaskListCreate): Promise<TaskList> {
+    const slug = slugify(payload.name);
+    const href = `${this.calendarHomeUrl()}${slug}/`;
+    await this.request('MKCALENDAR', href, {
+      body: `
+        <cal:mkcalendar xmlns:d="${DAV_NS}" xmlns:cal="${CALDAV_NS}">
+          <d:set>
+            <d:prop>
+              <d:displayname>${escapeXml(payload.name)}</d:displayname>
+              <cal:supported-calendar-component-set>
+                <cal:comp name="VTODO" />
+              </cal:supported-calendar-component-set>
+            </d:prop>
+          </d:set>
+        </cal:mkcalendar>
+      `.trim(),
+      headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+    });
+    return {
+      id: `${this.account.id}:${slug}`,
+      href: this.absoluteUrl(href),
+      name: payload.name,
+      is_deck: false,
+      supported_components: ['VTODO'],
+      account_id: this.account.id,
+      account_name: this.account.displayName,
+    };
   }
 
   async listCalendarTasks(calendar: TaskList): Promise<Task[]> {
@@ -311,6 +346,7 @@ function parseVtodo(calendarData: string, href: string, etag: string | null, lis
     due_at: parseIcsDate(fields.get('DUE')?.[0]),
     reminder_at: parseIcsDate(fields.get('TRIGGER')?.[0]),
     tags: (fields.get('CATEGORIES') ?? []).flatMap((value) => value.split(',').map((tag) => tag.trim()).filter(Boolean)),
+    sort_order: parseOptionalInt(fields.get('X-APPLE-SORT-ORDER')?.[0]),
     parent_uid: fields.get('RELATED-TO')?.[0] ?? null,
     children: [],
     etag,
@@ -332,6 +368,7 @@ function serializeVtodo(task: TaskCreate) {
     'STATUS:NEEDS-ACTION',
   ];
   if (task.priority != null) lines.push(`PRIORITY:${task.priority}`);
+  if (task.sort_order != null) lines.push(`X-APPLE-SORT-ORDER:${task.sort_order}`);
   if (task.due_at) lines.push(`DUE:${formatIcsDate(task.due_at)}`);
   if (task.tags?.length) lines.push(`CATEGORIES:${task.tags.map(escapeIcs).join(',')}`);
   if (task.parent_uid) lines.push(`RELATED-TO:${escapeIcs(task.parent_uid)}`);
@@ -348,6 +385,7 @@ function updateVtodo(calendarData: string, patch: TaskUpdate) {
   if (patch.markdown !== undefined) next = setIcsField(next, 'DESCRIPTION', patch.markdown);
   if (patch.completed !== undefined) next = setIcsField(next, 'STATUS', patch.completed ? 'COMPLETED' : 'NEEDS-ACTION');
   if (patch.priority !== undefined) next = setIcsField(next, 'PRIORITY', patch.priority == null ? null : String(patch.priority));
+  if (patch.sort_order !== undefined) next = setIcsField(next, 'X-APPLE-SORT-ORDER', patch.sort_order == null ? null : String(patch.sort_order), false);
   if (patch.due_at !== undefined) next = setIcsField(next, 'DUE', patch.due_at ? formatIcsDate(patch.due_at) : null, false);
   if (patch.tags !== undefined) next = setIcsField(next, 'CATEGORIES', patch.tags.length ? patch.tags.join(',') : null);
   if (patch.parent_uid !== undefined) next = setIcsField(next, 'RELATED-TO', patch.parent_uid);
@@ -437,6 +475,20 @@ function decodeXml(value: string) {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function slugify(value: string) {
+  const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || `tasks-${Date.now()}`;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function randomUuid() {

@@ -10,6 +10,10 @@ class TaskList(BaseModel):
     is_deck: bool = False
 
 
+class TaskListCreate(BaseModel):
+    name: str = Field(min_length=1)
+
+
 class Task(BaseModel):
     id: str
     uid: str
@@ -23,6 +27,7 @@ class Task(BaseModel):
     due_at: datetime | None = None
     reminder_at: datetime | None = None
     tags: list[str] = Field(default_factory=list)
+    sort_order: int | None = None
     parent_uid: str | None = None
     children: list["Task"] = Field(default_factory=list)
     etag: str | None = None
@@ -38,6 +43,7 @@ class TaskCreate(BaseModel):
     reminder_at: datetime | None = None
     parent_uid: str | None = None
     priority: int | None = Field(default=None, ge=0, le=9)
+    sort_order: int | None = None
 
 
 class TaskUpdate(BaseModel):

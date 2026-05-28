@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
-from app.model.task import Task, TaskCreate, TaskList, TaskUpdate
+from app.model.task import Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate
 from app.router.dependencies import TaskServiceDep
 
 router = APIRouter(prefix="/api", tags=["tasks"])
@@ -9,6 +9,13 @@ router = APIRouter(prefix="/api", tags=["tasks"])
 @router.get("/task-lists", response_model=list[TaskList])
 async def list_task_lists(service: TaskServiceDep) -> list[TaskList]:
     return await service.list_task_calendars()
+
+
+@router.post("/task-lists", response_model=TaskList, status_code=status.HTTP_201_CREATED)
+async def create_task_list(
+    task_list: TaskListCreate, service: TaskServiceDep
+) -> TaskList:
+    return await service.create_task_calendar(task_list)
 
 
 @router.get("/tasks", response_model=list[Task])

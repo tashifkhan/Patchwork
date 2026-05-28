@@ -44,6 +44,7 @@ def parse_vtodo(
         due_at=_datetime_value(todo, "due"),
         reminder_at=_alarm_datetime(todo),
         tags=_categories(todo),
+        sort_order=_int_value(todo, "x_apple_sort_order"),
         parent_uid=_value(todo, "related_to"),
         etag=etag,
         updated_at=_datetime_value(todo, "last_modified"),
@@ -63,6 +64,9 @@ def serialize_new_vtodo(task: TaskCreate) -> tuple[str, str]:
 
     if task.priority is not None:
         todo.add("priority").value = task.priority
+
+    if task.sort_order is not None:
+        todo.add("x-apple-sort-order").value = str(task.sort_order)
 
     if task.due_at is not None:
         todo.add("due").value = _vobject_datetime(task.due_at)

@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 import { api, ApiError } from './client';
-import type { DeckBoard, DeckBoardDetail, DeckCard, DeckCardCreate, DeckCardDelete, DeckCardUpdate, DeckStack } from './types';
+import type { DeckBoard, DeckBoardCreate, DeckBoardDetail, DeckCard, DeckCardCreate, DeckCardDelete, DeckCardReorder, DeckCardUpdate, DeckStack, DeckStackCreate, DeckStackDelete, DeckStackUpdate } from './types';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 
 const boardClients = new Map<number, DeckClient>();
@@ -27,6 +27,16 @@ export async function fetchDeckBoard(boardId: number): Promise<DeckBoardDetail> 
   return client.getBoard(boardId);
 }
 
+export async function createDeckBoard(payload: DeckBoardCreate): Promise<DeckBoard> {
+  if (Platform.OS === 'web') {
+    return api.post<DeckBoard>('/api/deck/boards', payload);
+  }
+
+  const client = (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.createBoard(payload);
+}
+
 export async function createDeckCard(payload: DeckCardCreate): Promise<DeckCard> {
   if (Platform.OS === 'web') {
     return api.post<DeckCard>(`/api/deck/boards/${payload.board_id}/stacks/${payload.stack_id}/cards`, payload);
@@ -47,6 +57,19 @@ export async function updateDeckCard(payload: DeckCardUpdate): Promise<DeckCard>
   return client.updateCard(payload);
 }
 
+export async function reorderDeckCard(payload: DeckCardReorder): Promise<DeckCard> {
+  if (Platform.OS === 'web') {
+    return api.put<DeckCard>(
+      `/api/deck/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}/reorder`,
+      { target_stack_id: payload.target_stack_id, order: payload.order }
+    );
+  }
+
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.reorderCard(payload);
+}
+
 export async function deleteDeckCard(payload: DeckCardDelete): Promise<void> {
   if (Platform.OS === 'web') {
     return api.delete<void>(`/api/deck/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`);
@@ -55,6 +78,33 @@ export async function deleteDeckCard(payload: DeckCardDelete): Promise<void> {
   const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
   if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
   await client.deleteCard(payload);
+}
+
+export async function createDeckStack(payload: DeckStackCreate): Promise<DeckStack> {
+  if (Platform.OS === 'web') {
+    return api.post<DeckStack>(`/api/deck/boards/${payload.board_id}/stacks`, { title: payload.title, order: payload.order });
+  }
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.createStack(payload);
+}
+
+export async function updateDeckStack(payload: DeckStackUpdate): Promise<DeckStack> {
+  if (Platform.OS === 'web') {
+    return api.patch<DeckStack>(`/api/deck/boards/${payload.board_id}/stacks/${payload.stack_id}`, { title: payload.title, order: payload.order });
+  }
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  return client.updateStack(payload);
+}
+
+export async function deleteDeckStack(payload: DeckStackDelete): Promise<void> {
+  if (Platform.OS === 'web') {
+    return api.delete<void>(`/api/deck/boards/${payload.board_id}/stacks/${payload.stack_id}`);
+  }
+  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
+  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  await client.deleteStack(payload);
 }
 
 class DeckClient {
@@ -86,6 +136,27 @@ class DeckClient {
     });
   }
 
+  async createBoard(payload: DeckBoardCreate): Promise<DeckBoard> {
+    const raw = await this.request<Record<string, unknown>>('POST', '/index.php/apps/deck/api/v1.0/boards', {
+      title: payload.title,
+      color: payload.color ?? '317CCC',
+    });
+    const id = typeof raw.id === 'number' ? raw.id : Number(raw.id);
+    if (!Number.isFinite(id)) throw new ApiError(502, 'Deck created a board without an id.');
+    boardClients.set(id, this);
+    await this.createDefaultStacks(id);
+    return { id, title: typeof raw.title === 'string' ? raw.title : payload.title, raw };
+  }
+
+  async createDefaultStacks(boardId: number): Promise<void> {
+    await Promise.all(['To do', 'Doing', 'Done'].map((title, index) =>
+      this.request('POST', `/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`, {
+        title,
+        order: (index + 1) * 10,
+      })
+    ));
+  }
+
   async getBoard(boardId: number): Promise<DeckBoardDetail> {
     const stacks = await this.request<unknown[]>('GET', `/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`);
     return { board_id: boardId, stacks: (Array.isArray(stacks) ? stacks : []) as DeckStack[] };
@@ -104,16 +175,49 @@ class DeckClient {
   async updateCard(payload: DeckCardUpdate): Promise<DeckCard> {
     const path = `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`;
     const existing = await this.request<DeckCard>('GET', path);
-    return this.request<DeckCard>('PUT', path, {
+    const updated = await this.request<DeckCard>('PUT', path, {
       ...existing,
       title: payload.title ?? existing.title ?? 'Untitled',
       description: payload.description ?? existing.description ?? '',
       duedate: payload.duedate ?? null,
     });
+    if (payload.target_stack_id != null && payload.target_stack_id !== payload.stack_id) {
+      return this.request<DeckCard>('PUT', `${path}/reorder`, {
+        order: existing.order ?? 999,
+        stackId: payload.target_stack_id,
+      });
+    }
+    return updated;
+  }
+
+  async reorderCard(payload: DeckCardReorder): Promise<DeckCard> {
+    return this.request<DeckCard>(
+      'PUT',
+      `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}/reorder`,
+      { order: payload.order, stackId: payload.target_stack_id }
+    );
   }
 
   async deleteCard(payload: DeckCardDelete): Promise<void> {
     await this.request<DeckCard>('DELETE', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`);
+  }
+
+  async createStack(payload: DeckStackCreate): Promise<DeckStack> {
+    return this.request<DeckStack>('POST', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks`, {
+      title: payload.title,
+      order: payload.order,
+    });
+  }
+
+  async updateStack(payload: DeckStackUpdate): Promise<DeckStack> {
+    return this.request<DeckStack>('PUT', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}`, {
+      title: payload.title,
+      order: payload.order,
+    });
+  }
+
+  async deleteStack(payload: DeckStackDelete): Promise<void> {
+    await this.request<DeckStack>('DELETE', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}`);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

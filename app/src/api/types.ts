@@ -14,6 +14,10 @@ export interface TaskList {
   account_name?: string;
 }
 
+export interface TaskListCreate {
+  name: string;
+}
+
 export interface Task {
   id: string;
   uid: string;
@@ -27,6 +31,8 @@ export interface Task {
   due_at: string | null;
   reminder_at: string | null;
   tags: string[];
+  /** Manual ordering within a list (CalDAV X-APPLE-SORT-ORDER). Lower sorts first. */
+  sort_order: number | null;
   parent_uid: string | null;
   children: Task[];
   etag: string | null;
@@ -44,6 +50,7 @@ export interface TaskCreate {
   reminder_at?: string | null;
   parent_uid?: string | null;
   priority?: number | null;
+  sort_order?: number | null;
 }
 
 export interface TaskUpdate {
@@ -55,6 +62,7 @@ export interface TaskUpdate {
   reminder_at?: string | null;
   parent_uid?: string | null;
   priority?: number | null;
+  sort_order?: number | null;
   etag?: string | null;
 }
 
@@ -68,6 +76,11 @@ export interface DeckBoard {
   id: number;
   title: string;
   raw: Record<string, unknown>;
+}
+
+export interface DeckBoardCreate {
+  title: string;
+  color?: string;
 }
 
 // Deck card/stack shapes are passed through as `raw` JSON from the Nextcloud
@@ -110,8 +123,11 @@ export interface DeckCardCreate {
 
 export interface DeckCardUpdate {
   board_id: number;
+  /** The stack the card is currently in, used for the Deck API path. */
   stack_id: number;
   card_id: number;
+  /** Optional destination stack for kanban-style card movement. */
+  target_stack_id?: number;
   title?: string;
   description?: string;
   duedate?: string | null;
@@ -121,6 +137,36 @@ export interface DeckCardDelete {
   board_id: number;
   stack_id: number;
   card_id: number;
+}
+
+export interface DeckCardReorder {
+  board_id: number;
+  /** The stack the card is currently in. */
+  stack_id: number;
+  card_id: number;
+  /** Destination stack (may equal stack_id for an in-stack reorder). */
+  target_stack_id: number;
+  /** Zero-based position within the destination stack. */
+  order: number;
+}
+
+export interface DeckStackCreate {
+  board_id: number;
+  title: string;
+  /** Position of the column on the board. */
+  order: number;
+}
+
+export interface DeckStackUpdate {
+  board_id: number;
+  stack_id: number;
+  title: string;
+  order: number;
+}
+
+export interface DeckStackDelete {
+  board_id: number;
+  stack_id: number;
 }
 
 export interface AiGeneratedSubtask {
