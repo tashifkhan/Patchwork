@@ -1,11 +1,11 @@
 import type { HealthResponse } from './types';
-import { getCredentials } from '@/lib/credentials';
+import { getAccounts, getGeminiApiKey } from '@/lib/credentials';
 
 export async function fetchHealth(): Promise<HealthResponse> {
-  const credentials = await getCredentials();
+  const [accounts, geminiApiKey] = await Promise.all([getAccounts(), getGeminiApiKey()]);
   return {
     status: 'ok',
-    nextcloud_configured: !!credentials.nextcloud,
-    gemini_configured: !!credentials.geminiApiKey,
+    nextcloud_configured: accounts.length > 0,
+    gemini_configured: !!geminiApiKey,
   };
 }

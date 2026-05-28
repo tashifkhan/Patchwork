@@ -1,6 +1,6 @@
 import { ApiError } from './client';
 import type { AiGeneratedTask, AiRefineRequest, AiTasksResponse, TaskList } from './types';
-import { getCredentials } from '@/lib/credentials';
+import { getGeminiApiKey } from '@/lib/credentials';
 
 const GEMINI_MODEL = 'gemini-3.5-flash-preview';
 
@@ -36,7 +36,7 @@ async function generateGeminiJson(
   prompt: string,
   image?: { mimeType: string; data: string }
 ) {
-  const { geminiApiKey } = await getCredentials();
+  const geminiApiKey = await getGeminiApiKey();
   if (!geminiApiKey) {
     throw new ApiError(503, 'Gemini API key is not configured on this device.');
   }

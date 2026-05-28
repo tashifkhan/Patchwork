@@ -6,6 +6,10 @@ export interface TaskList {
   href: string;
   name: string;
   is_deck: boolean;
+  /** Owning CalDAV account (native multi-account). Absent on the web/proxy path. */
+  account_id?: string;
+  /** Human-readable account label, for grouping lists by account in the UI. */
+  account_name?: string;
 }
 
 export interface Task {
@@ -25,6 +29,8 @@ export interface Task {
   children: Task[];
   etag: string | null;
   updated_at: string | null;
+  /** Owning CalDAV account (native multi-account). */
+  account_id?: string;
 }
 
 export interface TaskCreate {

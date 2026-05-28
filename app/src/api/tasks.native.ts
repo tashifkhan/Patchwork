@@ -1,29 +1,38 @@
 import { ApiError } from './client';
 import type { Task, TaskCreate, TaskList, TaskUpdate } from './types';
-import { getCredentials, type NextcloudCredentials } from '@/lib/credentials';
+import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 
 const DAV_NS = 'DAV:';
 const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
 
 export async function fetchTaskLists() {
-  const client = await createClient();
-  return client.listTaskCalendars();
+  const clients = await allClients();
+  const perAccount = await Promise.all(
+    clients.map((client) => client.listTaskCalendars().catch(() => [] as TaskList[]))
+  );
+  return perAccount.flat();
 }
 
 export async function fetchTasks() {
-  const client = await createClient();
-  const lists = await client.listTaskCalendars();
-  const tasks = (await Promise.all(lists.map((list) => client.listCalendarTasks(list)))).flat();
-  return attachChildren(tasks);
+  const clients = await allClients();
+  const perAccount = await Promise.all(
+    clients.map(async (client) => {
+      try {
+        const lists = await client.listTaskCalendars();
+        const tasks = (await Promise.all(lists.map((list) => client.listCalendarTasks(list)))).flat();
+        // Build the parent/child tree per account so RELATED-TO uids never
+        // collide across servers.
+        return attachChildren(tasks);
+      } catch {
+        return [] as Task[];
+      }
+    })
+  );
+  return perAccount.flat();
 }
 
 export async function createTask(payload: TaskCreate) {
-  const client = await createClient();
-  const lists = await client.listTaskCalendars();
-  const target = lists.find((list) => list.id === payload.list_id);
-  if (!target) {
-    throw new ApiError(404, 'Task list not found');
-  }
+  const { client, target } = await resolveListTarget(payload.list_id);
 
   const { uid, calendarData } = serializeVtodo(payload);
   const href = `${target.href.replace(/\/+$/, '')}/${uid}.ics`;
@@ -31,7 +40,7 @@ export async function createTask(payload: TaskCreate) {
     body: calendarData,
     headers: { 'Content-Type': 'text/calendar; charset=utf-8' },
   });
-  const created = parseVtodo(calendarData, href, response.headers.get('etag'), target);
+  const created = parseVtodo(calendarData, client.absoluteUrl(href), response.headers.get('etag'), target);
 
   if (!created) {
     throw new ApiError(500, 'Created task could not be parsed');
@@ -40,7 +49,7 @@ export async function createTask(payload: TaskCreate) {
 }
 
 export async function updateTask(taskId: string, payload: TaskUpdate) {
-  const client = await createClient();
+  const client = await clientForTask(taskId);
   const existing = await client.fetchTaskByHref(taskId);
   const calendarData = updateVtodo(existing.calendarData, payload);
   const response = await client.request('PUT', client.absoluteUrl(taskId), {
@@ -50,7 +59,7 @@ export async function updateTask(taskId: string, payload: TaskUpdate) {
       ...(payload.etag ? { 'If-Match': payload.etag } : {}),
     },
   });
-  const updated = parseVtodo(calendarData, taskId, response.headers.get('etag'), existing.list);
+  const updated = parseVtodo(calendarData, client.absoluteUrl(taskId), response.headers.get('etag'), existing.list);
   if (!updated) {
     throw new ApiError(500, 'Updated task could not be parsed');
   }
@@ -58,22 +67,35 @@ export async function updateTask(taskId: string, payload: TaskUpdate) {
 }
 
 export async function deleteTask(taskId: string) {
-  const client = await createClient();
+  const client = await clientForTask(taskId);
   await client.request('DELETE', client.absoluteUrl(taskId));
 }
 
 class CalDavClient {
+  readonly account: CalDavAccount;
   private baseUrl: string;
+  private calendarHome: string | null;
   private username: string;
   private authHeader: string;
 
-  constructor(credentials: NextcloudCredentials) {
-    this.baseUrl = credentials.baseUrl.replace(/\/+$/, '');
-    this.username = credentials.username;
-    this.authHeader = `Basic ${base64Encode(`${credentials.username}:${credentials.appPassword}`)}`;
+  constructor(account: CalDavAccount) {
+    this.account = account;
+    const inputUrl = account.baseUrl.replace(/\/+$/, '');
+    this.calendarHome = calendarHomeFromUrl(inputUrl, account.username);
+    this.baseUrl = this.calendarHome ? originOf(inputUrl) : inputUrl;
+    this.username = account.username;
+    this.authHeader = `Basic ${base64Encode(`${account.username}:${account.appPassword}`)}`;
+  }
+
+  /** Origin (scheme://host[:port]) of this account, for routing tasks back to it. */
+  get origin() {
+    return originOf(this.baseUrl);
   }
 
   calendarHomeUrl() {
+    if (this.calendarHome) return this.calendarHome;
+    // Nextcloud and ownCloud share this path; it is the default for other DAV
+    // flavors too. Servers with a different layout would need discovery.
     return `${this.baseUrl}/remote.php/dav/calendars/${encodeURIComponent(this.username)}/`;
   }
 
@@ -114,7 +136,16 @@ class CalDavClient {
       `.trim(),
       headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' },
     });
-    return parseCalendarList(await response.text()).filter((list) => !list.is_deck);
+    return parseCalendarList(await response.text())
+      .filter((list) => !list.is_deck)
+      .map((list) => ({
+        ...list,
+        // Namespace the id by account so lists never collide across servers.
+        id: `${this.account.id}:${list.id}`,
+        href: this.absoluteUrl(list.href),
+        account_id: this.account.id,
+        account_name: this.account.displayName,
+      }));
   }
 
   async listCalendarTasks(calendar: TaskList): Promise<Task[]> {
@@ -134,7 +165,7 @@ class CalDavClient {
       `.trim(),
       headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' },
     });
-    return parseTaskReport(await response.text(), calendar);
+    return parseTaskReport(await response.text(), calendar, (href) => this.absoluteUrl(href));
   }
 
   async fetchTaskByHref(href: string): Promise<{ calendarData: string; list: TaskList }> {
@@ -153,12 +184,60 @@ class CalDavClient {
   }
 }
 
-async function createClient() {
-  const { nextcloud } = await getCredentials();
-  if (!nextcloud) {
-    throw new ApiError(503, 'Nextcloud credentials are not configured on this device.');
+function originOf(url: string): string {
+  return url.match(/^https?:\/\/[^/]+/i)?.[0]?.toLowerCase() ?? url.toLowerCase();
+}
+
+function calendarHomeFromUrl(url: string, username: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const marker = '/remote.php/dav/calendars/';
+    const path = parsed.pathname;
+    const markerIndex = path.toLowerCase().indexOf(marker);
+    if (markerIndex < 0) return null;
+
+    const prefix = path.slice(0, markerIndex + marker.length);
+    const accountSegment = path.slice(markerIndex + marker.length).split('/').filter(Boolean)[0]
+      ?? encodeURIComponent(username);
+    parsed.pathname = `${prefix}${accountSegment}/`;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return null;
   }
-  return new CalDavClient(nextcloud);
+}
+
+async function allClients(): Promise<CalDavClient[]> {
+  const accounts = await getAccounts();
+  if (accounts.length === 0) {
+    throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  }
+  return accounts.map((account) => new CalDavClient(account));
+}
+
+/** Locate the account+calendar that owns a namespaced list id and return its client. */
+async function resolveListTarget(listId: string): Promise<{ client: CalDavClient; target: TaskList }> {
+  const accountId = listId.split(':')[0];
+  const accounts = await getAccounts();
+  const account = accounts.find((candidate) => candidate.id === accountId);
+  if (!account) {
+    throw new ApiError(404, 'Account for this task list was not found');
+  }
+  const client = new CalDavClient(account);
+  const target = (await client.listTaskCalendars()).find((list) => list.id === listId);
+  if (!target) {
+    throw new ApiError(404, 'Task list not found');
+  }
+  return { client, target };
+}
+
+/** Pick the account client whose origin owns an absolute task URL. */
+async function clientForTask(taskId: string): Promise<CalDavClient> {
+  const clients = await allClients();
+  const origin = originOf(taskId);
+  const client = clients.find((candidate) => candidate.origin === origin) ?? clients[0];
+  return client;
 }
 
 function parseCalendarList(xml: string): TaskList[] {
@@ -170,13 +249,17 @@ function parseCalendarList(xml: string): TaskList[] {
   });
 }
 
-function parseTaskReport(xml: string, calendar: TaskList): Task[] {
+function parseTaskReport(
+  xml: string,
+  calendar: TaskList,
+  toAbsolute: (href: string) => string
+): Task[] {
   return responseBlocks(xml).flatMap((block) => {
     const href = readTagText(block, 'href');
     const etag = readTagText(block, 'getetag');
     const calendarData = readTagText(block, 'calendar-data');
     if (!href || !calendarData) return [];
-    const task = parseVtodo(calendarData, href, etag, calendar);
+    const task = parseVtodo(calendarData, toAbsolute(href), etag, calendar);
     return task ? [task] : [];
   });
 }
@@ -202,6 +285,7 @@ function parseVtodo(calendarData: string, href: string, etag: string | null, lis
     uid,
     list_id: list.id,
     list_name: list.name,
+    account_id: list.account_id,
     title: fields.get('SUMMARY')?.[0] ?? 'Untitled task',
     description,
     markdown: description,
