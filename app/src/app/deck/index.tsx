@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
 
-import { ApiError } from '@/api/client';
 import type { DeckStack } from '@/api/types';
 import { DeckCard } from '@/components/deck/deck-card';
+import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
 import { useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
@@ -21,6 +21,14 @@ export default function DeckScreen() {
 
   const boardQuery = useDeckBoard(activeBoardId);
   const stacks = boardQuery.data?.stacks ?? [];
+  const refreshing =
+    (boardsQuery.isFetching && !boardsQuery.isLoading) ||
+    (boardQuery.isFetching && !boardQuery.isLoading);
+
+  function handleRefresh() {
+    boardsQuery.refetch();
+    if (activeBoardId != null) boardQuery.refetch();
+  }
 
   const boardSelector = useMemo(
     () =>
@@ -52,17 +60,17 @@ export default function DeckScreen() {
   );
 
   if (boardsQuery.isLoading) {
-    return <Centered text="Loading boards…" />;
+    return <Centered text="Loading boards…" refreshing={refreshing} onRefresh={handleRefresh} />;
   }
 
   if (boardsQuery.error) {
     const message =
-      boardsQuery.error instanceof ApiError ? boardsQuery.error.message : 'Could not load Deck.';
-    return <Centered text={message} iconName="exclamationmark.triangle" />;
+      boardsQuery.error instanceof Error ? boardsQuery.error.message : 'Could not load Deck.';
+    return <Centered text={message} iconName="exclamationmark.triangle" refreshing={refreshing} onRefresh={handleRefresh} />;
   }
 
   if (boards.length === 0) {
-    return <Centered text="No Deck boards found." iconName="rectangle.split.3x1" />;
+    return <Centered text="No Deck boards found." iconName="rectangle.split.3x1" refreshing={refreshing} onRefresh={handleRefresh} />;
   }
 
   return (
@@ -73,6 +81,7 @@ export default function DeckScreen() {
         <RNScrollView
           horizontal
           contentInsetAdjustmentBehavior="automatic"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           contentContainerStyle={{ gap: 12, padding: 16 }}>
           {stacks.map((stack, index) => (
             <DeckColumn key={stack.id ?? index} stack={stack} wide />
@@ -81,6 +90,7 @@ export default function DeckScreen() {
       ) : (
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           contentContainerClassName="gap-4 px-4 pb-8">
           {stacks.map((stack, index) => (
             <DeckColumn key={stack.id ?? index} stack={stack} />
@@ -93,6 +103,13 @@ export default function DeckScreen() {
           <Text className="text-sf-text-2 text-sm">Loading cards…</Text>
         </View>
       ) : null}
+
+      <Fab
+        onPress={() => {
+          Alert.alert('Add Card', 'Adding cards to Deck boards is not yet supported in this version.');
+        }}
+        accessibilityLabel="Add card"
+      />
     </View>
   );
 }
@@ -115,14 +132,30 @@ function DeckColumn({ stack, wide }: { stack: DeckStack; wide?: boolean }) {
   );
 }
 
-function Centered({ text, iconName }: { text: string; iconName?: string }) {
+function Centered({
+  text,
+  iconName,
+  refreshing,
+  onRefresh,
+}: {
+  text: string;
+  iconName?: string;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
   const blue = useCSSVariable('--sf-blue');
+  const bg = useCSSVariable('--sf-bg');
   return (
-    <View className="bg-sf-bg flex-1 items-center justify-center gap-3 px-8">
-      {iconName ? <Icon name={iconName as never} size={28} color={blue as string} /> : null}
-      <Text selectable className="text-sf-text-2 text-center">
-        {text}
-      </Text>
-    </View>
+    <RNScrollView
+      style={{ flex: 1, backgroundColor: bg as string }}
+      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 32 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+      <View className="items-center gap-3">
+        {iconName ? <Icon name={iconName as never} size={28} color={blue as string} /> : null}
+        <Text selectable className="text-sf-text-2 text-center">
+          {text}
+        </Text>
+      </View>
+    </RNScrollView>
   );
 }

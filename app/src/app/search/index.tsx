@@ -2,6 +2,8 @@ import { Stack, router } from 'expo-router';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { FlatList, Platform, Pressable } from 'react-native';
 
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
 import { TagChipList } from '@/components/tasks/tag-chip-list';
 import { Icon } from '@/components/ui/icon';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
@@ -13,6 +15,12 @@ const TYPE_ICON: Record<SearchNode['type'], string> = {
   task: 'checklist',
   subtask: 'arrow.turn.down.right',
   'deck-card': 'rectangle.split.3x1',
+};
+
+const MD_TYPE_ICON: Record<SearchNode['type'], string> = {
+  task: 'checkbox-marked-circle-outline',
+  subtask: 'subdirectory-arrow-right',
+  'deck-card': 'card-text-outline',
 };
 
 export default function SearchScreen() {
@@ -48,11 +56,11 @@ export default function SearchScreen() {
     <>
       <Stack.Screen
         options={{
-          headerSearchBarOptions: {
+          headerSearchBarOptions: Platform.OS === 'ios' ? {
             placeholder: 'Search tasks and cards',
             onChangeText: (e) => setQuery(e.nativeEvent.text),
             hideWhenScrolling: false,
-          },
+          } : undefined,
         }}
       />
       <FlatList
@@ -62,16 +70,24 @@ export default function SearchScreen() {
         keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         ListHeaderComponent={
-          Platform.OS === 'web' ? (
+          Platform.OS !== 'ios' ? (
             <View className="py-3">
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search tasks and cards"
-                placeholderTextColor={textSecondary as string}
-                className="text-sf-text bg-sf-bg-2 rounded-xl px-3 py-2.5 text-base"
-                style={{ borderCurve: 'continuous' }}
-              />
+              <View className="bg-sf-bg-2 flex-row items-center rounded-2xl px-3.5 py-1" style={{ borderCurve: 'continuous' }}>
+                <MaterialCommunityIcons name="magnify" size={20} color={textSecondary as string} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search tasks and cards"
+                  placeholderTextColor={textSecondary as string}
+                  className="text-sf-text flex-1 px-2.5 py-2.5 text-base"
+                  style={{ includeFontPadding: false }}
+                />
+                {query ? (
+                  <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                    <MaterialCommunityIcons name="close-circle" size={18} color={textSecondary as string} />
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           ) : null
         }
@@ -80,7 +96,11 @@ export default function SearchScreen() {
             onPress={() => openNode(item)}
             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
             <View className="border-sf-separator flex-row items-center gap-3 border-b py-3">
-              <Icon name={TYPE_ICON[item.type] as never} size={18} color={textSecondary as string} />
+              {Platform.OS === 'ios' ? (
+                <Icon name={TYPE_ICON[item.type] as never} size={18} color={textSecondary as string} />
+              ) : (
+                <MaterialCommunityIcons name={MD_TYPE_ICON[item.type] as any} size={18} color={textSecondary as string} />
+              )}
               <View className="flex-1 gap-1">
                 <Text numberOfLines={1} className="text-sf-text text-base">
                   {item.title}
@@ -98,7 +118,11 @@ export default function SearchScreen() {
         )}
         ListEmptyComponent={
           <View className="items-center gap-2 py-20">
-            <Icon name="magnifyingglass" size={28} color={textSecondary as string} />
+            {Platform.OS === 'ios' ? (
+              <Icon name="magnifyingglass" size={28} color={textSecondary as string} />
+            ) : (
+              <MaterialCommunityIcons name="magnify" size={28} color={textSecondary as string} />
+            )}
             <Text className="text-sf-text-2 text-center">
               {query.trim() ? 'No matches found.' : 'Search across tasks, subtasks, and Deck cards.'}
             </Text>
