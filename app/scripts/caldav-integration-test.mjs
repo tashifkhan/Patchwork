@@ -20,24 +20,32 @@ const results = {
   lists: await fetchTaskLists(),
   tasks: [],
   deckBoards: await fetchDeckBoards(),
+  deckDetails: [],
 };
 
 for (const list of results.lists) {
   results.tasks.push(...await fetchTasksForList(list));
 }
 
+for (const board of results.deckBoards) {
+  results.deckDetails.push(await fetchDeckBoard(board.id));
+}
+
 assertTaskLists(results.lists);
 assertTasks(results.tasks);
 assertDeckBoards(results.deckBoards);
+assertDeckDetails(results.deckDetails);
 
 console.log(JSON.stringify({
   ok: true,
   list_count: results.lists.length,
   task_count: results.tasks.length,
   deck_board_count: results.deckBoards.length,
+  deck_stack_count: results.deckDetails.reduce((sum, detail) => sum + detail.stacks.length, 0),
   sample_list: results.lists[0] ?? null,
   sample_task: results.tasks[0] ?? null,
   sample_deck_board: results.deckBoards[0] ?? null,
+  sample_deck_detail: results.deckDetails[0] ?? null,
 }, null, 2));
 
 async function fetchTaskLists() {
@@ -97,13 +105,23 @@ async function fetchTasksForList(list) {
 
 async function fetchDeckBoards() {
   const response = await fetch(`${baseUrl}/index.php/apps/deck/api/v1.0/boards`, {
-    headers: { Authorization: authHeader, Accept: 'application/json' },
+    headers: { Authorization: authHeader, Accept: 'application/json', 'OCS-APIRequest': 'true' },
   });
   if (response.status === 404) return [];
   const text = await response.text();
   if (!response.ok) throw new Error(`Deck request failed ${response.status}: ${text}`);
   const parsed = text ? JSON.parse(text) : [];
   return Array.isArray(parsed) ? parsed.map((board) => ({ id: board.id, title: board.title, raw: board })) : [];
+}
+
+async function fetchDeckBoard(boardId) {
+  const response = await fetch(`${baseUrl}/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`, {
+    headers: { Authorization: authHeader, Accept: 'application/json', 'OCS-APIRequest': 'true' },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Deck board request failed ${response.status}: ${text}`);
+  const parsed = text ? JSON.parse(text) : [];
+  return { board_id: boardId, stacks: Array.isArray(parsed) ? parsed : [] };
 }
 
 async function davRequest(method, url, options = {}) {
@@ -185,6 +203,18 @@ function assertDeckBoards(boards) {
     assert.equal(typeof board.id, 'number', 'deck board.id must be number');
     assert.equal(typeof board.title, 'string', 'deck board.title must be string');
     assert.equal(typeof board.raw, 'object', 'deck board.raw must be object');
+  }
+}
+
+function assertDeckDetails(details) {
+  assert(Array.isArray(details), 'deck details must be an array');
+  for (const detail of details) {
+    assert.equal(typeof detail.board_id, 'number', 'deck detail.board_id must be number');
+    assert(Array.isArray(detail.stacks), 'deck detail.stacks must be array');
+    for (const stack of detail.stacks) {
+      assert(stack && typeof stack === 'object', 'deck stack must be object');
+      assert(stack.cards === undefined || Array.isArray(stack.cards), 'deck stack.cards must be array when present');
+    }
   }
 }
 
