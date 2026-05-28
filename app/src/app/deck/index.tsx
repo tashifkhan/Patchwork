@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
+import { Pressable, RefreshControl, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
 
 import type { DeckStack } from '@/api/types';
 import { DeckCard } from '@/components/deck/deck-card';
 import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
 
 export default function DeckScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const [addCardAlertVisible, setAddCardAlertVisible] = useState(false);
 
   const boardsQuery = useDeckBoards();
   const boards = useMemo(() => boardsQuery.data ?? [], [boardsQuery.data]);
@@ -105,10 +107,14 @@ export default function DeckScreen() {
       ) : null}
 
       <Fab
-        onPress={() => {
-          Alert.alert('Add Card', 'Adding cards to Deck boards is not yet supported in this version.');
-        }}
+        onPress={() => setAddCardAlertVisible(true)}
         accessibilityLabel="Add card"
+      />
+      <NativeAlert
+        visible={addCardAlertVisible}
+        title="Add Card"
+        message="Adding cards to Deck boards is not yet supported in this version."
+        onDismiss={() => setAddCardAlertVisible(false)}
       />
     </View>
   );
