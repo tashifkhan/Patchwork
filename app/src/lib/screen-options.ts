@@ -1,12 +1,11 @@
-import { Platform } from 'react-native';
-
-// Shared native stack header options. Large titles + transparent blur header on
-// iOS for an Apple-native feel; standard header elsewhere.
+// Shared native stack header options. Large titles everywhere; a solid (themed)
+// header — not transparent/blurred — so the title renders reliably regardless of
+// whether the screen's root is a scroll view (transparent + blur large titles
+// were dropping the title on scroll-rooted screens). The header background and
+// title color come from the navigation theme (see components/theme/shell).
 export const stackScreenOptions = {
   headerLargeTitle: true,
-  headerTransparent: Platform.OS === 'ios',
   headerShadowVisible: false,
   headerLargeTitleShadowVisible: false,
-  headerBlurEffect: 'systemMaterial',
   headerBackButtonDisplayMode: 'minimal',
 } as const;

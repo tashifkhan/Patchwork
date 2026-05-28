@@ -85,7 +85,7 @@ const APPLE_DARK: ThemeColors = {
   bg3: '#2C2C2E',
   separator: 'rgba(84,84,88,0.6)',
   onAccent: '#FFFFFF',
-  selectionBg: '#2C2C2E',
+  selectionBg: '#3A3A3C',
   onSelectionBg: '#0A84FF',
 };
 
