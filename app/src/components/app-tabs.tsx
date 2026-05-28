@@ -28,7 +28,7 @@ export default function AppTabs() {
 
       <NativeTabs.Trigger name="deck">
         <NativeTabs.Trigger.Icon sf="rectangle.split.3x1" md="view_column" />
-        <NativeTabs.Trigger.Label>Deck</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Boards</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="ai">

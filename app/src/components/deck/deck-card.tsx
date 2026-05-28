@@ -1,13 +1,15 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { memo } from 'react';
 import { Pressable } from 'react-native';
 
 import type { DeckCard as DeckCardType } from '@/api/types';
-import { Icon } from '@/components/ui/icon';
+import { useTheme } from '@/components/theme/context';
 import { formatRelativeDue } from '@/lib/format';
-import { Text, View, useCSSVariable } from '@/tw';
+import { Text, View } from '@/tw';
 
 export const DeckCard = memo(function DeckCard({ card, onPress }: { card: DeckCardType; onPress?: () => void }) {
-  const textSecondary = useCSSVariable('--sf-text-2');
+  const { colors } = useTheme();
+  const textSecondary = colors.text2;
   const due = formatRelativeDue(card.duedate ?? null);
   const labels = card.labels ?? [];
   const assignees = card.assignedUsers ?? [];
@@ -15,8 +17,8 @@ export const DeckCard = memo(function DeckCard({ card, onPress }: { card: DeckCa
   return (
     <Pressable disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
       <View
-        className="bg-sf-bg-3 gap-2 rounded-xl p-3"
-        style={{ borderCurve: 'continuous', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        className="bg-sf-bg-3 border-sf-separator gap-2 rounded-2xl border p-3.5"
+        style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(0,0,0,0.12)' }}>
         {labels.length > 0 ? (
           <View className="flex-row flex-wrap gap-1">
             {labels.map((label, index) => (
@@ -42,13 +44,13 @@ export const DeckCard = memo(function DeckCard({ card, onPress }: { card: DeckCa
           <View className="flex-row items-center gap-3 pt-1">
             {due.label ? (
               <View className="flex-row items-center gap-1">
-                <Icon name="clock" size={12} color={textSecondary as string} />
+                <MaterialCommunityIcons name="clock-outline" size={12} color={textSecondary} />
                 <Text className="text-sf-text-2 text-xs">{due.label}</Text>
               </View>
             ) : null}
             {assignees.length > 0 ? (
               <View className="flex-row items-center gap-1">
-                <Icon name="person" size={12} color={textSecondary as string} />
+                <MaterialCommunityIcons name="account-outline" size={12} color={textSecondary} />
                 <Text className="text-sf-text-2 text-xs">{assignees.length}</Text>
               </View>
             ) : null}
