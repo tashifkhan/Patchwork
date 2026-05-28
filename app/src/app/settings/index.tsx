@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { useFocusEffect, useRouter } from 'expo-router';

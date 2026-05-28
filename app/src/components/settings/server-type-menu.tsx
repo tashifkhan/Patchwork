@@ -20,6 +20,10 @@ const GAP = 6;
  */
 export function ServerTypeMenu({ value, onChange }: ServerTypeMenuProps) {
   const { colors } = useTheme();
+  const { height: screenH, width: screenW } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const triggerRef = useRef<RNView>(null);
+  const [anchor, setAnchor] = useState<{ x: number; y: number; h: number } | null>(null);
 
   if (Platform.OS === 'ios') {
     return (
@@ -41,11 +45,6 @@ export function ServerTypeMenu({ value, onChange }: ServerTypeMenuProps) {
       </MenuView>
     );
   }
-
-  const { height: screenH, width: screenW } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const triggerRef = useRef<RNView>(null);
-  const [anchor, setAnchor] = useState<{ x: number; y: number; h: number } | null>(null);
 
   function open() {
     triggerRef.current?.measureInWindow((x, y, _w, h) => {
