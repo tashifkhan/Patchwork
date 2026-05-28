@@ -1,11 +1,12 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable } from 'react-native';
+import { ActivityIndicator, Platform, Pressable } from 'react-native';
 
 import { ocrUploadImage } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import { Icon } from '@/components/ui/icon';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { useTheme } from '@/components/theme/context';
 import { useHealth } from '@/hooks/use-health';
 import { useTaskLists } from '@/hooks/use-tasks';
@@ -15,6 +16,7 @@ import { ScrollView, Text, View } from '@/tw';
 export default function AiImportScreen() {
   const { colors } = useTheme();
   const [busy, setBusy] = useState(false);
+  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   const healthQuery = useHealth();
   const listsQuery = useTaskLists();
@@ -30,7 +32,7 @@ export default function AiImportScreen() {
           ? await ImagePicker.requestCameraPermissionsAsync()
           : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert('Permission needed', `Allow ${source} access to import tasks from an image.`);
+        setAlert({ title: 'Permission needed', message: `Allow ${source} access to import tasks from an image.` });
         return;
       }
 
@@ -52,14 +54,14 @@ export default function AiImportScreen() {
       });
 
       if (response.tasks.length === 0) {
-        Alert.alert('Nothing found', 'The AI did not detect any tasks in that image.');
+        setAlert({ title: 'Nothing found', message: 'The AI did not detect any tasks in that image.' });
         return;
       }
       setStaged(response.tasks);
       router.push('/ai/review');
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not parse the image.';
-      Alert.alert('Import failed', message);
+      setAlert({ title: 'Import failed', message });
     } finally {
       setBusy(false);
     }
@@ -116,6 +118,13 @@ export default function AiImportScreen() {
           />
         </View>
       )}
+
+      <NativeAlert
+        visible={alert != null}
+        title={alert?.title ?? ''}
+        message={alert?.message ?? ''}
+        onDismiss={() => setAlert(null)}
+      />
     </ScrollView>
   );
 }

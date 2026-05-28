@@ -1,7 +1,8 @@
 import { Host, Slider } from '@expo/ui';
-import { Alert } from 'react-native';
+import { useState } from 'react';
 
 import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { Switch } from '@/components/ui/switch';
 import { ensureNotificationPermissions } from '@/lib/notifications';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -12,6 +13,7 @@ export default function NotificationsScreen() {
   const setNotificationsEnabled = useSettingsStore((s) => s.setNotificationsEnabled);
   const defaultReminderMinutes = useSettingsStore((s) => s.defaultReminderMinutes);
   const setDefaultReminderMinutes = useSettingsStore((s) => s.setDefaultReminderMinutes);
+  const [permissionAlert, setPermissionAlert] = useState(false);
 
   const reminderLabel =
     defaultReminderMinutes <= 0 ? 'At due time' : `${defaultReminderMinutes} min before`;
@@ -20,7 +22,7 @@ export default function NotificationsScreen() {
     if (value) {
       const granted = await ensureNotificationPermissions();
       if (!granted) {
-        Alert.alert('Permission needed', 'Enable notifications in system settings to get reminders.');
+        setPermissionAlert(true);
         return;
       }
     }
@@ -63,6 +65,13 @@ export default function NotificationsScreen() {
           </>
         ) : null}
       </SettingsGroup>
+
+      <NativeAlert
+        visible={permissionAlert}
+        title="Permission needed"
+        message="Enable notifications in system settings to get reminders."
+        onDismiss={() => setPermissionAlert(false)}
+      />
     </SettingsScreen>
   );
 }

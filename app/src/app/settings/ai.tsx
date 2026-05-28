@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 
 import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useTaskLists } from '@/hooks/use-tasks';
 import { clearGeminiApiKey, getGeminiApiKey, saveGeminiApiKey } from '@/lib/credentials';
@@ -24,6 +25,7 @@ export default function AiScreen() {
   const [key, setKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [hasKey, setHasKey] = useState(false);
+  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   useEffect(() => {
     if (isWeb) return;
@@ -43,9 +45,9 @@ export default function AiScreen() {
       await saveGeminiApiKey(key);
       setHasKey(true);
       queryClient.invalidateQueries();
-      Alert.alert('Saved', 'Gemini API key saved on this device.');
+      setAlert({ title: 'Saved', message: 'Gemini API key saved on this device.' });
     } catch (error) {
-      Alert.alert('Could not save key', error instanceof Error ? error.message : 'Try again.');
+      setAlert({ title: 'Could not save key', message: error instanceof Error ? error.message : 'Try again.' });
     }
   }
 
@@ -123,6 +125,13 @@ export default function AiScreen() {
           </View>
         </SettingsGroup>
       ) : null}
+
+      <NativeAlert
+        visible={alert != null}
+        title={alert?.title ?? ''}
+        message={alert?.message ?? ''}
+        onDismiss={() => setAlert(null)}
+      />
     </SettingsScreen>
   );
 }

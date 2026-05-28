@@ -1,13 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable } from 'react-native';
+import { Pressable } from 'react-native';
 
 import { refineTasks } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import { createTask } from '@/api/tasks';
 import { StagedTaskCard } from '@/components/ai/staged-task-card';
 import { Icon } from '@/components/ui/icon';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { useTaskLists } from '@/hooks/use-tasks';
 import { scheduleTaskReminder } from '@/lib/notifications';
 import { queryKeys } from '@/lib/query-client';
@@ -33,6 +34,7 @@ export default function AiReviewScreen() {
   const [instruction, setInstruction] = useState('');
   const [refining, setRefining] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [alert, setAlert] = useState<{ title: string; message: string; onClose?: () => void } | null>(null);
 
   async function handleRefine() {
     if (!instruction.trim() || staged.length === 0) return;
@@ -47,10 +49,10 @@ export default function AiReviewScreen() {
       setStaged(response.tasks);
       setInstruction('');
     } catch (error) {
-      Alert.alert(
-        'Refine failed',
-        error instanceof ApiError ? error.message : 'Could not refine the tasks.'
-      );
+      setAlert({
+        title: 'Refine failed',
+        message: error instanceof ApiError ? error.message : 'Could not refine the tasks.',
+      });
     } finally {
       setRefining(false);
     }
@@ -59,7 +61,7 @@ export default function AiReviewScreen() {
   async function handleCreateAll() {
     if (staged.length === 0) return;
     if (!fallbackListId) {
-      Alert.alert('No list', 'No task list is available to save into.');
+      setAlert({ title: 'No list', message: 'No task list is available to save into.' });
       return;
     }
 
@@ -94,14 +96,19 @@ export default function AiReviewScreen() {
       }
 
       await queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
-      clear();
-      Alert.alert('Imported', `Created ${staged.length} task${staged.length === 1 ? '' : 's'}.`);
-      router.dismissTo('/');
+      setAlert({
+        title: 'Imported',
+        message: `Created ${staged.length} task${staged.length === 1 ? '' : 's'}.`,
+        onClose: () => {
+          clear();
+          router.dismissTo('/');
+        },
+      });
     } catch (error) {
-      Alert.alert(
-        'Create failed',
-        error instanceof ApiError ? error.message : 'Some tasks could not be created.'
-      );
+      setAlert({
+        title: 'Create failed',
+        message: error instanceof ApiError ? error.message : 'Some tasks could not be created.',
+      });
     } finally {
       setCreating(false);
     }
@@ -172,6 +179,17 @@ export default function AiReviewScreen() {
           </Text>
         </View>
       </Pressable>
+
+      <NativeAlert
+        visible={alert != null}
+        title={alert?.title ?? ''}
+        message={alert?.message ?? ''}
+        onDismiss={() => {
+          const onClose = alert?.onClose;
+          setAlert(null);
+          onClose?.();
+        }}
+      />
     </ScrollView>
   );
 }

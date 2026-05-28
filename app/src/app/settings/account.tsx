@@ -2,10 +2,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable } from 'react-native';
+import { Pressable } from 'react-native';
 
 import { ServerTypeMenu } from '@/components/settings/server-type-menu';
 import { useTheme } from '@/components/theme/context';
+import { NativeAlert } from '@/components/ui/native-alert';
 import {
   deleteAccount,
   getAccount,
@@ -27,6 +28,8 @@ export default function AccountEditor() {
   const [showPassword, setShowPassword] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
   const [serverType, setServerType] = useState<ServerType>('nextcloud');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [removeVisible, setRemoveVisible] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -50,24 +53,21 @@ export default function AccountEditor() {
       queryClient.invalidateQueries();
       router.back();
     } catch (error) {
-      Alert.alert('Could not save account', error instanceof Error ? error.message : 'Try again.');
+      setErrorMessage(error instanceof Error ? error.message : 'Try again.');
     }
   }
 
   function handleDelete() {
     if (!id) return;
-    Alert.alert('Remove account', 'Remove this account and its sync from this device?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteAccount(id);
-          queryClient.invalidateQueries();
-          router.back();
-        },
-      },
-    ]);
+    setRemoveVisible(true);
+  }
+
+  async function confirmRemove() {
+    if (!id) return;
+    setRemoveVisible(false);
+    await deleteAccount(id);
+    queryClient.invalidateQueries();
+    router.back();
   }
 
   return (
@@ -136,6 +136,22 @@ export default function AccountEditor() {
       <Field label="Server type">
         <ServerTypeMenu value={serverType} onChange={setServerType} />
       </Field>
+
+      <NativeAlert
+        visible={removeVisible}
+        title="Remove account"
+        message="Remove this account and its sync from this device?"
+        confirmLabel="Remove"
+        dismissLabel="Cancel"
+        onDismiss={() => setRemoveVisible(false)}
+        onConfirm={confirmRemove}
+      />
+      <NativeAlert
+        visible={errorMessage != null}
+        title="Could not save account"
+        message={errorMessage ?? ''}
+        onDismiss={() => setErrorMessage(null)}
+      />
     </ScrollView>
   );
 }
