@@ -130,6 +130,7 @@ class CalDavClient {
           <d:prop>
             <d:displayname />
             <d:resourcetype />
+            <cal:supported-calendar-component-set />
             <cs:getctag />
           </d:prop>
         </d:propfind>
@@ -137,7 +138,7 @@ class CalDavClient {
       headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' },
     });
     return parseCalendarList(await response.text())
-      .filter((list) => !list.is_deck)
+      .filter((list) => !list.is_deck && listSupportsTasks(list))
       .map((list) => ({
         ...list,
         // Namespace the id by account so lists never collide across servers.
@@ -245,8 +246,24 @@ function parseCalendarList(xml: string): TaskList[] {
     const href = readTagText(block, 'href');
     const name = readTagText(block, 'displayname');
     if (!href || !name || !block.includes(':calendar')) return [];
-    return [{ id: href.replace(/\/+$/, '').split('/').pop() ?? href, href, name, is_deck: isDeckCalendar(name, href) }];
+    return [{
+      id: href.replace(/\/+$/, '').split('/').pop() ?? href,
+      href,
+      name,
+      is_deck: isDeckCalendar(name, href),
+      supported_components: supportedCalendarComponents(block),
+    }];
   });
+}
+
+function supportedCalendarComponents(xml: string) {
+  return [...xml.matchAll(/<[^>]*(?::)?comp\b[^>]*\bname=["']([^"']+)["'][^>]*\/?\s*>/gi)]
+    .map((match) => match[1]?.toUpperCase())
+    .filter((name): name is string => Boolean(name));
+}
+
+function listSupportsTasks(list: TaskList & { supported_components?: string[] }) {
+  return !list.supported_components?.length || list.supported_components.includes('VTODO');
 }
 
 function parseTaskReport(

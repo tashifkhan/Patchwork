@@ -6,6 +6,8 @@ export interface TaskList {
   href: string;
   name: string;
   is_deck: boolean;
+  /** Calendar component names advertised by CalDAV, e.g. VTODO/VEVENT. */
+  supported_components?: string[];
   /** Owning CalDAV account (native multi-account). Absent on the web/proxy path. */
   account_id?: string;
   /** Human-readable account label, for grouping lists by account in the UI. */

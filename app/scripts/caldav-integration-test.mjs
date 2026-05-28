@@ -55,6 +55,7 @@ async function fetchTaskLists() {
         <d:prop>
           <d:displayname />
           <d:resourcetype />
+          <cal:supported-calendar-component-set />
           <cs:getctag />
         </d:prop>
       </d:propfind>
@@ -71,8 +72,9 @@ async function fetchTaskLists() {
       href: absoluteUrl(href),
       name,
       is_deck: isDeckCalendar(name, href),
+      supported_components: supportedCalendarComponents(block),
     }];
-  }).filter((list) => !list.is_deck);
+  }).filter((list) => !list.is_deck && listSupportsTasks(list));
 }
 
 async function fetchTasksForList(list) {
@@ -172,6 +174,7 @@ function assertTaskLists(lists) {
     assert.equal(typeof list.href, 'string', 'list.href must be string');
     assert.equal(typeof list.name, 'string', 'list.name must be string');
     assert.equal(typeof list.is_deck, 'boolean', 'list.is_deck must be boolean');
+    assert(list.supported_components === undefined || Array.isArray(list.supported_components), 'list.supported_components must be array when present');
   }
 }
 
@@ -266,6 +269,16 @@ function absoluteUrl(href) {
 
 function isDeckCalendar(name, href = '') {
   return name.trim().toLowerCase().startsWith('deck:') || href.toLowerCase().includes('/deck');
+}
+
+function supportedCalendarComponents(xml) {
+  return [...xml.matchAll(/<[^>]*(?::)?comp\b[^>]*\bname=["']([^"']+)["'][^>]*\/?\s*>/gi)]
+    .map((match) => match[1]?.toUpperCase())
+    .filter(Boolean);
+}
+
+function listSupportsTasks(list) {
+  return !list.supported_components?.length || list.supported_components.includes('VTODO');
 }
 
 function parseOptionalInt(value) {
