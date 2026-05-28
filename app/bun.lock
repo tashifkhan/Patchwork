@@ -6,6 +6,7 @@
       "name": "todo",
       "dependencies": {
         "@expo/ui": "~56.0.14",
+        "@expo/vector-icons": "^15.0.2",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-community/datetimepicker": "9.1.0",
         "@tailwindcss/postcss": "^4.3.0",
@@ -292,6 +293,8 @@
     "@expo/sudo-prompt": ["@expo/sudo-prompt@9.3.2", "", {}, "sha512-HHQigo3rQWKMDzYDLkubN5WQOYXJJE2eNqIQC2axC2iO3mHdwnIR7FgZVvHWtBwAdzBgAP0ECp8KqS8TiMKvgw=="],
 
     "@expo/ui": ["@expo/ui@56.0.14", "", { "dependencies": { "sf-symbols-typescript": "^2.1.0", "vaul": "^1.1.2" }, "peerDependencies": { "@babel/core": "*", "expo": "*", "react": "*", "react-dom": "*", "react-native": "*", "react-native-reanimated": "*", "react-native-worklets": "*" }, "optionalPeers": ["@babel/core", "react-dom", "react-native-reanimated", "react-native-worklets"] }, "sha512-0Wr8nsvk2C+BmhmZDQzYr/hxxddHK+ajuJ7ahacUvxt+gQnEXwbueTm0S/hk/54YGASEgplrPGDuR5zzcY+IZg=="],
+
+    "@expo/vector-icons": ["@expo/vector-icons@15.1.1", "", { "peerDependencies": { "expo-font": ">=14.0.4", "react": "*", "react-native": "*" } }, "sha512-Iu2VkcoI5vygbtYngm7jb4ifxElNVXQYdDrYkT7UCEIiKLeWnQY0wf2ZhHZ+Wro6Sc5TaumpKUOqDRpLi5rkvw=="],
 
     "@expo/ws-tunnel": ["@expo/ws-tunnel@1.0.6", "", {}, "sha512-nDRbLmSrJar7abvUjp3smDwH8HcbZcoOEa5jVPUv9/9CajgmWw20JNRwTuBRzWIWIkEJDkz20GoNA+tSwUqk0Q=="],
 

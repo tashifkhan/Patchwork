@@ -7,6 +7,7 @@ import type { Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { TagChipList } from '@/components/tasks/tag-chip-list';
 import { TaskItem } from '@/components/tasks/task-item';
+import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
 import { useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
 import { useUiStore } from '@/stores/ui-store';
@@ -140,6 +141,9 @@ export default function TasksScreen() {
           />
         }
       />
+      {process.env.EXPO_OS === 'android' ? (
+        <Fab onPress={() => router.push('/new')} accessibilityLabel="Add task" />
+      ) : null}
     </>
   );
 }
