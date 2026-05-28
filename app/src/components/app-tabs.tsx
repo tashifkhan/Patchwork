@@ -19,7 +19,7 @@ export default function AppTabs() {
       blurEffect={Platform.OS === 'ios' ? (scheme === 'dark' ? 'systemMaterialDark' : 'systemMaterialLight') : undefined}
       labelStyle={{
         default: { color: inactiveColor, fontSize: 12, fontWeight: '500' },
-        selected: { color: colors.onSelectionBg, fontSize: 12, fontWeight: '500' },
+        selected: { color: colors.accent, fontSize: 12, fontWeight: '500' },
       }}>
       <NativeTabs.Trigger name="(tasks)">
         <NativeTabs.Trigger.Icon sf="checklist" md="checklist" />
