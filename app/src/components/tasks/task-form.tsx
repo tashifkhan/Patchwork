@@ -23,6 +23,11 @@ interface TaskFormProps {
   lists: TaskList[];
   submitting?: boolean;
   submitLabel: string;
+  listLabel?: string;
+  notesLabel?: string;
+  showTags?: boolean;
+  showReminder?: boolean;
+  showPriority?: boolean;
   onSubmit: (values: TaskFormValues) => void;
   onDelete?: () => void;
 }
@@ -39,6 +44,11 @@ export function TaskForm({
   lists,
   submitting,
   submitLabel,
+  listLabel = 'List',
+  notesLabel = 'Notes (Markdown)',
+  showTags = true,
+  showReminder = true,
+  showPriority = true,
   onSubmit,
   onDelete,
 }: TaskFormProps) {
@@ -90,7 +100,7 @@ export function TaskForm({
       </Field>
 
       {lists.length > 1 ? (
-        <Field label="List">
+        <Field label={listLabel}>
           <View className="flex-row flex-wrap gap-2">
             {lists.map((list) => {
               const selected = list.id === listId;
@@ -113,7 +123,7 @@ export function TaskForm({
         </Field>
       ) : null}
 
-      <Field label="Notes (Markdown)">
+      <Field label={notesLabel}>
         <TextInput
           value={markdown}
           onChangeText={setMarkdown}
@@ -125,57 +135,65 @@ export function TaskForm({
         />
       </Field>
 
-      <Field label="Tags">
-        <View className="gap-2">
-          <TextInput
-            value={tagDraft}
-            onChangeText={setTagDraft}
-            onSubmitEditing={addTag}
-            placeholder="Add a tag and press return"
-            placeholderTextColor={textColor as string}
-            returnKeyType="done"
-            className="text-sf-text bg-sf-bg-2 rounded-xl px-3 py-3 text-base"
-            style={{ borderCurve: 'continuous' }}
-          />
-          {tags.length > 0 ? (
-            <View className="flex-row flex-wrap gap-2">
-              {tags.map((tag) => (
-                <Pressable
-                  key={tag}
-                  onPress={() => setTags((prev) => prev.filter((t) => t !== tag))}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-                  <View
-                    className="bg-sf-bg-2 flex-row items-center gap-1 rounded-full px-3 py-1"
-                    style={{ borderCurve: 'continuous' }}>
-                    <Text className="text-sf-text-2 text-sm">{tag}</Text>
-                    <Icon name="xmark.circle.fill" size={14} color={textColor as string} />
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-        </View>
-      </Field>
+      {showTags ? (
+        <Field label="Tags">
+          <View className="gap-2">
+            <TextInput
+              value={tagDraft}
+              onChangeText={setTagDraft}
+              onSubmitEditing={addTag}
+              placeholder="Add a tag and press return"
+              placeholderTextColor={textColor as string}
+              returnKeyType="done"
+              className="text-sf-text bg-sf-bg-2 rounded-xl px-3 py-3 text-base"
+              style={{ borderCurve: 'continuous' }}
+            />
+            {tags.length > 0 ? (
+              <View className="flex-row flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <Pressable
+                    key={tag}
+                    onPress={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                    <View
+                      className="bg-sf-bg-2 flex-row items-center gap-1 rounded-full px-3 py-1"
+                      style={{ borderCurve: 'continuous' }}>
+                      <Text className="text-sf-text-2 text-sm">{tag}</Text>
+                      <Icon name="xmark.circle.fill" size={14} color={textColor as string} />
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </Field>
+      ) : null}
 
       <View className="bg-sf-bg-2 gap-3 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
         <DateField label="Due date" iconName="calendar" value={dueAt} onChange={setDueAt} />
-        <View className="bg-sf-separator h-px" />
-        <DateField label="Reminder" iconName="bell" value={reminderAt} onChange={setReminderAt} />
+        {showReminder ? (
+          <>
+            <View className="bg-sf-separator h-px" />
+            <DateField label="Reminder" iconName="bell" value={reminderAt} onChange={setReminderAt} />
+          </>
+        ) : null}
       </View>
 
-      <Field label="Priority">
-        <SegmentedControl
-          values={PRIORITIES.map((option) => option.label)}
-          selectedIndex={Math.max(
-            0,
-            PRIORITIES.findIndex((option) => option.value === priority)
-          )}
-          tintColor={colors.accent}
-          onChange={(event) =>
-            setPriority(PRIORITIES[event.nativeEvent.selectedSegmentIndex]?.value ?? null)
-          }
-        />
-      </Field>
+      {showPriority ? (
+        <Field label="Priority">
+          <SegmentedControl
+            values={PRIORITIES.map((option) => option.label)}
+            selectedIndex={Math.max(
+              0,
+              PRIORITIES.findIndex((option) => option.value === priority)
+            )}
+            tintColor={colors.accent}
+            onChange={(event) =>
+              setPriority(PRIORITIES[event.nativeEvent.selectedSegmentIndex]?.value ?? null)
+            }
+          />
+        </Field>
+      ) : null}
 
       <Pressable
         onPress={submit}

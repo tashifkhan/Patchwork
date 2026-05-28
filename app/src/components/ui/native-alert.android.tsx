@@ -5,10 +5,20 @@ interface NativeAlertProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  dismissLabel?: string;
   onDismiss: () => void;
+  onConfirm?: () => void;
 }
 
-export function NativeAlert({ visible, title, message, confirmLabel = 'OK', onDismiss }: NativeAlertProps) {
+export function NativeAlert({
+  visible,
+  title,
+  message,
+  confirmLabel = 'OK',
+  dismissLabel,
+  onDismiss,
+  onConfirm = onDismiss,
+}: NativeAlertProps) {
   return (
     <Host matchContents>
       {visible ? (
@@ -20,10 +30,17 @@ export function NativeAlert({ visible, title, message, confirmLabel = 'OK', onDi
             <Text>{message}</Text>
           </AlertDialog.Text>
           <AlertDialog.ConfirmButton>
-            <TextButton onClick={onDismiss}>
+            <TextButton onClick={onConfirm}>
               <Text>{confirmLabel}</Text>
             </TextButton>
           </AlertDialog.ConfirmButton>
+          {dismissLabel ? (
+            <AlertDialog.DismissButton>
+              <TextButton onClick={onDismiss}>
+                <Text>{dismissLabel}</Text>
+              </TextButton>
+            </AlertDialog.DismissButton>
+          ) : null}
         </AlertDialog>
       ) : null}
     </Host>

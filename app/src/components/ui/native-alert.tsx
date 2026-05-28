@@ -7,12 +7,17 @@ interface NativeAlertProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  dismissLabel?: string;
   onDismiss: () => void;
+  onConfirm?: () => void;
 }
 
-export function NativeAlert({ visible, title, message, confirmLabel = 'OK', onDismiss }: NativeAlertProps) {
+export function NativeAlert({ visible, title, message, confirmLabel = 'OK', dismissLabel, onDismiss, onConfirm = onDismiss }: NativeAlertProps) {
   if (visible) {
-    Alert.alert(title, message, [{ text: confirmLabel, onPress: onDismiss }]);
+    Alert.alert(title, message, [
+      ...(dismissLabel ? [{ text: dismissLabel, style: 'cancel' as const, onPress: onDismiss }] : []),
+      { text: confirmLabel, onPress: onConfirm },
+    ]);
   }
 
   return (

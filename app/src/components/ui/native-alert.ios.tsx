@@ -5,17 +5,28 @@ interface NativeAlertProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  dismissLabel?: string;
   onDismiss: () => void;
+  onConfirm?: () => void;
 }
 
-export function NativeAlert({ visible, title, message, confirmLabel = 'OK', onDismiss }: NativeAlertProps) {
+export function NativeAlert({
+  visible,
+  title,
+  message,
+  confirmLabel = 'OK',
+  dismissLabel,
+  onDismiss,
+  onConfirm = onDismiss,
+}: NativeAlertProps) {
   return (
     <Host matchContents>
       <Alert title={title} message={message} isPresented={visible} onIsPresentedChange={(next) => {
         if (!next) onDismiss();
       }}>
         <Alert.Actions>
-          <Button label={confirmLabel} onPress={onDismiss} />
+          {dismissLabel ? <Button label={dismissLabel} onPress={onDismiss} /> : null}
+          <Button label={confirmLabel} onPress={onConfirm} />
         </Alert.Actions>
       </Alert>
     </Host>
