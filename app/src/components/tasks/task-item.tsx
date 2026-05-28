@@ -1,94 +1,101 @@
-import { memo, useState } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { memo } from 'react';
 import { Pressable } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import type { Task } from '@/api/types';
-import { Icon } from '@/components/ui/icon';
+import { useTheme } from '@/components/theme/context';
 import { formatRelativeDue } from '@/lib/format';
-import { Text, View, useCSSVariable } from '@/tw';
+import { Text, View } from '@/tw';
 
 interface TaskItemProps {
   task: Task;
   onToggle: (task: Task) => void;
   onOpen: (task: Task) => void;
   depth?: number;
+  /** Render nested children inline (list view). Off in the detail subtask list. */
+  showChildren?: boolean;
 }
 
-function TaskItemComponent({ task, onToggle, onOpen, depth = 0 }: TaskItemProps) {
-  const [expanded, setExpanded] = useState(true);
-  const green = useCSSVariable('--sf-green');
-  const gray = useCSSVariable('--sf-gray');
-  const textSecondary = useCSSVariable('--sf-text-2');
-  const orange = useCSSVariable('--sf-orange');
+function firstLine(markdown: string): string {
+  const line = markdown
+    .split('\n')
+    .map((l) => l.replace(/^[\s>#*\-+\d.]+/, '').trim())
+    .find((l) => l.length > 0);
+  return line ?? '';
+}
 
+function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = true }: TaskItemProps) {
+  const { colors } = useTheme();
   const due = formatRelativeDue(task.due_at);
-  const hasChildren = task.children.length > 0;
+  const preview = firstLine(task.markdown);
+  const childCount = task.children.length;
+  const showList = !task.parent_uid && Boolean(task.list_name);
 
   return (
-    <Animated.View layout={LinearTransition} entering={FadeIn} exiting={FadeOut}>
-      <View
-        className="flex-row items-center gap-3 py-2.5"
-        style={{ paddingLeft: depth * 24 }}>
+    <View>
+      <View className="flex-row items-start gap-3 py-2" style={{ paddingLeft: depth * 28 }}>
         <Pressable
           onPress={() => onToggle(task)}
           hitSlop={8}
-          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
-          <Icon
-            name={task.completed ? 'checkmark.circle.fill' : 'circle'}
+          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
+          <MaterialCommunityIcons
+            name={task.completed ? 'checkbox-marked' : 'checkbox-blank-outline'}
             size={24}
-            color={(task.completed ? green : gray) as string}
+            color={task.completed ? colors.accent : colors.gray}
           />
         </Pressable>
 
         <Pressable
           onPress={() => onOpen(task)}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
-          <View className="flex-1 gap-1">
-            <Text
-              numberOfLines={2}
-              className={`text-base ${task.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}>
-              {task.title}
-            </Text>
+          <View className="flex-1 gap-1.5">
+            <View className="flex-row items-start justify-between gap-2">
+              <Text
+                numberOfLines={2}
+                className={`flex-1 text-base ${task.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}>
+                {task.title}
+              </Text>
+              {due.label ? (
+                <Text className={`text-xs ${due.overdue && !task.completed ? 'text-sf-orange' : 'text-sf-text-2'}`}>
+                  {due.label}
+                </Text>
+              ) : null}
+            </View>
 
-            {(due.label || task.tags.length > 0) ? (
-              <View className="flex-row flex-wrap items-center gap-2">
-                {due.label ? (
-                  <View className="flex-row items-center gap-1">
-                    <Icon
-                      name="calendar"
-                      size={12}
-                      color={(due.overdue ? orange : textSecondary) as string}
-                    />
-                    <Text className={`text-xs ${due.overdue ? 'text-sf-orange' : 'text-sf-text-2'}`}>
-                      {due.label}
-                    </Text>
-                  </View>
+            {preview ? (
+              <Text numberOfLines={2} className="text-sf-text-2 text-sm">
+                {preview}
+              </Text>
+            ) : null}
+
+            {(showList || task.tags.length > 0 || childCount > 0) ? (
+              <View className="flex-row flex-wrap items-center gap-1.5 pt-0.5">
+                {childCount > 0 ? (
+                  <Chip
+                    icon="format-list-checks"
+                    label={`${childCount} subtask${childCount > 1 ? 's' : ''}`}
+                    color={colors.text2}
+                    bg={colors.bg2}
+                  />
                 ) : null}
-                {task.tags.slice(0, 3).map((tag) => (
-                  <Text key={tag} className="text-sf-text-2 text-xs">
-                    #{tag}
-                  </Text>
+                {showList ? (
+                  <Chip
+                    icon="format-list-bulleted"
+                    label={task.list_name}
+                    color={colors.text2}
+                    bg={colors.bg2}
+                  />
+                ) : null}
+                {task.tags.map((tag) => (
+                  <Chip key={tag} icon="tag-outline" label={tag} color={colors.text2} bg={colors.bg2} />
                 ))}
               </View>
             ) : null}
           </View>
         </Pressable>
-
-        {hasChildren ? (
-          <Pressable
-            onPress={() => setExpanded((prev) => !prev)}
-            hitSlop={8}
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
-            <Icon
-              name={expanded ? 'chevron.down' : 'chevron.right'}
-              size={14}
-              color={textSecondary as string}
-            />
-          </Pressable>
-        ) : null}
       </View>
 
-      {hasChildren && expanded ? (
+      {showChildren && childCount > 0 ? (
         <View>
           {task.children.map((child) => (
             <TaskItem
@@ -101,7 +108,28 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0 }: TaskItemProps)
           ))}
         </View>
       ) : null}
-    </Animated.View>
+    </View>
+  );
+}
+
+function Chip({
+  icon,
+  label,
+  color,
+  bg,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: string;
+  color: string;
+  bg: string;
+}) {
+  return (
+    <View
+      className="flex-row items-center gap-1 rounded-md px-2 py-1"
+      style={{ backgroundColor: bg, borderCurve: 'continuous' }}>
+      <MaterialCommunityIcons name={icon} size={13} color={color} />
+      <Text className="text-sf-text-2 text-xs">{label}</Text>
+    </View>
   );
 }
 
