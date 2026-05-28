@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
 
@@ -5,14 +6,12 @@ import type { DeckStack } from '@/api/types';
 import { DeckCard } from '@/components/deck/deck-card';
 import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
-import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
 
 export default function DeckScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
-  const [addCardAlertVisible, setAddCardAlertVisible] = useState(false);
 
   const boardsQuery = useDeckBoards();
   const boards = useMemo(() => boardsQuery.data ?? [], [boardsQuery.data]);
@@ -86,7 +85,7 @@ export default function DeckScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           contentContainerStyle={{ gap: 12, padding: 16 }}>
           {stacks.map((stack, index) => (
-            <DeckColumn key={stack.id ?? index} stack={stack} wide />
+            <DeckColumn key={stack.id ?? index} boardId={activeBoardId} stack={stack} wide />
           ))}
         </RNScrollView>
       ) : (
@@ -95,7 +94,7 @@ export default function DeckScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           contentContainerClassName="gap-4 px-4 pb-8">
           {stacks.map((stack, index) => (
-            <DeckColumn key={stack.id ?? index} stack={stack} />
+            <DeckColumn key={stack.id ?? index} boardId={activeBoardId} stack={stack} />
           ))}
         </ScrollView>
       )}
@@ -107,20 +106,18 @@ export default function DeckScreen() {
       ) : null}
 
       <Fab
-        onPress={() => setAddCardAlertVisible(true)}
+        onPress={() => {
+          if (activeBoardId == null) return;
+          const firstStackId = stacks.find((stack) => typeof stack.id === 'number')?.id;
+          router.push({ pathname: '/deck/new', params: { boardId: String(activeBoardId), ...(firstStackId ? { stackId: String(firstStackId) } : {}) } });
+        }}
         accessibilityLabel="Add card"
-      />
-      <NativeAlert
-        visible={addCardAlertVisible}
-        title="Add Card"
-        message="Adding cards to Deck boards is not yet supported in this version."
-        onDismiss={() => setAddCardAlertVisible(false)}
       />
     </View>
   );
 }
 
-function DeckColumn({ stack, wide }: { stack: DeckStack; wide?: boolean }) {
+function DeckColumn({ boardId, stack, wide }: { boardId: number | null; stack: DeckStack; wide?: boolean }) {
   const cards = stack.cards ?? [];
   return (
     <View className="gap-3" style={wide ? { width: 300 } : undefined}>
@@ -130,9 +127,16 @@ function DeckColumn({ stack, wide }: { stack: DeckStack; wide?: boolean }) {
           {cards.length}
         </Text>
       </View>
-      {cards.map((card, index) => (
-        <DeckCard key={card.id ?? index} card={card} />
-      ))}
+      {cards.map((card, index) => {
+        const canOpen = boardId != null && typeof stack.id === 'number' && typeof card.id === 'number';
+        return (
+          <DeckCard
+            key={card.id ?? index}
+            card={card}
+            onPress={canOpen ? () => router.push({ pathname: '/deck/card/[cardId]', params: { boardId: String(boardId), stackId: String(stack.id), cardId: String(card.id) } }) : undefined}
+          />
+        );
+      })}
       {cards.length === 0 ? <Text className="text-sf-text-3 px-1 text-sm">No cards</Text> : null}
     </View>
   );
