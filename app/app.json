@@ -57,7 +57,13 @@
           "faceIDPermission": "Allow $(PRODUCT_NAME) to access saved credentials."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow $(PRODUCT_NAME) to add tasks with due dates to your calendar."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
