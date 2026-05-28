@@ -1,73 +1,128 @@
 import * as SecureStore from 'expo-secure-store';
 
-export interface NextcloudCredentials {
-  baseUrl: string;
-  username: string;
-  appPassword: string;
-}
+import type { CalDavAccount } from './credentials-types';
 
-export interface AppCredentials {
-  nextcloud: NextcloudCredentials | null;
-  geminiApiKey: string | null;
-}
+export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
 
 const KEYS = {
-  nextcloudBaseUrl: 'caldav-todo.nextcloud.base-url',
-  nextcloudUsername: 'caldav-todo.nextcloud.username',
-  nextcloudAppPassword: 'caldav-todo.nextcloud.app-password',
+  accounts: 'caldav-todo.accounts',
   geminiApiKey: 'caldav-todo.gemini.api-key',
+  // Legacy single-account keys (migrated on first read).
+  legacyBaseUrl: 'caldav-todo.nextcloud.base-url',
+  legacyUsername: 'caldav-todo.nextcloud.username',
+  legacyAppPassword: 'caldav-todo.nextcloud.app-password',
 };
 
 const OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED,
 };
 
-export async function getCredentials(): Promise<AppCredentials> {
-  const [baseUrl, username, appPassword, geminiApiKey] = await Promise.all([
-    SecureStore.getItemAsync(KEYS.nextcloudBaseUrl, OPTIONS),
-    SecureStore.getItemAsync(KEYS.nextcloudUsername, OPTIONS),
-    SecureStore.getItemAsync(KEYS.nextcloudAppPassword, OPTIONS),
-    SecureStore.getItemAsync(KEYS.geminiApiKey, OPTIONS),
-  ]);
-
-  return {
-    nextcloud:
-      baseUrl && username && appPassword
-        ? { baseUrl, username, appPassword }
-        : null,
-    geminiApiKey,
-  };
+function newId(): string {
+  return `acc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export async function saveNextcloudCredentials(credentials: NextcloudCredentials): Promise<void> {
-  const baseUrl = credentials.baseUrl.trim().replace(/\/+$/, '');
-  const username = credentials.username.trim();
-  const appPassword = credentials.appPassword.trim();
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
+async function readAccounts(): Promise<CalDavAccount[]> {
+  const raw = await SecureStore.getItemAsync(KEYS.accounts, OPTIONS);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as CalDavAccount[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeAccounts(accounts: CalDavAccount[]): Promise<void> {
+  await SecureStore.setItemAsync(KEYS.accounts, JSON.stringify(accounts), OPTIONS);
+}
+
+/** Migrate the legacy single Nextcloud account into the accounts list, once. */
+async function migrateLegacy(): Promise<CalDavAccount[]> {
+  const [baseUrl, username, appPassword] = await Promise.all([
+    SecureStore.getItemAsync(KEYS.legacyBaseUrl, OPTIONS),
+    SecureStore.getItemAsync(KEYS.legacyUsername, OPTIONS),
+    SecureStore.getItemAsync(KEYS.legacyAppPassword, OPTIONS),
+  ]);
+  if (!baseUrl || !username || !appPassword) return [];
+
+  const account: CalDavAccount = {
+    id: newId(),
+    displayName: username,
+    baseUrl: normalizeBaseUrl(baseUrl),
+    username,
+    appPassword,
+    serverType: 'nextcloud',
+  };
+  await writeAccounts([account]);
+  await Promise.all([
+    SecureStore.deleteItemAsync(KEYS.legacyBaseUrl, OPTIONS),
+    SecureStore.deleteItemAsync(KEYS.legacyUsername, OPTIONS),
+    SecureStore.deleteItemAsync(KEYS.legacyAppPassword, OPTIONS),
+  ]);
+  return [account];
+}
+
+export async function getAccounts(): Promise<CalDavAccount[]> {
+  const accounts = await readAccounts();
+  if (accounts.length > 0) return accounts;
+  return migrateLegacy();
+}
+
+export async function getAccount(id: string): Promise<CalDavAccount | null> {
+  const accounts = await getAccounts();
+  return accounts.find((account) => account.id === id) ?? null;
+}
+
+/**
+ * Upsert an account. A blank/absent `id` creates a new one and returns the
+ * stored record (with its generated id).
+ */
+export async function saveAccount(
+  input: Omit<CalDavAccount, 'id'> & { id?: string }
+): Promise<CalDavAccount> {
+  const baseUrl = normalizeBaseUrl(input.baseUrl);
+  const username = input.username.trim();
+  const appPassword = input.appPassword.trim();
+  const displayName = input.displayName.trim() || username;
 
   if (!baseUrl || !username || !appPassword) {
-    throw new Error('Nextcloud URL, username, and app password are required.');
+    throw new Error('Server URL, username, and password are required.');
   }
 
-  await Promise.all([
-    SecureStore.setItemAsync(KEYS.nextcloudBaseUrl, baseUrl, OPTIONS),
-    SecureStore.setItemAsync(KEYS.nextcloudUsername, username, OPTIONS),
-    SecureStore.setItemAsync(KEYS.nextcloudAppPassword, appPassword, OPTIONS),
-  ]);
+  const accounts = await getAccounts();
+  const account: CalDavAccount = {
+    id: input.id || newId(),
+    displayName,
+    baseUrl,
+    username,
+    appPassword,
+    serverType: input.serverType,
+  };
+
+  const index = accounts.findIndex((existing) => existing.id === account.id);
+  if (index >= 0) accounts[index] = account;
+  else accounts.push(account);
+
+  await writeAccounts(accounts);
+  return account;
 }
 
-export async function clearNextcloudCredentials(): Promise<void> {
-  await Promise.all([
-    SecureStore.deleteItemAsync(KEYS.nextcloudBaseUrl, OPTIONS),
-    SecureStore.deleteItemAsync(KEYS.nextcloudUsername, OPTIONS),
-    SecureStore.deleteItemAsync(KEYS.nextcloudAppPassword, OPTIONS),
-  ]);
+export async function deleteAccount(id: string): Promise<void> {
+  const accounts = await getAccounts();
+  await writeAccounts(accounts.filter((account) => account.id !== id));
+}
+
+export async function getGeminiApiKey(): Promise<string | null> {
+  return SecureStore.getItemAsync(KEYS.geminiApiKey, OPTIONS);
 }
 
 export async function saveGeminiApiKey(apiKey: string): Promise<void> {
   const value = apiKey.trim();
-  if (!value) {
-    throw new Error('Gemini API key is required.');
-  }
+  if (!value) throw new Error('Gemini API key is required.');
   await SecureStore.setItemAsync(KEYS.geminiApiKey, value, OPTIONS);
 }
 

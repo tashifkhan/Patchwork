@@ -1,21 +1,29 @@
-export interface NextcloudCredentials {
-  baseUrl: string;
-  username: string;
-  appPassword: string;
+// Default/web stub. On web the app talks to the proxy (see api/*.ts), so there
+// are no on-device CalDAV accounts; these keep the import surface consistent.
+
+import type { CalDavAccount } from './credentials-types';
+
+export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
+
+export async function getAccounts(): Promise<CalDavAccount[]> {
+  return [];
 }
 
-export interface AppCredentials {
-  nextcloud: NextcloudCredentials | null;
-  geminiApiKey: string | null;
+export async function getAccount(_id: string): Promise<CalDavAccount | null> {
+  return null;
 }
 
-export async function getCredentials(): Promise<AppCredentials> {
-  return { nextcloud: null, geminiApiKey: null };
+export async function saveAccount(
+  input: Omit<CalDavAccount, 'id'> & { id?: string }
+): Promise<CalDavAccount> {
+  return { id: input.id ?? 'web', ...input } as CalDavAccount;
 }
 
-export async function saveNextcloudCredentials(_credentials: NextcloudCredentials): Promise<void> {}
+export async function deleteAccount(_id: string): Promise<void> {}
 
-export async function clearNextcloudCredentials(): Promise<void> {}
+export async function getGeminiApiKey(): Promise<string | null> {
+  return null;
+}
 
 export async function saveGeminiApiKey(_apiKey: string): Promise<void> {}
 
