@@ -1,15 +1,15 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@expo/ui/community/datetime-picker';
 import { useState } from 'react';
 import { Platform, Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
-import { Icon } from '@/components/ui/icon';
 import { formatDateTime } from '@/lib/format';
 import { Text, View } from '@/tw';
 
 interface DateFieldProps {
   label: string;
-  iconName: string;
+  iconName: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   value: string | null;
   onChange: (iso: string | null) => void;
 }
@@ -56,7 +56,7 @@ export function DateField({ label, iconName, value, onChange }: DateFieldProps) 
           onPress={openPicker}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
           <View className="flex-row items-center gap-3 py-1">
-            <Icon name={iconName as never} size={20} color={colors.accent} />
+            <MaterialCommunityIcons name={iconName} size={20} color={colors.accent} />
             <View>
               <Text className="text-sf-text text-base">{label}</Text>
               {date ? <Text className="text-sf-text-2 text-sm">{formatDateTime(value)}</Text> : null}
@@ -69,7 +69,7 @@ export function DateField({ label, iconName, value, onChange }: DateFieldProps) 
             onPress={() => onChange(null)}
             hitSlop={8}
             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-            <Icon name="xmark.circle.fill" size={20} color={colors.red} />
+            <MaterialCommunityIcons name="close-circle" size={20} color={colors.red} />
           </Pressable>
         ) : null}
       </View>
