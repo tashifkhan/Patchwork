@@ -7,6 +7,7 @@ export default function TasksLayout() {
     <Stack screenOptions={stackScreenOptions}>
       <Stack.Screen name="index" options={{ title: 'Tasks' }} />
       <Stack.Screen name="task/[uid]" options={{ title: 'Task', headerLargeTitle: false }} />
+      <Stack.Screen name="tags" options={{ title: 'Tags', headerLargeTitle: false }} />
       <Stack.Screen
         name="new"
         options={{

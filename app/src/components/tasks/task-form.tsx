@@ -1,11 +1,14 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import SegmentedControl from '@expo/ui/community/segmented-control';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable } from 'react-native';
 
 import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
-import { Icon } from '@/components/ui/icon';
+import { useDeviceCalendars } from '@/hooks/use-calendars';
+import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
 
 export interface TaskFormValues {
@@ -16,18 +19,23 @@ export interface TaskFormValues {
   due_at: string | null;
   reminder_at: string | null;
   priority: number | null;
+  /** Device calendar to mirror this task into. UI-only; not stored on the CalDAV task. */
+  calendar_id: string | null;
 }
 
 interface TaskFormProps {
   initial?: Partial<TaskFormValues>;
   lists: TaskList[];
+  availableTags?: string[];
   submitting?: boolean;
   submitLabel: string;
   listLabel?: string;
+  showList?: boolean;
   notesLabel?: string;
   showTags?: boolean;
   showReminder?: boolean;
   showPriority?: boolean;
+  showCalendar?: boolean;
   onSubmit: (values: TaskFormValues) => void;
   onDelete?: () => void;
 }
@@ -42,13 +50,16 @@ const PRIORITIES: { label: string; value: number | null }[] = [
 export function TaskForm({
   initial,
   lists,
+  availableTags = [],
   submitting,
   submitLabel,
   listLabel = 'List',
+  showList = true,
   notesLabel = 'Notes (Markdown)',
   showTags = true,
   showReminder = true,
   showPriority = true,
+  showCalendar = true,
   onSubmit,
   onDelete,
 }: TaskFormProps) {
@@ -60,17 +71,24 @@ export function TaskForm({
   const [markdown, setMarkdown] = useState(initial?.markdown ?? '');
   const [listId, setListId] = useState(initial?.list_id ?? lists[0]?.id ?? '');
   const [tags, setTags] = useState<string[]>(initial?.tags ?? []);
-  const [tagDraft, setTagDraft] = useState('');
   const [dueAt, setDueAt] = useState<string | null>(initial?.due_at ?? null);
   const [reminderAt, setReminderAt] = useState<string | null>(initial?.reminder_at ?? null);
   const [priority, setPriority] = useState<number | null>(initial?.priority ?? null);
+  const [calendarId, setCalendarId] = useState<string | null>(initial?.calendar_id ?? null);
+  const [showCalendarList, setShowCalendarList] = useState(false);
+
+  const openTagPicker = useTagPickerStore((s) => s.open);
+
+  const hasSchedule = Boolean(dueAt || reminderAt);
+  const calendarsQuery = useDeviceCalendars(showCalendar && hasSchedule);
+  const calendars = calendarsQuery.data ?? [];
 
   const canSubmit = title.trim().length > 0 && listId.length > 0 && !submitting;
 
-  function addTag() {
-    const next = tagDraft.trim();
-    if (next && !tags.includes(next)) setTags((prev) => [...prev, next]);
-    setTagDraft('');
+  function pickTags() {
+    const pool = [...new Set([...availableTags, ...tags])].sort();
+    openTagPicker(pool, tags, setTags);
+    router.push('/tags');
   }
 
   function submit() {
@@ -83,12 +101,15 @@ export function TaskForm({
       due_at: dueAt,
       reminder_at: reminderAt,
       priority,
+      calendar_id: hasSchedule ? calendarId : null,
     });
   }
 
+  const selectedCalendarTitle = calendars.find((c) => c.id === calendarId)?.title ?? null;
+
   return (
     <View className="gap-5 px-4 py-4">
-      <Field label="Title">
+      <Field label="Title" icon="format-title">
         <TextInput
           value={title}
           onChangeText={setTitle}
@@ -99,8 +120,8 @@ export function TaskForm({
         />
       </Field>
 
-      {lists.length > 1 ? (
-        <Field label={listLabel}>
+      {showList && lists.length > 1 ? (
+        <Field label={listLabel} icon="format-list-bulleted">
           <View className="flex-row flex-wrap gap-2">
             {lists.map((list) => {
               const selected = list.id === listId;
@@ -123,7 +144,7 @@ export function TaskForm({
         </Field>
       ) : null}
 
-      <Field label={notesLabel}>
+      <Field label={notesLabel} icon="text-long">
         <TextInput
           value={markdown}
           onChangeText={setMarkdown}
@@ -136,36 +157,29 @@ export function TaskForm({
       </Field>
 
       {showTags ? (
-        <Field label="Tags">
-          <View className="gap-2">
-            <TextInput
-              value={tagDraft}
-              onChangeText={setTagDraft}
-              onSubmitEditing={addTag}
-              placeholder="Add a tag and press return"
-              placeholderTextColor={textColor as string}
-              returnKeyType="done"
-              className="text-sf-text bg-sf-bg-2 rounded-xl px-3 py-3 text-base"
-              style={{ borderCurve: 'continuous' }}
-            />
-            {tags.length > 0 ? (
-              <View className="flex-row flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <Pressable
-                    key={tag}
-                    onPress={() => setTags((prev) => prev.filter((t) => t !== tag))}
-                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+        <Field label="Tags" icon="tag-multiple-outline">
+          <Pressable onPress={pickTags} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+            <View
+              className="bg-sf-bg-2 flex-row items-center justify-between rounded-xl px-3 py-3"
+              style={{ borderCurve: 'continuous' }}>
+              {tags.length > 0 ? (
+                <View className="flex-1 flex-row flex-wrap gap-2">
+                  {tags.map((tag) => (
                     <View
-                      className="bg-sf-bg-2 flex-row items-center gap-1 rounded-full px-3 py-1"
+                      key={tag}
+                      className="bg-sf-bg-3 flex-row items-center gap-1 rounded-full px-3 py-1"
                       style={{ borderCurve: 'continuous' }}>
+                      <MaterialCommunityIcons name="tag-outline" size={13} color={textColor as string} />
                       <Text className="text-sf-text-2 text-sm">{tag}</Text>
-                      <Icon name="xmark.circle.fill" size={14} color={textColor as string} />
                     </View>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-          </View>
+                  ))}
+                </View>
+              ) : (
+                <Text className="text-sf-text-2 text-base">Add tags</Text>
+              )}
+              <MaterialCommunityIcons name="chevron-right" size={20} color={textColor as string} />
+            </View>
+          </Pressable>
         </Field>
       ) : null}
 
@@ -174,13 +188,71 @@ export function TaskForm({
         {showReminder ? (
           <>
             <View className="bg-sf-separator h-px" />
-            <DateField label="Reminder" iconName="bell" value={reminderAt} onChange={setReminderAt} />
+            <DateField label="Reminder" iconName="bell-outline" value={reminderAt} onChange={setReminderAt} />
           </>
         ) : null}
       </View>
 
+      {showCalendar && hasSchedule ? (
+        <Field label="Add to calendar" icon="calendar-plus">
+          <View className="bg-sf-bg-2 rounded-xl" style={{ borderCurve: 'continuous' }}>
+            <Pressable
+              onPress={() => setShowCalendarList((prev) => !prev)}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+              <View className="flex-row items-center justify-between px-3 py-3">
+                <View className="flex-row items-center gap-3">
+                  <MaterialCommunityIcons name="calendar-plus" size={20} color={colors.accent} />
+                  <Text className="text-sf-text text-base">
+                    {selectedCalendarTitle ?? "Don't add to calendar"}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons
+                  name={showCalendarList ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color={textColor as string}
+                />
+              </View>
+            </Pressable>
+
+            {showCalendarList ? (
+              <View className="border-sf-separator border-t">
+                <CalendarRow
+                  title="Don't add to calendar"
+                  selected={calendarId == null}
+                  color={null}
+                  onPress={() => {
+                    setCalendarId(null);
+                    setShowCalendarList(false);
+                  }}
+                />
+                {calendarsQuery.isLoading ? (
+                  <Text className="text-sf-text-2 px-3 py-3 text-sm">Loading calendars…</Text>
+                ) : null}
+                {calendars.map((calendar) => (
+                  <CalendarRow
+                    key={calendar.id}
+                    title={calendar.title}
+                    color={calendar.color}
+                    selected={calendar.id === calendarId}
+                    onPress={() => {
+                      setCalendarId(calendar.id);
+                      setShowCalendarList(false);
+                    }}
+                  />
+                ))}
+                {!calendarsQuery.isLoading && calendars.length === 0 ? (
+                  <Text className="text-sf-text-2 px-3 py-3 text-sm">
+                    No writable calendars found.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        </Field>
+      ) : null}
+
       {showPriority ? (
-        <Field label="Priority">
+        <Field label="Priority" icon="flag-outline">
           <SegmentedControl
             values={PRIORITIES.map((option) => option.label)}
             selectedIndex={Math.max(
@@ -207,11 +279,9 @@ export function TaskForm({
       </Pressable>
 
       {onDelete ? (
-        <Pressable
-          onPress={onDelete}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+        <Pressable onPress={onDelete} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
           <View className="flex-row items-center justify-center gap-2 py-2">
-            <Icon name="trash" size={18} color={red as string} />
+            <MaterialCommunityIcons name="trash-can-outline" size={18} color={red as string} />
             <Text className="text-sf-red text-base">Delete task</Text>
           </View>
         </Pressable>
@@ -220,10 +290,56 @@ export function TaskForm({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function CalendarRow({
+  title,
+  color,
+  selected,
+  onPress,
+}: {
+  title: string;
+  color: string | null;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+      <View className="flex-row items-center justify-between px-3 py-3">
+        <View className="flex-row items-center gap-3">
+          <View
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 4,
+              backgroundColor: color ?? colors.gray,
+            }}
+          />
+          <Text className="text-sf-text text-base">{title}</Text>
+        </View>
+        {selected ? (
+          <MaterialCommunityIcons name="check" size={20} color={colors.accent} />
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+function Field({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  children: React.ReactNode;
+}) {
+  const { colors } = useTheme();
   return (
     <View className="gap-2">
-      <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">{label}</Text>
+      <View className="flex-row items-center gap-1.5 px-1">
+        {icon ? <MaterialCommunityIcons name={icon} size={14} color={colors.text2} /> : null}
+        <Text className="text-sf-text-2 text-xs font-semibold uppercase">{label}</Text>
+      </View>
       {children}
     </View>
   );
