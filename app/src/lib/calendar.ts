@@ -27,9 +27,9 @@ async function getCalendar() {
 export async function ensureCalendarPermission(): Promise<boolean> {
   const Calendar = await getCalendar();
   if (!Calendar) return false;
-  const current = await Calendar.getCalendarPermissionsAsync();
+  const current = await Calendar.getCalendarPermissions();
   if (current.granted) return true;
-  const request = await Calendar.requestCalendarPermissionsAsync();
+  const request = await Calendar.requestCalendarPermissions();
   return request.granted;
 }
 
@@ -41,7 +41,7 @@ export async function listDeviceCalendars(): Promise<DeviceCalendar[]> {
   const granted = await ensureCalendarPermission();
   if (!granted) return [];
 
-  const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+  const calendars = await Calendar.getCalendars(Calendar.EntityTypes.EVENT);
   return calendars
     .filter((calendar) => calendar.allowsModifications)
     .map((calendar) => ({
@@ -75,11 +75,13 @@ export async function addTaskToCalendar(params: {
     ? [{ relativeOffset: Math.round((reminder.getTime() - start.getTime()) / 60000) }]
     : [];
 
-  return Calendar.createEventAsync(params.calendarId, {
+  const calendar = await Calendar.ExpoCalendar.get(params.calendarId);
+  const event = await calendar.createEvent({
     title: params.title,
     notes: params.notes,
     startDate: start,
     endDate: end,
     alarms,
   });
+  return event.id;
 }
