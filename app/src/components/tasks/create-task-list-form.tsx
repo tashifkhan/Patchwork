@@ -5,9 +5,19 @@ import { Pressable } from 'react-native';
 import { useTheme } from '@/components/theme/context';
 import { Text, TextInput, View } from '@/tw';
 
-export function CreateTaskListForm({ busy, onCreate }: { busy: boolean; onCreate: (name: string) => void }) {
+export function CreateTaskListForm({
+  busy,
+  onCreate,
+  defaultOpen = false,
+  onCancel,
+}: {
+  busy: boolean;
+  onCreate: (name: string) => void;
+  defaultOpen?: boolean;
+  onCancel?: () => void;
+}) {
   const { colors } = useTheme();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [name, setName] = useState('');
   const canCreate = name.trim().length > 0 && !busy;
 
@@ -15,7 +25,13 @@ export function CreateTaskListForm({ busy, onCreate }: { busy: boolean; onCreate
     if (!canCreate) return;
     onCreate(name.trim());
     setName('');
-    setOpen(false);
+    if (!defaultOpen) setOpen(false);
+  }
+
+  function cancel() {
+    setName('');
+    if (onCancel) onCancel();
+    else setOpen(false);
   }
 
   if (!open) {
@@ -43,7 +59,7 @@ export function CreateTaskListForm({ busy, onCreate }: { busy: boolean; onCreate
         style={{ borderCurve: 'continuous' }}
       />
       <View className="flex-row gap-2">
-        <Pressable onPress={() => setOpen(false)} style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.6 : 1 })}>
+        <Pressable onPress={cancel} style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.6 : 1 })}>
           <View className="bg-sf-bg-3 items-center rounded-xl py-3" style={{ borderCurve: 'continuous' }}>
             <Text className="text-sf-text-2 font-semibold">Cancel</Text>
           </View>

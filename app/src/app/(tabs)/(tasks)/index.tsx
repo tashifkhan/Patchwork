@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Link, Stack, router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Platform, Pressable, RefreshControl } from 'react-native';
+import { Modal, Platform, Pressable, RefreshControl } from 'react-native';
 
 import { ApiError } from '@/api/client';
 import type { Task } from '@/api/types';
@@ -10,6 +10,7 @@ import { CreateTaskListForm } from '@/components/tasks/create-task-list-form';
 import { DraggableColumn } from '@/components/tasks/draggable-column';
 import { TagChipList } from '@/components/tasks/tag-chip-list';
 import { TaskItem } from '@/components/tasks/task-item';
+import { TaskListMenu } from '@/components/tasks/task-list-menu';
 import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
 import { NativeAlert } from '@/components/ui/native-alert';
@@ -87,6 +88,7 @@ export default function TasksScreen() {
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ overdue: false, completed: true });
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [createListOpen, setCreateListOpen] = useState(false);
 
   const lists = useMemo(
     () => (listsQuery.data ?? []).filter((list) => !list.is_deck),
@@ -146,6 +148,7 @@ export default function TasksScreen() {
     try {
       const list = await createList.mutateAsync({ name });
       setSelectedListId(list.id);
+      setCreateListOpen(false);
     } catch (error) {
       setAlert({ title: 'Could not create list', message: error instanceof ApiError ? error.message : 'Please try again.' });
     }
@@ -175,6 +178,16 @@ export default function TasksScreen() {
     <>
       <Stack.Screen
         options={{
+          headerLargeTitle: false,
+          headerTitleAlign: 'left',
+          headerTitle: () => (
+            <TaskListMenu
+              lists={lists.map((l) => ({ id: l.id, name: l.name }))}
+              selectedListId={selectedListId}
+              onSelect={setSelectedListId}
+              onCreate={() => setCreateListOpen(true)}
+            />
+          ),
           headerRight: () => (
             <Link href="/new-task" asChild>
               <Pressable hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
@@ -200,24 +213,9 @@ export default function TasksScreen() {
             onRefresh={() => tasksQuery.refetch()}
           />
         }>
-        {lists.length > 1 || allTags.length > 0 || !tasksQuery.isLoading ? (
+        {allTags.length > 0 ? (
           <View className="gap-3 py-2">
-            {lists.length > 1 ? (
-              <TagChipList
-                tags={lists.map((list) => list.name)}
-                selectedTag={lists.find((l) => l.id === selectedListId)?.name ?? null}
-                onSelect={(name) => {
-                  const match = lists.find((l) => l.name === name);
-                  setSelectedListId(match ? match.id : null);
-                }}
-              />
-            ) : null}
-            <View className="px-1">
-              <CreateTaskListForm busy={createList.isPending} onCreate={handleCreateList} />
-            </View>
-            {allTags.length > 0 ? (
-              <TagChipList tags={allTags} selectedTag={selectedTag} onSelect={setSelectedTag} />
-            ) : null}
+            <TagChipList tags={allTags} selectedTag={selectedTag} onSelect={setSelectedTag} />
           </View>
         ) : null}
 
@@ -271,6 +269,24 @@ export default function TasksScreen() {
         message={alert?.message ?? ''}
         onDismiss={() => setAlert(null)}
       />
+      <Modal
+        visible={createListOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCreateListOpen(false)}>
+        <Pressable
+          onPress={() => setCreateListOpen(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 24 }}>
+          <Pressable onPress={() => {}}>
+            <CreateTaskListForm
+              busy={createList.isPending}
+              onCreate={handleCreateList}
+              defaultOpen
+              onCancel={() => setCreateListOpen(false)}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
