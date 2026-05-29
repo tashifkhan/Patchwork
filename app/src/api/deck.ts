@@ -123,6 +123,7 @@ class DeckClient {
     return payload.flatMap((item) => {
       if (!item || typeof item !== 'object') return [];
       const raw = item as Record<string, unknown>;
+      if (!isActiveDeckItem(raw)) return [];
       const id = typeof raw.id === 'number' ? raw.id : Number(raw.id);
       if (!Number.isFinite(id)) return [];
 
@@ -159,7 +160,7 @@ class DeckClient {
 
   async getBoard(boardId: number): Promise<DeckBoardDetail> {
     const stacks = await this.request<unknown[]>('GET', `/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`);
-    return { board_id: boardId, stacks: (Array.isArray(stacks) ? stacks : []) as DeckStack[] };
+    return { board_id: boardId, stacks: normalizeStacks(stacks) };
   }
 
   async createCard(payload: DeckCardCreate): Promise<DeckCard> {
@@ -173,7 +174,7 @@ class DeckClient {
   }
 
   async updateCard(payload: DeckCardUpdate): Promise<DeckCard> {
-    const path = `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`;
+    const path = `/apps/deck/cards/${payload.card_id}`;
     const existing = await this.request<DeckCard>('GET', path);
     const updated = await this.request<DeckCard>('PUT', path, {
       ...existing,
@@ -182,24 +183,28 @@ class DeckClient {
       duedate: payload.duedate ?? null,
     });
     if (payload.target_stack_id != null && payload.target_stack_id !== payload.stack_id) {
-      return this.request<DeckCard>('PUT', `${path}/reorder`, {
-        order: existing.order ?? 999,
+      const moved = await this.request<unknown>('PUT', `${path}/reorder`, {
+        ...updated,
+        order: existing.order ?? updated.order ?? 999,
         stackId: payload.target_stack_id,
       });
+      return cardFromMutationResponse(moved, payload.card_id) ?? { ...updated, stackId: payload.target_stack_id };
     }
     return updated;
   }
 
   async reorderCard(payload: DeckCardReorder): Promise<DeckCard> {
-    return this.request<DeckCard>(
-      'PUT',
-      `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}/reorder`,
-      { order: payload.order, stackId: payload.target_stack_id }
-    );
+    const existing = await this.request<DeckCard>('GET', `/apps/deck/cards/${payload.card_id}`);
+    const moved = await this.request<unknown>('PUT', `/apps/deck/cards/${payload.card_id}/reorder`, {
+      ...existing,
+      order: payload.order,
+      stackId: payload.target_stack_id,
+    });
+    return cardFromMutationResponse(moved, payload.card_id) ?? { ...existing, order: payload.order, stackId: payload.target_stack_id };
   }
 
   async deleteCard(payload: DeckCardDelete): Promise<void> {
-    await this.request<DeckCard>('DELETE', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}/cards/${payload.card_id}`);
+    await this.request<DeckCard>('DELETE', `/apps/deck/cards/${payload.card_id}`);
   }
 
   async createStack(payload: DeckStackCreate): Promise<DeckStack> {
@@ -210,14 +215,25 @@ class DeckClient {
   }
 
   async updateStack(payload: DeckStackUpdate): Promise<DeckStack> {
-    return this.request<DeckStack>('PUT', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}`, {
+    const existing = await this.stackById(payload.stack_id);
+    return this.request<DeckStack>('PUT', `/apps/deck/stacks/${payload.stack_id}`, {
+      ...existing,
       title: payload.title,
       order: payload.order,
     });
   }
 
   async deleteStack(payload: DeckStackDelete): Promise<void> {
-    await this.request<DeckStack>('DELETE', `/index.php/apps/deck/api/v1.0/boards/${payload.board_id}/stacks/${payload.stack_id}`);
+    await this.request<DeckStack>('DELETE', `/apps/deck/stacks/${payload.stack_id}`);
+  }
+
+  private async stackById(stackId: number): Promise<DeckStack> {
+    const response = await this.request<unknown>('GET', `/apps/deck/stacks/${stackId}`);
+    if (Array.isArray(response) && response[0] && typeof response[0] === 'object') {
+      return response[0] as DeckStack;
+    }
+    if (response && typeof response === 'object') return response as DeckStack;
+    return { id: stackId };
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -260,6 +276,33 @@ async function allClients(): Promise<DeckClient[]> {
 
 function serverRootFromUrl(url: string): string {
   return url.match(/^https?:\/\/[^/]+/i)?.[0] ?? url;
+}
+
+function cardFromMutationResponse(response: unknown, cardId: number): DeckCard | null {
+  if (Array.isArray(response)) {
+    const match = response.find((item) => item && typeof item === 'object' && (item as DeckCard).id === cardId);
+    return match ? (match as DeckCard) : null;
+  }
+  return response && typeof response === 'object' ? (response as DeckCard) : null;
+}
+
+function normalizeStacks(value: unknown): DeckStack[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const stack = item as DeckStack;
+    if (!isActiveDeckItem(stack)) return [];
+    return [{
+      ...stack,
+      cards: Array.isArray(stack.cards)
+        ? stack.cards.filter((card) => card && typeof card === 'object' && isActiveDeckItem(card))
+        : [],
+    }];
+  });
+}
+
+function isActiveDeckItem(item: Record<string, unknown>) {
+  return item.archived !== true && (item.deletedAt == null || item.deletedAt === 0);
 }
 
 function base64Encode(value: string) {

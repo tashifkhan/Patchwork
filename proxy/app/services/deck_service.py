@@ -16,6 +16,7 @@ class DeckService:
                 id=item["id"], title=item.get("title", "Untitled board"), raw=item
             )
             for item in payload
+            if _is_active_deck_item(item)
         ]
 
     async def create_board(self, payload: dict) -> DeckBoard:
@@ -46,7 +47,7 @@ class DeckService:
         )
         return {
             "board_id": board_id,
-            "stacks": response.json(),
+            "stacks": _normalize_stacks(response.json()),
         }
 
     async def create_stack(self, board_id: int, payload: dict) -> dict:
@@ -59,10 +60,20 @@ class DeckService:
         return response.json()
 
     async def update_stack(self, board_id: int, stack_id: int, payload: dict) -> dict:
+        existing_response = await self.client.request(
+            "GET",
+            f"{self.client.base_url}/apps/deck/stacks/{stack_id}",
+            headers={"OCS-APIRequest": "true", "Accept": "application/json"},
+        )
+        existing_payload = existing_response.json()
+        existing = existing_payload[0] if isinstance(existing_payload, list) and existing_payload else existing_payload
+        if not isinstance(existing, dict):
+            existing = {"id": stack_id, "boardId": board_id, "deletedAt": 0}
+        existing.update({"title": payload.get("title", existing.get("title", "Untitled")), "order": payload.get("order", existing.get("order", 999))})
         response = await self.client.request(
             "PUT",
-            f"{self.client.base_url}/index.php/apps/deck/api/v1.0/boards/{board_id}/stacks/{stack_id}",
-            json={"title": payload.get("title", "Untitled"), "order": payload.get("order", 999)},
+            f"{self.client.base_url}/apps/deck/stacks/{stack_id}",
+            json=existing,
             headers={"OCS-APIRequest": "true", "Accept": "application/json"},
         )
         return response.json()
@@ -70,7 +81,7 @@ class DeckService:
     async def delete_stack(self, board_id: int, stack_id: int) -> None:
         await self.client.request(
             "DELETE",
-            f"{self.client.base_url}/index.php/apps/deck/api/v1.0/boards/{board_id}/stacks/{stack_id}",
+            f"{self.client.base_url}/apps/deck/stacks/{stack_id}",
             headers={"OCS-APIRequest": "true", "Accept": "application/json"},
         )
 
@@ -92,7 +103,7 @@ class DeckService:
     async def update_card(
         self, board_id: int, stack_id: int, card_id: int, payload: dict
     ) -> dict:
-        url = f"{self.client.base_url}/index.php/apps/deck/api/v1.0/boards/{board_id}/stacks/{stack_id}/cards/{card_id}"
+        url = f"{self.client.base_url}/apps/deck/cards/{card_id}"
         existing_response = await self.client.request(
             "GET", url, headers={"OCS-APIRequest": "true", "Accept": "application/json"}
         )
@@ -115,26 +126,61 @@ class DeckService:
             response = await self.client.request(
                 "PUT",
                 f"{url}/reorder",
-                json={"order": existing.get("order", 999), "stackId": target_stack_id},
+                json={**response.json(), "order": existing.get("order", 999), "stackId": target_stack_id},
                 headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
+            return _card_from_mutation_response(response.json(), card_id)
         return response.json()
 
     async def reorder_card(
         self, board_id: int, stack_id: int, card_id: int, payload: dict
     ) -> dict:
         target_stack_id = payload.get("target_stack_id", payload.get("stackId", stack_id))
-        response = await self.client.request(
-            "PUT",
-            f"{self.client.base_url}/index.php/apps/deck/api/v1.0/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/reorder",
-            json={"order": payload.get("order", 999), "stackId": target_stack_id},
+        existing_response = await self.client.request(
+            "GET",
+            f"{self.client.base_url}/apps/deck/cards/{card_id}",
             headers={"OCS-APIRequest": "true", "Accept": "application/json"},
         )
-        return response.json()
+        existing = existing_response.json()
+        response = await self.client.request(
+            "PUT",
+            f"{self.client.base_url}/apps/deck/cards/{card_id}/reorder",
+            json={**existing, "order": payload.get("order", 999), "stackId": target_stack_id},
+            headers={"OCS-APIRequest": "true", "Accept": "application/json"},
+        )
+        return _card_from_mutation_response(response.json(), card_id)
 
     async def delete_card(self, board_id: int, stack_id: int, card_id: int) -> None:
         await self.client.request(
             "DELETE",
-            f"{self.client.base_url}/index.php/apps/deck/api/v1.0/boards/{board_id}/stacks/{stack_id}/cards/{card_id}",
+            f"{self.client.base_url}/apps/deck/cards/{card_id}",
             headers={"OCS-APIRequest": "true", "Accept": "application/json"},
         )
+
+
+def _normalize_stacks(payload: object) -> list[dict]:
+    if not isinstance(payload, list):
+        return []
+    stacks = []
+    for item in payload:
+        if not isinstance(item, dict) or not _is_active_deck_item(item):
+            continue
+        cards = item.get("cards")
+        stacks.append({
+            **item,
+            "cards": [card for card in cards if isinstance(card, dict) and _is_active_deck_item(card)] if isinstance(cards, list) else [],
+        })
+    return stacks
+
+
+def _is_active_deck_item(item: dict) -> bool:
+    return item.get("archived") is not True and item.get("deletedAt", 0) in (None, 0)
+
+
+def _card_from_mutation_response(payload: object, card_id: int) -> dict:
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict) and item.get("id") == card_id:
+                return item
+        return {}
+    return payload if isinstance(payload, dict) else {}
