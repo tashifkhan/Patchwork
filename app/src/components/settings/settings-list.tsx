@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { type ComponentProps } from 'react';
 import { Platform, Pressable } from 'react-native';
 
