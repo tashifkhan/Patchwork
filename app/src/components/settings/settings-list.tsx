@@ -22,7 +22,11 @@ export function SettingsScreen({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** A rounded, elevated card that visually groups a cluster of rows. */
+/**
+ * A rounded, elevated card that visually groups a cluster of rows. On iOS 26+
+ * the surface is rendered as liquid glass; everywhere else it falls back to
+ * the themed grouped-background tint with a subtle shadow.
+ */
 export function SettingsGroup({
   title,
   children,
@@ -30,7 +34,8 @@ export function SettingsGroup({
   title?: string;
   children: React.ReactNode;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const glass = Platform.OS === 'ios' && isLiquidGlassAvailable();
   return (
     <View className="gap-1.5">
       {title ? (
@@ -38,11 +43,24 @@ export function SettingsGroup({
           {title}
         </Text>
       ) : null}
-      <View
-        className="bg-sf-bg-2 overflow-hidden rounded-3xl"
-        style={{ borderCurve: 'continuous', boxShadow: `0 1px 3px ${colors.separator}` }}>
-        {children}
-      </View>
+      {glass ? (
+        <GlassView
+          glassEffectStyle="regular"
+          colorScheme={scheme}
+          style={{
+            borderRadius: 24,
+            borderCurve: 'continuous',
+            overflow: 'hidden',
+          }}>
+          {children}
+        </GlassView>
+      ) : (
+        <View
+          className="bg-sf-bg-2 overflow-hidden rounded-3xl"
+          style={{ borderCurve: 'continuous', boxShadow: `0 1px 3px ${colors.separator}` }}>
+          {children}
+        </View>
+      )}
     </View>
   );
 }

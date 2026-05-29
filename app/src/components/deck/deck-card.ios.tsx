@@ -17,7 +17,7 @@ export const DeckCard = memo(function DeckCard({
   card: DeckCardType;
   onPress?: () => void;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const due = formatRelativeDue(card.duedate ?? null);
   const labels = card.labels ?? [];
   const assignees = card.assignedUsers ?? [];
@@ -85,6 +85,7 @@ export const DeckCard = memo(function DeckCard({
         <GlassView
           isInteractive
           glassEffectStyle="regular"
+          colorScheme={scheme}
           style={{ borderRadius: 16, overflow: 'hidden' }}>
           {content}
         </GlassView>
