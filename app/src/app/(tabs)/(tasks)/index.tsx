@@ -11,6 +11,7 @@ import { DraggableColumn } from '@/components/tasks/draggable-column';
 import { TagChipList } from '@/components/tasks/tag-chip-list';
 import { TaskItem } from '@/components/tasks/task-item';
 import { TaskListMenu } from '@/components/tasks/task-list-menu';
+import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
 import { NativeAlert } from '@/components/ui/native-alert';
@@ -172,7 +173,9 @@ export default function TasksScreen() {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  const isLoading = tasksQuery.isLoading;
   const isEmpty = visibleTasks.length === 0;
+  const showCenteredState = isEmpty && !isLoading;
 
   return (
     <>
@@ -205,7 +208,6 @@ export default function TasksScreen() {
           flexGrow: 1,
           paddingHorizontal: 16,
           paddingBottom: 96,
-          justifyContent: isEmpty ? 'center' : 'flex-start',
         }}
         refreshControl={
           <RefreshControl
@@ -219,12 +221,12 @@ export default function TasksScreen() {
           </View>
         ) : null}
 
-        {isEmpty ? (
-          <EmptyState
-            loading={tasksQuery.isLoading}
-            error={tasksQuery.error}
-            onRetry={() => tasksQuery.refetch()}
-          />
+        {isLoading ? (
+          <TaskListSkeleton />
+        ) : showCenteredState ? (
+          <View className="flex-1 justify-center">
+            <EmptyState error={tasksQuery.error} onRetry={() => tasksQuery.refetch()} />
+          </View>
         ) : (
           <>
             {BUCKET_ORDER.filter((key) => buckets[key].length > 0).map((key) => (
@@ -325,28 +327,18 @@ function Section({
 }
 
 function EmptyState({
-  loading,
   error,
   onRetry,
 }: {
-  loading: boolean;
   error: unknown;
   onRetry: () => void;
 }) {
   const { colors } = useTheme();
 
-  if (loading) {
-    return (
-      <View className="items-center py-20">
-        <Text className="text-sf-text-2">Loading tasks…</Text>
-      </View>
-    );
-  }
-
   if (error) {
     const message = error instanceof ApiError ? error.message : 'Could not load tasks.';
     return (
-      <View className="items-center gap-3 py-20">
+      <View className="items-center gap-3">
         <MaterialCommunityIcons name="alert-circle-outline" size={28} color={colors.accent} />
         <Text selectable className="text-sf-text-2 px-8 text-center">
           {message}
@@ -359,7 +351,7 @@ function EmptyState({
   }
 
   return (
-    <View className="items-center gap-2 py-20">
+    <View className="items-center gap-2">
       <MaterialCommunityIcons name="checkbox-marked-circle-outline" size={28} color={colors.accent} />
       <Text className="text-sf-text-2">No tasks here yet.</Text>
       {Platform.OS !== 'web' ? (
