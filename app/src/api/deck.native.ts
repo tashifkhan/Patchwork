@@ -1,5 +1,6 @@
 import { ApiError } from './client';
 import type { DeckBoard, DeckBoardCreate, DeckBoardDetail, DeckCard, DeckCardCreate, DeckCardDelete, DeckCardReorder, DeckCardUpdate, DeckStack, DeckStackCreate, DeckStackDelete, DeckStackUpdate } from './types';
+import { base64Encode } from '@/lib/base64';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 
 const boardClients = new Map<number, DeckClient>();
@@ -260,11 +261,4 @@ function normalizeStacks(value: unknown): DeckStack[] {
 
 function isActiveDeckItem(item: Record<string, unknown>) {
   return item.archived !== true && (item.deletedAt == null || item.deletedAt === 0);
-}
-
-function base64Encode(value: string) {
-  if (typeof btoa !== 'undefined') {
-    return btoa(unescape(encodeURIComponent(value)));
-  }
-  throw new ApiError(500, 'Base64 encoding is unavailable in this runtime.');
 }

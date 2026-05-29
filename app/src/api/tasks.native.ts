@@ -1,5 +1,6 @@
 import { ApiError } from './client';
 import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from './types';
+import { base64Encode } from '@/lib/base64';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 
 const DAV_NS = 'DAV:';
@@ -7,28 +8,33 @@ const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
 
 export async function fetchTaskLists() {
   const clients = await allClients();
-  const perAccount = await Promise.all(
-    clients.map((client) => client.listTaskCalendars().catch(() => [] as TaskList[]))
-  );
-  return perAccount.flat();
+  const results = await Promise.allSettled(clients.map((client) => client.listTaskCalendars()));
+  const lists = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  if (lists.length === 0) throw firstRejected(results) ?? new ApiError(404, 'No task lists found.');
+  return lists;
 }
 
 export async function fetchTasks() {
   const clients = await allClients();
-  const perAccount = await Promise.all(
+  const results = await Promise.allSettled(
     clients.map(async (client) => {
-      try {
-        const lists = await client.listTaskCalendars();
-        const tasks = (await Promise.all(lists.map((list) => client.listCalendarTasks(list)))).flat();
-        // Build the parent/child tree per account so RELATED-TO uids never
-        // collide across servers.
-        return attachChildren(tasks);
-      } catch {
-        return [] as Task[];
-      }
+      const lists = await client.listTaskCalendars();
+      const tasks = (await Promise.all(lists.map((list) => client.listCalendarTasks(list)))).flat();
+      // Build the parent/child tree per account so RELATED-TO uids never
+      // collide across servers.
+      return attachChildren(tasks);
     })
   );
-  return perAccount.flat();
+  const tasks = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  if (tasks.length === 0 && results.some((result) => result.status === 'rejected')) {
+    throw firstRejected(results) ?? new ApiError(404, 'No tasks found.');
+  }
+  return tasks;
+}
+
+function firstRejected<T>(results: PromiseSettledResult<T>[]) {
+  const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  return rejected?.reason instanceof Error ? rejected.reason : undefined;
 }
 
 export async function createTaskList(payload: TaskListCreate) {
@@ -118,13 +124,15 @@ class CalDavClient {
       headers: {
         Authorization: this.authHeader,
         Accept: 'application/xml,text/calendar,*/*',
+        'OCS-APIRequest': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
         ...options.headers,
       },
     });
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
-      throw new ApiError(response.status, detail || `CalDAV request failed with status ${response.status}`, detail);
+      throw new ApiError(response.status, davErrorMessage(detail) || `CalDAV request failed with status ${response.status}`, detail);
     }
     return response;
   }
@@ -473,6 +481,13 @@ function decodeXml(value: string) {
     .replace(/&amp;/g, '&');
 }
 
+function davErrorMessage(value: string) {
+  const message = value.match(/<[^>]*(?::)?message\b[^>]*>([\s\S]*?)<\/[^>]*(?::)?message>/i)?.[1];
+  if (message) return decodeXml(message.trim());
+  const exception = value.match(/<[^>]*(?::)?exception\b[^>]*>([\s\S]*?)<\/[^>]*(?::)?exception>/i)?.[1];
+  return exception ? decodeXml(exception.trim()).split('\\').pop() : value.trim();
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -500,11 +515,4 @@ function randomUuid() {
     const value = char === 'x' ? random : (random & 0x3) | 0x8;
     return value.toString(16);
   });
-}
-
-function base64Encode(value: string) {
-  if (typeof btoa !== 'undefined') {
-    return btoa(unescape(encodeURIComponent(value)));
-  }
-  throw new ApiError(500, 'Base64 encoding is unavailable in this runtime.');
 }
