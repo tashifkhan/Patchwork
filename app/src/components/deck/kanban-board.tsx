@@ -192,12 +192,12 @@ export function KanbanBoard({
   );
 
   return (
-    <View className="gap-5">
+    <View className="gap-6 pt-2">
       {liveStacks.map((stack, stackIdx) => {
         const cards = stack.cards ?? [];
         const stackId = stack.id as number;
         return (
-          <View key={stackId} className="gap-2">
+          <View key={stackId} className="gap-2.5">
             <Header
               title={stack.title ?? 'Stack'}
               count={cards.length}
@@ -271,7 +271,7 @@ function Header({
   onLayout: (event: LayoutChangeEvent) => void;
 }) {
   return (
-    <View onLayout={onLayout} className="flex-row items-center justify-between gap-2 px-1">
+    <View onLayout={onLayout} className="flex-row items-center justify-between gap-2 px-0.5 pb-1">
       <View className="flex-1 flex-row items-center gap-2">
         <Text numberOfLines={1} className="text-sf-text shrink text-lg font-semibold">
           {title}

@@ -108,7 +108,7 @@ export default function BoardsScreen() {
       <RNScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+        contentContainerStyle={{ gap: 8, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 }}>
         {boards.map((board) => {
           const selected = board.id === activeBoardId;
           return (
@@ -164,9 +164,11 @@ export default function BoardsScreen() {
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-        contentContainerClassName="px-4 pb-24"
-        contentContainerStyle={isWide ? { alignSelf: 'center', width: '100%', maxWidth: 720 } : undefined}>
-        <View className="-mx-4">{boardSelector}</View>
+        contentContainerStyle={[
+          { paddingHorizontal: 24, paddingBottom: 112 },
+          isWide ? { alignSelf: 'center', width: '100%', maxWidth: 720 } : null,
+        ]}>
+        <View style={{ marginHorizontal: -24 }}>{boardSelector}</View>
         {boardQuery.isLoading ? (
           <View className="items-center py-16">
             <Text className="text-sf-text-2 text-sm">Loading cards…</Text>
