@@ -113,7 +113,11 @@ async function fetchDeckBoards() {
   const text = await response.text();
   if (!response.ok) throw new Error(`Deck request failed ${response.status}: ${text}`);
   const parsed = text ? JSON.parse(text) : [];
-  return Array.isArray(parsed) ? parsed.map((board) => ({ id: board.id, title: board.title, raw: board })) : [];
+  return Array.isArray(parsed)
+    ? parsed
+      .filter(isActiveDeckItem)
+      .map((board) => ({ id: board.id, title: board.title, raw: board }))
+    : [];
 }
 
 async function fetchDeckBoard(boardId) {
@@ -123,7 +127,7 @@ async function fetchDeckBoard(boardId) {
   const text = await response.text();
   if (!response.ok) throw new Error(`Deck board request failed ${response.status}: ${text}`);
   const parsed = text ? JSON.parse(text) : [];
-  return { board_id: boardId, stacks: Array.isArray(parsed) ? parsed : [] };
+  return { board_id: boardId, stacks: normalizeStacks(parsed) };
 }
 
 async function davRequest(method, url, options = {}) {
@@ -219,6 +223,20 @@ function assertDeckDetails(details) {
       assert(stack.cards === undefined || Array.isArray(stack.cards), 'deck stack.cards must be array when present');
     }
   }
+}
+
+function normalizeStacks(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isActiveDeckItem)
+    .map((stack) => ({
+      ...stack,
+      cards: Array.isArray(stack.cards) ? stack.cards.filter(isActiveDeckItem) : [],
+    }));
+}
+
+function isActiveDeckItem(item) {
+  return item && typeof item === 'object' && item.archived !== true && (item.deletedAt == null || item.deletedAt === 0);
 }
 
 function loadEnv(path) {
