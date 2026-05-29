@@ -4,6 +4,7 @@ import { Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckStack, useDeleteDeckStack, useUpdateDeckStack } from '@/hooks/use-deck';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 
@@ -52,13 +53,15 @@ export default function StackScreen() {
   }
 
   return (
-    <ScrollView
-      className="bg-sf-bg flex-1"
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive">
-      <Stack.Screen options={{ title: editing ? 'Edit Column' : 'New Column' }} />
+    <SheetSurface>
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: 'transparent' }}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive">
+        <Stack.Screen options={{ title: editing ? 'Edit Column' : 'New Column' }} />
 
-      <View className="gap-2 px-4 pt-4">
+        <View className="gap-2 px-4 pt-4">
         <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Column name</Text>
         <TextInput
           value={title}
@@ -114,6 +117,7 @@ export default function StackScreen() {
         message={errorMessage ?? ''}
         onDismiss={() => setErrorMessage(null)}
       />
-    </ScrollView>
+      </ScrollView>
+    </SheetSurface>
   );
 }

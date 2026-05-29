@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { ApiError } from '@/api/client';
 import { TaskForm, type TaskFormValues } from '@/components/tasks/task-form';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { addTaskToCalendar } from '@/lib/calendar';
 import { scheduleTaskReminder } from '@/lib/notifications';
@@ -54,33 +55,38 @@ export default function NewTaskScreen() {
 
   if (lists.length === 0) {
     return (
-      <View className="bg-sf-bg flex-1 items-center justify-center px-8">
-        <Text className="text-sf-text-2 text-center">
-          {listsQuery.isLoading ? 'Loading lists…' : 'No task lists available. Check Settings.'}
-        </Text>
-      </View>
+      <SheetSurface>
+        <View className="flex-1 items-center justify-center px-8">
+          <Text className="text-sf-text-2 text-center">
+            {listsQuery.isLoading ? 'Loading lists…' : 'No task lists available. Check Settings.'}
+          </Text>
+        </View>
+      </SheetSurface>
     );
   }
 
   return (
-    <ScrollView
-      className="bg-sf-bg flex-1"
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive">
-      <TaskForm
-        lists={lists}
-        availableTags={availableTags}
-        submitting={createTask.isPending}
-        submitLabel={createTask.isPending ? 'Creating…' : 'Create Task'}
-        onSubmit={handleSubmit}
-      />
-      <NativeAlert
-        visible={errorMessage != null}
-        title="Create failed"
-        message={errorMessage ?? ''}
-        onDismiss={() => setErrorMessage(null)}
-      />
-    </ScrollView>
+    <SheetSurface>
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: 'transparent' }}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive">
+        <TaskForm
+          lists={lists}
+          availableTags={availableTags}
+          submitting={createTask.isPending}
+          submitLabel={createTask.isPending ? 'Creating…' : 'Create Task'}
+          onSubmit={handleSubmit}
+        />
+        <NativeAlert
+          visible={errorMessage != null}
+          title="Create failed"
+          message={errorMessage ?? ''}
+          onDismiss={() => setErrorMessage(null)}
+        />
+      </ScrollView>
+    </SheetSurface>
   );
 }
 

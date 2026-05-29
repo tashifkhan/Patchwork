@@ -71,7 +71,7 @@ export default function BoardsScreen() {
   function handleAddCard(stackId: number) {
     if (activeBoardId == null) return;
     router.push({
-      pathname: '/deck/new',
+      pathname: '/new-card',
       params: { boardId: String(activeBoardId), stackId: String(stackId) },
     });
   }
@@ -80,7 +80,7 @@ export default function BoardsScreen() {
     if (activeBoardId == null || typeof stack.id !== 'number') return;
     const order = typeof stack.order === 'number' ? stack.order : 999;
     router.push({
-      pathname: '/deck/stack',
+      pathname: '/column',
       params: { boardId: String(activeBoardId), stackId: String(stack.id), title: stack.title ?? '', order: String(order) },
     });
   }
@@ -89,7 +89,7 @@ export default function BoardsScreen() {
     if (activeBoardId == null) return;
     const order = (stacks.length + 1) * 10;
     router.push({
-      pathname: '/deck/stack',
+      pathname: '/column',
       params: { boardId: String(activeBoardId), order: String(order) },
     });
   }
@@ -98,7 +98,7 @@ export default function BoardsScreen() {
     if (activeBoardId == null) return;
     const firstStackId = stacks.find((stack) => typeof stack.id === 'number')?.id;
     router.push({
-      pathname: '/deck/new',
+      pathname: '/new-card',
       params: { boardId: String(activeBoardId), ...(firstStackId ? { stackId: String(firstStackId) } : {}) },
     });
   }

@@ -8,16 +8,6 @@ export default function TasksLayout() {
       <Stack.Screen name="index" options={{ title: 'Tasks' }} />
       <Stack.Screen name="task/[uid]" options={{ title: 'Task', headerLargeTitle: false }} />
       <Stack.Screen name="tags" options={{ title: 'Tags', headerLargeTitle: false }} />
-      <Stack.Screen
-        name="new"
-        options={{
-          presentation: 'formSheet',
-          sheetGrabberVisible: true,
-          sheetAllowedDetents: [0.6, 1.0],
-          headerLargeTitle: false,
-          title: 'New Task',
-        }}
-      />
     </Stack>
   );
 }

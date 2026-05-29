@@ -176,7 +176,7 @@ export default function TasksScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Link href="/new" asChild>
+            <Link href="/new-task" asChild>
               <Pressable hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
                 <Icon name="plus" size={22} color={blue as string} />
               </Pressable>
@@ -263,7 +263,7 @@ export default function TasksScreen() {
         )}
       </ScrollView>
       {process.env.EXPO_OS === 'android' ? (
-        <Fab onPress={() => router.push('/new')} accessibilityLabel="Add task" />
+        <Fab onPress={() => router.push('/new-task')} accessibilityLabel="Add task" />
       ) : null}
       <NativeAlert
         visible={alert != null}

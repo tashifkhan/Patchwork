@@ -5,6 +5,7 @@ import { Pressable } from 'react-native';
 import { DeckCardForm, type DeckCardFormValues } from '@/components/deck/deck-card-form';
 import { NewBoardChip } from '@/components/deck/new-board-chip';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { ScrollView, Text, View } from '@/tw';
 
@@ -12,13 +13,16 @@ export default function NewDeckScreen() {
   const { boardId, stackId } = useLocalSearchParams<{ boardId?: string; stackId?: string }>();
 
   return (
-    <ScrollView
-      className="bg-sf-bg flex-1"
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive">
-      <Stack.Screen options={{ title: 'New Card' }} />
-      <NewCardBody boardId={boardId} stackId={stackId} />
-    </ScrollView>
+    <SheetSurface>
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: 'transparent' }}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive">
+        <Stack.Screen options={{ title: 'New Card' }} />
+        <NewCardBody boardId={boardId} stackId={stackId} />
+      </ScrollView>
+    </SheetSurface>
   );
 }
 
