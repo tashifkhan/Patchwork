@@ -99,7 +99,8 @@ export function useReorderDeckCard() {
 
 function moveCardInBoard(board: DeckBoardDetail, payload: DeckCardReorder): DeckBoardDetail {
   const source = board.stacks.find((stack) => stack.id === payload.stack_id);
-  const card = source?.cards?.find((item) => item.id === payload.card_id);
+  const sourceCard = source?.cards?.find((item) => item.id === payload.card_id);
+  const card = sourceCard ? { ...sourceCard, stackId: payload.target_stack_id, order: payload.order } : null;
   if (!card) return board;
 
   const stacks = board.stacks.map((stack) => {

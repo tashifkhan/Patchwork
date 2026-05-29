@@ -1,4 +1,4 @@
-import { Alert, Button, Host } from '@expo/ui/swift-ui';
+import { Alert, Button, Host, Text } from '@expo/ui/swift-ui';
 
 interface NativeAlertProps {
   visible: boolean;
@@ -21,13 +21,22 @@ export function NativeAlert({
 }: NativeAlertProps) {
   return (
     <Host matchContents>
-      <Alert title={title} message={message} isPresented={visible} onIsPresentedChange={(next) => {
-        if (!next) onDismiss();
-      }}>
+      <Alert
+        title={title}
+        isPresented={visible}
+        onIsPresentedChange={(next) => {
+          if (!next) onDismiss();
+        }}>
+        <Alert.Trigger>
+          <Text> </Text>
+        </Alert.Trigger>
         <Alert.Actions>
           {dismissLabel ? <Button label={dismissLabel} onPress={onDismiss} /> : null}
           <Button label={confirmLabel} onPress={onConfirm} />
         </Alert.Actions>
+        <Alert.Message>
+          <Text>{message}</Text>
+        </Alert.Message>
       </Alert>
     </Host>
   );
