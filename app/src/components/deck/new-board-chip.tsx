@@ -11,7 +11,7 @@ export function NewBoardChip() {
   const { colors } = useTheme();
   return (
     <Pressable
-      onPress={() => router.push('/deck/new-board')}
+      onPress={() => router.push('/new-board')}
       style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
       <View
         className="bg-sf-bg-2 flex-row items-center gap-2 rounded-full px-4 py-1.5"
