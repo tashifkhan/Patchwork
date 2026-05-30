@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { getApiBaseUrl, setApiBaseUrl } from '@/api/client';
+import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/lib/ai-models';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -18,6 +19,9 @@ interface SettingsState {
   notificationsEnabled: boolean;
   defaultReminderMinutes: number;
   aiDefaultListId: string | null;
+  aiModelSelections: AiModelSelection[];
+  aiBaseUrlOverrides: Partial<Record<AiProviderId, string>>;
+  aiCustomProviders: AiCustomProvider[];
   hydrated: boolean;
   setProxyUrl: (url: string) => void;
   setThemeMode: (mode: ThemeMode) => void;
@@ -27,6 +31,10 @@ interface SettingsState {
   setNotificationsEnabled: (enabled: boolean) => void;
   setDefaultReminderMinutes: (minutes: number) => void;
   setAiDefaultListId: (listId: string | null) => void;
+  setAiModelSelections: (selections: AiModelSelection[]) => void;
+  setAiBaseUrlOverride: (providerId: AiProviderId, baseUrl: string) => void;
+  upsertAiCustomProvider: (provider: AiCustomProvider) => void;
+  removeAiCustomProvider: (providerId: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -40,6 +48,9 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: true,
       defaultReminderMinutes: 0,
       aiDefaultListId: null,
+      aiModelSelections: DEFAULT_AI_MODELS,
+      aiBaseUrlOverrides: {},
+      aiCustomProviders: [],
       hydrated: false,
       setProxyUrl: (url) => {
         setApiBaseUrl(url);
@@ -52,6 +63,24 @@ export const useSettingsStore = create<SettingsState>()(
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
       setDefaultReminderMinutes: (defaultReminderMinutes) => set({ defaultReminderMinutes }),
       setAiDefaultListId: (aiDefaultListId) => set({ aiDefaultListId }),
+      setAiModelSelections: (aiModelSelections) => set({ aiModelSelections }),
+      setAiBaseUrlOverride: (providerId, baseUrl) =>
+        set((state) => ({
+          aiBaseUrlOverrides: { ...state.aiBaseUrlOverrides, [providerId]: baseUrl.trim() },
+        })),
+      upsertAiCustomProvider: (provider) =>
+        set((state) => {
+          const existing = state.aiCustomProviders.findIndex((entry) => entry.id === provider.id);
+          const next = [...state.aiCustomProviders];
+          if (existing >= 0) next[existing] = provider;
+          else next.push(provider);
+          return { aiCustomProviders: next };
+        }),
+      removeAiCustomProvider: (providerId) =>
+        set((state) => ({
+          aiCustomProviders: state.aiCustomProviders.filter((entry) => entry.id !== providerId),
+          aiModelSelections: state.aiModelSelections.filter((selection) => selection.providerId !== providerId),
+        })),
     }),
     {
       name: 'caldav-todo-settings',
@@ -65,6 +94,9 @@ export const useSettingsStore = create<SettingsState>()(
         notificationsEnabled,
         defaultReminderMinutes,
         aiDefaultListId,
+        aiModelSelections,
+        aiBaseUrlOverrides,
+        aiCustomProviders,
       }) => ({
         proxyUrl,
         themeMode,
@@ -74,6 +106,9 @@ export const useSettingsStore = create<SettingsState>()(
         notificationsEnabled,
         defaultReminderMinutes,
         aiDefaultListId,
+        aiModelSelections,
+        aiBaseUrlOverrides,
+        aiCustomProviders,
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.proxyUrl) {
