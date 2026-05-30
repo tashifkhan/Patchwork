@@ -4,8 +4,9 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { ActivityIndicator, Dimensions, Platform, Pressable, View as RNView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import { draftTasks, ocrUploadImage, refineTasks } from '@/api/ai';
 import { ApiError } from '@/api/client';
@@ -62,6 +63,27 @@ export default function AiChatScreen() {
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInputRef>(null);
+  const rootRef = useRef<RNView>(null);
+  const keyboard = useAnimatedKeyboard();
+  // Distance from this screen's bottom edge to the bottom of the physical
+  // window. With NativeTabs on Android the tab bar reserves space below our
+  // container, so subtracting this from the keyboard height keeps the composer
+  // flush against the keyboard instead of leaving a tab-bar-sized gap.
+  const bottomOffset = useSharedValue(0);
+  const measureBottom = useCallback(() => {
+    rootRef.current?.measureInWindow((_x, y, _w, h) => {
+      const screenH = Dimensions.get('window').height;
+      const offset = screenH - (y + h);
+      bottomOffset.value = offset > 0 ? offset : 0;
+    });
+  }, [bottomOffset]);
+  const composerStyle = useAnimatedStyle(() => {
+    const baseline = Math.max(insets.bottom, 8);
+    const kh = keyboard.height.value;
+    if (kh <= 0) return { paddingBottom: baseline };
+    const lift = Math.max(kh - bottomOffset.value, 0);
+    return { paddingBottom: lift + 8 };
+  });
 
   const geminiReady = healthQuery.data?.gemini_configured ?? true;
   const noModelsConfigured = !isWeb && aiModelSelections.length === 0;
@@ -218,10 +240,7 @@ export default function AiChatScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior="padding"
-      keyboardVerticalOffset={0}
-      style={{ flex: 1, backgroundColor: colors.bg }}>
+    <RNView ref={rootRef} onLayout={measureBottom} style={{ flex: 1, backgroundColor: colors.bg }}>
       <Stack.Screen
         options={{
           headerRight:
@@ -254,7 +273,7 @@ export default function AiChatScreen() {
         )}
       </ScrollView>
 
-      <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.bg }}>
+      <Animated.View style={[{ backgroundColor: colors.bg }, composerStyle]}>
         {staged.length > 0 ? (
           <View
             className="bg-sf-bg-2 mx-3 mb-2 flex-row items-center gap-3 rounded-2xl px-3 py-2.5"
@@ -292,7 +311,7 @@ export default function AiChatScreen() {
           onPickCamera={pickFromCamera}
           onSend={send}
         />
-      </View>
+      </Animated.View>
 
       <NativeAlert
         visible={alert != null}
@@ -300,7 +319,7 @@ export default function AiChatScreen() {
         message={alert?.message ?? ''}
         onDismiss={() => setAlert(null)}
       />
-    </KeyboardAvoidingView>
+    </RNView>
   );
 }
 
