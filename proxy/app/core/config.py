@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     nextcloud_base_url: AnyHttpUrl | None = None
     nextcloud_username: str | None = None
     nextcloud_app_password: str | None = None
+    litellm_api_key: str | None = None
+    litellm_model: str | None = None
+    litellm_base_url: str | None = None
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.5-flash-preview"
+    gemini_model: str = "gemini-3.5-flash"
     ai_upload_max_mb: int = 10
     cors_origins: str = Field(default="http://localhost:8081,http://localhost:19006")
 

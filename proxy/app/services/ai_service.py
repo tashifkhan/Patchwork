@@ -8,9 +8,9 @@ from typing import Any
 from fastapi import HTTPException, UploadFile, status
 from pydantic import TypeAdapter, ValidationError
 
-from app.clients.gemini_client import GeminiClient
+from app.clients.litellm_client import LiteLLMClient
 from app.core.config import Settings
-from app.model.ai import AiGeneratedTask, AiOcrRequest, AiRefineRequest, AiTasksResponse
+from app.model.ai import AiDraftRequest, AiGeneratedTask, AiOcrRequest, AiRefineRequest, AiTasksResponse
 from app.model.task import TaskList
 
 TASK_LIST_ADAPTER = TypeAdapter(list[TaskList])
@@ -18,9 +18,9 @@ STRING_LIST_ADAPTER = TypeAdapter(list[str])
 
 
 class AiService:
-    def __init__(self, settings: Settings, gemini_client: GeminiClient) -> None:
+    def __init__(self, settings: Settings, litellm_client: LiteLLMClient) -> None:
         self.settings = settings
-        self.gemini_client = gemini_client
+        self.litellm_client = litellm_client
 
     async def parse_image_tasks(self, request: AiOcrRequest) -> AiTasksResponse:
         image_bytes = _decode_base64_image(request.image_base64)
@@ -59,9 +59,14 @@ class AiService:
             available_tags=available_tags,
         )
 
+    async def draft_tasks(self, request: AiDraftRequest) -> AiTasksResponse:
+        prompt = _build_draft_prompt(request)
+        response_text = await self.litellm_client.generate_json(prompt)
+        return AiTasksResponse(tasks=_parse_task_json(response_text))
+
     async def refine_tasks(self, request: AiRefineRequest) -> AiTasksResponse:
         prompt = _build_refine_prompt(request)
-        response_text = await self.gemini_client.generate_json(prompt)
+        response_text = await self.litellm_client.generate_json(prompt)
         return AiTasksResponse(tasks=_parse_task_json(response_text))
 
     async def _parse_image_bytes(
@@ -78,7 +83,7 @@ class AiService:
             )
 
         prompt = _build_ocr_prompt(available_lists, available_tags)
-        response_text = await self.gemini_client.generate_json(
+        response_text = await self.litellm_client.generate_json(
             prompt,
             image_bytes=image_bytes,
             mime_type=mime_type,
@@ -195,6 +200,24 @@ def _build_refine_prompt(request: AiRefineRequest) -> str:
     ).strip()
 
 
+def _build_draft_prompt(request: AiDraftRequest) -> str:
+    return textwrap.dedent(
+        f"""
+        You are a task planning assistant for a Nextcloud CalDAV todo app.
+        Turn the user's natural-language request into staged tasks for review.
+
+        Current date/time: {datetime.now(UTC).isoformat()}
+        Instruction: {request.instruction}
+        Available lists: {_list_context(request.available_lists)}
+        Available tags: {json.dumps(request.available_tags)}
+
+        Return STRICT JSON only. Do not wrap it in markdown.
+        Return either an array of tasks or an object with a "tasks" array.
+        Use only available list IDs when assigning list_id. Do not save anything.
+        """
+    ).strip()
+
+
 def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
     cleaned = _strip_markdown_fence(response_text)
     try:
@@ -203,7 +226,7 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Gemini returned invalid JSON",
+            detail="AI model returned invalid JSON",
         ) from exc
 
     if isinstance(payload, dict):
@@ -212,7 +235,7 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
     if not isinstance(payload, list):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Gemini JSON must be a task array or an object with a tasks array",
+            detail="AI JSON must be a task array or an object with a tasks array",
         )
 
     try:
@@ -221,7 +244,7 @@ def _parse_task_json(response_text: str) -> list[AiGeneratedTask]:
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Gemini JSON does not match the staged task schema",
+            detail="AI JSON does not match the staged task schema",
         ) from exc
 
 
