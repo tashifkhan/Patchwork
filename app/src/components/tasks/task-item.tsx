@@ -3,6 +3,7 @@ import { memo } from 'react';
 import { Pressable } from 'react-native';
 
 import type { Task } from '@/api/types';
+import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { useTheme } from '@/components/theme/context';
 import { formatRelativeDue } from '@/lib/format';
 import { Text, View } from '@/tw';
@@ -16,18 +17,10 @@ interface TaskItemProps {
   showChildren?: boolean;
 }
 
-function firstLine(markdown: string): string {
-  const line = markdown
-    .split('\n')
-    .map((l) => l.replace(/^[\s>#*\-+\d.]+/, '').trim())
-    .find((l) => l.length > 0);
-  return line ?? '';
-}
-
 function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = true }: TaskItemProps) {
   const { colors } = useTheme();
   const due = formatRelativeDue(task.due_at);
-  const preview = firstLine(task.markdown);
+  const hasMarkdown = task.markdown.trim().length > 0;
   const childCount = task.children.length;
   const showList = !task.parent_uid && Boolean(task.list_name);
 
@@ -62,10 +55,10 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
               ) : null}
             </View>
 
-            {preview ? (
-              <Text numberOfLines={2} className="text-sf-text-2 text-sm">
-                {preview}
-              </Text>
+            {hasMarkdown ? (
+              <View className="pt-0.5">
+                <MarkdownViewer markdown={task.markdown} compact />
+              </View>
             ) : null}
 
             {(showList || task.tags.length > 0 || childCount > 0) ? (
