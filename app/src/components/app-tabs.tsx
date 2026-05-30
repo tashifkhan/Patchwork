@@ -33,7 +33,7 @@ export default function AppTabs() {
 
       <NativeTabs.Trigger name="ai">
         <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
-        <NativeTabs.Trigger.Label>Import</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>AI</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">

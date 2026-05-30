@@ -39,6 +39,16 @@ function StagedTaskCardComponent({ index, task, lists, onChange, onRemove }: Sta
         </Pressable>
       </View>
 
+      <TextInput
+        value={task.description ?? ''}
+        onChangeText={(description) => onChange(index, { description })}
+        placeholder="Description (optional, Markdown)"
+        placeholderTextColor={textSecondary as string}
+        multiline
+        className="text-sf-text bg-sf-bg-3 min-h-16 rounded-lg px-3 py-2 text-sm"
+        style={{ borderCurve: 'continuous' }}
+      />
+
       {lists.length > 1 ? (
         <View className="flex-row flex-wrap gap-2">
           {lists.map((list) => {
