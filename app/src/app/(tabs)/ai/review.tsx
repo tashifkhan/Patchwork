@@ -1,23 +1,27 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Host, TextInput as ExpoTextInput, type TextInputRef } from '@expo/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable } from 'react-native';
 
 import { refineTasks } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import { createTask } from '@/api/tasks';
 import { StagedTaskCard } from '@/components/ai/staged-task-card';
-import { Icon } from '@/components/ui/icon';
+import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useTaskLists } from '@/hooks/use-tasks';
 import { scheduleTaskReminder } from '@/lib/notifications';
 import { queryKeys } from '@/lib/query-client';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { ScrollView, Text, TextInput, View, useCSSVariable } from '@/tw';
+import { ScrollView, Text, View, useCSSVariable } from '@/tw';
 
 export default function AiReviewScreen() {
   const textSecondary = useCSSVariable('--sf-text-2');
+  const { colors } = useTheme();
+  const refineRef = useRef<TextInputRef>(null);
   const queryClient = useQueryClient();
 
   const staged = useAiStagingStore((s) => s.staged);
@@ -48,6 +52,7 @@ export default function AiReviewScreen() {
       });
       setStaged(response.tasks);
       setInstruction('');
+      refineRef.current?.clear();
     } catch (error) {
       setAlert({
         title: 'Refine failed',
@@ -117,7 +122,7 @@ export default function AiReviewScreen() {
   if (staged.length === 0) {
     return (
       <View className="bg-sf-bg flex-1 items-center justify-center gap-2 px-8">
-        <Icon name="sparkles" size={28} color={textSecondary as string} />
+        <MaterialCommunityIcons name="auto-fix" size={28} color={textSecondary as string} />
         <Text className="text-sf-text-2 text-center">No staged tasks. Import an image first.</Text>
       </View>
     );
@@ -146,14 +151,23 @@ export default function AiReviewScreen() {
 
       <View className="bg-sf-bg-2 gap-2 rounded-2xl p-3" style={{ borderCurve: 'continuous' }}>
         <Text className="text-sf-text-2 text-xs font-semibold uppercase">Refine with AI</Text>
-        <TextInput
-          value={instruction}
-          onChangeText={setInstruction}
-          placeholder="e.g. split into morning and evening tasks"
-          placeholderTextColor={textSecondary as string}
-          className="text-sf-text bg-sf-bg-3 rounded-lg px-3 py-2 text-base"
-          style={{ borderCurve: 'continuous' }}
-        />
+        <View className="bg-sf-bg-3 rounded-lg px-2" style={{ borderCurve: 'continuous', minHeight: 40, justifyContent: 'center' }}>
+          <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
+            <ExpoTextInput
+              ref={refineRef}
+              placeholder="e.g. split into morning and evening tasks"
+              placeholderTextColor={colors.text3}
+              multiline
+              autoCapitalize="sentences"
+              underlineColorAndroid="transparent"
+              cursorColor={colors.accent}
+              selectionColor={colors.accent}
+              onChangeText={setInstruction}
+              textStyle={{ color: colors.text, fontSize: 16 }}
+              style={{ paddingHorizontal: 6, paddingVertical: 6, backgroundColor: 'transparent' }}
+            />
+          </Host>
+        </View>
         <Pressable
           onPress={handleRefine}
           disabled={refining || !instruction.trim()}
@@ -161,7 +175,7 @@ export default function AiReviewScreen() {
             opacity: refining || !instruction.trim() ? 0.4 : pressed ? 0.8 : 1,
           })}>
           <View className="flex-row items-center justify-center gap-2 py-2">
-            <Icon name="sparkles" size={16} color={textSecondary as string} />
+            <MaterialCommunityIcons name="auto-fix" size={16} color={textSecondary as string} />
             <Text className="text-sf-text text-base">{refining ? 'Refining…' : 'Refine'}</Text>
           </View>
         </Pressable>
