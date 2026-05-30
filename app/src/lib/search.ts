@@ -13,6 +13,8 @@ export interface SearchNode {
   // Where to navigate / how to resolve the original record.
   taskUid?: string;
   boardId?: number;
+  stackId?: number;
+  cardId?: number;
 }
 
 export const fuseOptions: IFuseOptions<SearchNode> = {
@@ -64,6 +66,8 @@ export function buildSearchNodes(
           tags: (card.labels ?? []).map((label) => label.title ?? '').filter(Boolean),
           listName: `${board.boardTitle} › ${stack.title ?? ''}`,
           boardId: board.boardId,
+          stackId: stack.id,
+          cardId: card.id,
         });
       }
     }
