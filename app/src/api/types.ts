@@ -189,6 +189,12 @@ export interface AiTasksResponse {
   tasks: AiGeneratedTask[];
 }
 
+export interface AiDraftRequest {
+  instruction: string;
+  available_lists?: TaskList[];
+  available_tags?: string[];
+}
+
 export interface AiRefineRequest {
   instruction: string;
   tasks: AiGeneratedTask[];

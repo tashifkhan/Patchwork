@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { AiRefineRequest, AiTasksResponse, TaskList } from './types';
+import type { AiDraftRequest, AiRefineRequest, AiTasksResponse, TaskList } from './types';
 
 export interface OcrUploadInput {
   uri: string;
@@ -29,4 +29,8 @@ export function ocrUploadImage(input: OcrUploadInput) {
 
 export function refineTasks(payload: AiRefineRequest) {
   return api.post<AiTasksResponse>('/api/ai/refine-tasks', payload);
+}
+
+export function draftTasks(payload: AiDraftRequest) {
+  return api.post<AiTasksResponse>('/api/ai/draft-tasks', payload);
 }
