@@ -7,6 +7,7 @@ import { Pressable } from 'react-native';
 import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
+import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
@@ -36,6 +37,7 @@ interface TaskFormProps {
   showReminder?: boolean;
   showPriority?: boolean;
   showCalendar?: boolean;
+  showPreview?: boolean;
   onSubmit: (values: TaskFormValues) => void;
   onDelete?: () => void;
 }
@@ -60,6 +62,7 @@ export function TaskForm({
   showReminder = true,
   showPriority = true,
   showCalendar = true,
+  showPreview = false,
   onSubmit,
   onDelete,
 }: TaskFormProps) {
@@ -155,6 +158,16 @@ export function TaskForm({
           style={{ borderCurve: 'continuous', textAlignVertical: 'top' }}
         />
       </Field>
+
+      {showPreview && markdown.trim() ? (
+        <Field label="Preview" icon="eye-outline">
+          <View
+            className="bg-sf-bg-2 rounded-xl px-3 py-2"
+            style={{ borderCurve: 'continuous' }}>
+            <MarkdownViewer markdown={markdown} />
+          </View>
+        </Field>
+      ) : null}
 
       {showTags ? (
         <Field label="Tags" icon="tag-multiple-outline">
