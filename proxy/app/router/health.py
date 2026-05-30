@@ -10,5 +10,5 @@ router = APIRouter(tags=["health"])
 async def health(settings: SettingsDep) -> HealthResponse:
     return HealthResponse(
         nextcloud_configured=settings.nextcloud_configured,
-        gemini_configured=bool(settings.gemini_api_key),
+        gemini_configured=bool(settings.litellm_api_key or settings.gemini_api_key),
     )

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, File, Form, UploadFile
 
-from app.model.ai import AiOcrRequest, AiRefineRequest, AiTasksResponse
+from app.model.ai import AiDraftRequest, AiOcrRequest, AiRefineRequest, AiTasksResponse
 from app.router.dependencies import AiServiceDep
 from app.services.ai_service import parse_tags_form, parse_task_lists_form
 
@@ -33,3 +33,10 @@ async def refine_tasks(
     request: AiRefineRequest, service: AiServiceDep
 ) -> AiTasksResponse:
     return await service.refine_tasks(request)
+
+
+@router.post("/draft-tasks", response_model=AiTasksResponse)
+async def draft_tasks(
+    request: AiDraftRequest, service: AiServiceDep
+) -> AiTasksResponse:
+    return await service.draft_tasks(request)

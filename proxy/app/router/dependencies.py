@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from app.clients.caldav_client import CalDavClient
-from app.clients.gemini_client import GeminiClient
+from app.clients.litellm_client import LiteLLMClient
 from app.core.config import Settings, get_settings
 from app.services.ai_service import AiService
 from app.services.deck_service import DeckService
@@ -27,15 +27,15 @@ def get_deck_service(client: CalDavClientDep) -> DeckService:
     return DeckService(client)
 
 
-def get_gemini_client(settings: SettingsDep) -> GeminiClient:
-    return GeminiClient(settings)
+def get_litellm_client(settings: SettingsDep) -> LiteLLMClient:
+    return LiteLLMClient(settings)
 
 
-GeminiClientDep = Annotated[GeminiClient, Depends(get_gemini_client)]
+LiteLLMClientDep = Annotated[LiteLLMClient, Depends(get_litellm_client)]
 
 
-def get_ai_service(settings: SettingsDep, gemini_client: GeminiClientDep) -> AiService:
-    return AiService(settings, gemini_client)
+def get_ai_service(settings: SettingsDep, litellm_client: LiteLLMClientDep) -> AiService:
+    return AiService(settings, litellm_client)
 
 
 TaskServiceDep = Annotated[TaskService, Depends(get_task_service)]
