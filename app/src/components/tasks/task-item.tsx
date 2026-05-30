@@ -1,12 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { memo } from 'react';
-import { Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 
 import type { Task } from '@/api/types';
 import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { useTheme } from '@/components/theme/context';
 import { formatRelativeDue } from '@/lib/format';
+import { useFocusStore } from '@/stores/focus-store';
 import { Text, View } from '@/tw';
+import { endFocus, startFocus } from '@/widgets/focus';
+
+const DEFAULT_FOCUS_SECONDS = 25 * 60;
 
 interface TaskItemProps {
   task: Task;
@@ -23,6 +27,9 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
   const hasMarkdown = task.markdown.trim().length > 0;
   const childCount = task.children.length;
   const showList = !task.parent_uid && Boolean(task.list_name);
+  const focusUid = useFocusStore((s) => s.taskUid);
+  const isFocused = focusUid === task.uid;
+  const focusEnabled = Platform.OS === 'ios' && !task.completed;
 
   return (
     <View>
@@ -86,6 +93,23 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
             ) : null}
           </View>
         </Pressable>
+
+        {focusEnabled ? (
+          <Pressable
+            onPress={() => {
+              if (isFocused) endFocus();
+              else startFocus(task.uid, task.title, DEFAULT_FOCUS_SECONDS);
+            }}
+            hitSlop={8}
+            accessibilityLabel={isFocused ? 'End focus session' : 'Start 25-minute focus session'}
+            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
+            <MaterialCommunityIcons
+              name={isFocused ? 'timer-off-outline' : 'timer-outline'}
+              size={22}
+              color={isFocused ? colors.accent : colors.text2}
+            />
+          </Pressable>
+        ) : null}
       </View>
 
       {showChildren && childCount > 0 ? (

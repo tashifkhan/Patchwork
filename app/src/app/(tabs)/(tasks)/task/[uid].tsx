@@ -1,10 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard } from 'react-native';
+import { Keyboard, Platform, Pressable } from 'react-native';
 
 import { ApiError } from '@/api/client';
 import type { Task } from '@/api/types';
+import { useFocusStore } from '@/stores/focus-store';
+import { endFocus, pauseFocus, resumeFocus, startFocus } from '@/widgets/focus';
 import { useTheme } from '@/components/theme/context';
 import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
@@ -195,6 +197,8 @@ export default function TaskDetailScreen() {
         onDelete={() => setDeleteVisible(true)}
       />
 
+      {Platform.OS === 'ios' ? <FocusSection taskUid={task.uid} taskTitle={task.title} /> : null}
+
       <View className="gap-2 px-4 pb-4">
         <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Subtasks</Text>
         <View className="bg-sf-bg-2 rounded-xl px-3 py-1" style={{ borderCurve: 'continuous' }}>
@@ -246,5 +250,57 @@ export default function TaskDetailScreen() {
         onDismiss={() => setAlert(null)}
       />
     </ScrollView>
+  );
+}
+
+function FocusSection({ taskUid, taskTitle }: { taskUid: string; taskTitle: string }) {
+  const { colors } = useTheme();
+  const activeUid = useFocusStore((s) => s.taskUid);
+  const paused = useFocusStore((s) => s.paused);
+  const durationSeconds = useFocusStore((s) => s.durationSeconds);
+  const startedAt = useFocusStore((s) => s.startedAt);
+  const isMine = activeUid === taskUid && startedAt != null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isMine || paused) return;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [isMine, paused]);
+  const remainingMin = isMine
+    ? Math.max(0, Math.ceil((durationSeconds - (now - (startedAt ?? 0)) / 1000) / 60))
+    : 0;
+
+  return (
+    <View className="gap-2 px-4 pb-4">
+      <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Focus</Text>
+      <View
+        className="bg-sf-bg-2 flex-row items-center justify-between rounded-xl px-3 py-3"
+        style={{ borderCurve: 'continuous' }}>
+        {isMine ? (
+          <>
+            <Text className="text-sf-text text-base">
+              {paused ? 'Paused' : `${remainingMin} min left`}
+            </Text>
+            <View className="flex-row gap-4">
+              <Pressable
+                onPress={() => (paused ? resumeFocus() : pauseFocus())}
+                hitSlop={8}>
+                <Text className="text-sf-blue text-base">{paused ? 'Resume' : 'Pause'}</Text>
+              </Pressable>
+              <Pressable onPress={() => endFocus()} hitSlop={8}>
+                <Text className="text-base" style={{ color: colors.accent }}>End</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text className="text-sf-text text-base">Start a 25-minute focus session</Text>
+            <Pressable onPress={() => startFocus(taskUid, taskTitle, 25 * 60)} hitSlop={8}>
+              <Text className="text-sf-blue text-base">Start</Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </View>
   );
 }
