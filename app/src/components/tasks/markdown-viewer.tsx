@@ -31,6 +31,35 @@ type Block =
   | { type: 'image'; url: string; alt: string }
   | { type: 'hr' };
 
+const SMART_REPLACEMENTS: [RegExp, string][] = [
+  [/<==>/g, '⇔'],
+  [/<-->/g, '↔'],
+  [/-->/g, '→'],
+  [/<--/g, '←'],
+  [/==>/g, '⇒'],
+  [/<==/g, '⇐'],
+  [/->/g, '→'],
+  [/<-/g, '←'],
+  [/=>/g, '⇒'],
+  [/!=/g, '≠'],
+  [/>=/g, '≥'],
+  [/<=/g, '≤'],
+  [/~=/g, '≈'],
+  [/\+\/-/g, '±'],
+  [/(?<!-)---(?!-)/g, '—'],
+  [/(?<!-)--(?!-)/g, '–'],
+  [/\.{3}/g, '…'],
+  [/\(c\)/gi, '©'],
+  [/\(r\)/gi, '®'],
+  [/\(tm\)/gi, '™'],
+];
+
+function applySmartText(value: string): string {
+  let out = value;
+  for (const [re, sub] of SMART_REPLACEMENTS) out = out.replace(re, sub);
+  return out;
+}
+
 function parseInline(text: string): InlineNode[] {
   const nodes: InlineNode[] = [];
   let i = 0;
@@ -377,7 +406,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
 
   function renderNodes(nodes: InlineNode[]): React.ReactNode {
     return nodes.map((node, idx) => {
-      if (node.type === 'text') return node.value;
+      if (node.type === 'text') return applySmartText(node.value);
       if (node.type === 'break') return '\n';
       if (node.type === 'code') {
         return (
