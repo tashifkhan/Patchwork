@@ -10,10 +10,17 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { ThemeProvider } from '@/components/theme/provider';
 import { queryClient } from '@/lib/query-client';
 import { sheetScreenOptions } from '@/lib/screen-options';
+import { registerWidgetBackgroundRefresh } from '@/widgets/background';
+import { startWidgetObserver } from '@/widgets/observer';
 
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
+    const stopObserver = startWidgetObserver();
+    registerWidgetBackgroundRefresh();
+    return () => {
+      stopObserver();
+    };
   }, []);
 
   return (
