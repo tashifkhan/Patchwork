@@ -23,19 +23,15 @@ import {
   useUpdateTask,
   type ReorderEntry,
 } from '@/hooks/use-tasks';
+import {
+  BUCKET_LABELS,
+  BUCKET_ORDER,
+  bucketOf,
+  byManualOrder,
+  type BucketKey,
+} from '@/lib/task-buckets';
 import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
-
-type BucketKey = 'overdue' | 'today' | 'tomorrow' | 'upcoming' | 'none';
-
-const BUCKET_ORDER: BucketKey[] = ['overdue', 'today', 'tomorrow', 'upcoming', 'none'];
-const BUCKET_LABELS: Record<BucketKey, string> = {
-  overdue: 'Overdue',
-  today: 'Today',
-  tomorrow: 'Tomorrow',
-  upcoming: 'Upcoming',
-  none: 'No due date',
-};
 
 function collectTags(tasks: Task[]): string[] {
   const set = new Set<string>();
@@ -47,30 +43,6 @@ function collectTags(tasks: Task[]): string[] {
   };
   walk(tasks);
   return [...set].sort();
-}
-
-function bucketOf(task: Task): BucketKey {
-  if (!task.due_at) return 'none';
-  const date = new Date(task.due_at);
-  if (Number.isNaN(date.getTime())) return 'none';
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const dayDiff = Math.round((dueDay - startOfToday) / 86_400_000);
-  if (dayDiff < 0) return 'overdue';
-  if (dayDiff === 0) return 'today';
-  if (dayDiff === 1) return 'tomorrow';
-  return 'upcoming';
-}
-
-function byManualOrder(a: Task, b: Task): number {
-  const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
-  const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
-  if (ao !== bo) return ao - bo;
-  const ad = a.due_at ?? '';
-  const bd = b.due_at ?? '';
-  if (ad !== bd) return ad < bd ? -1 : 1;
-  return a.title.localeCompare(b.title);
 }
 
 export default function TasksScreen() {
