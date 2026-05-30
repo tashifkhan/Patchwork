@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Pressable } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Keyboard, Pressable } from 'react-native';
 
 import { ApiError } from '@/api/client';
 import { useTheme } from '@/components/theme/context';
@@ -22,6 +22,17 @@ export default function NewTaskScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [subtaskDrafts, setSubtaskDrafts] = useState<string[]>([]);
   const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
 
@@ -95,7 +106,8 @@ export default function NewTaskScreen() {
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive">
+        keyboardDismissMode="interactive"
+        contentContainerStyle={{ paddingBottom: keyboardHeight }}>
         <TaskForm
           lists={lists}
           availableTags={availableTags}

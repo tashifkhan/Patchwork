@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Keyboard } from 'react-native';
 
 import { ApiError } from '@/api/client';
 import type { Task } from '@/api/types';
@@ -47,6 +48,17 @@ export default function TaskDetailScreen() {
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
   const [deleteVisible, setDeleteVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const task = uid ? findByUid(tasksQuery.data ?? [], decodeURIComponent(uid)) : null;
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
@@ -153,7 +165,8 @@ export default function TaskDetailScreen() {
     <ScrollView
       className="bg-sf-bg flex-1"
       contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive">
+      keyboardDismissMode="interactive"
+      contentContainerStyle={{ paddingBottom: keyboardHeight }}>
       <Stack.Screen options={{ title: task.list_name }} />
 
       {task.markdown.trim() ? (
