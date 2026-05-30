@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
+import type { AiProviderId } from './ai-models';
 import type { CalDavAccount } from './credentials-types';
 
 export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
@@ -12,6 +13,10 @@ const KEYS = {
   legacyUsername: 'caldav-todo.nextcloud.username',
   legacyAppPassword: 'caldav-todo.nextcloud.app-password',
 };
+
+function aiKeyName(providerId: AiProviderId) {
+  return `caldav-todo.ai.${providerId}.api-key`;
+}
 
 const OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED,
@@ -117,15 +122,32 @@ export async function deleteAccount(id: string): Promise<void> {
 }
 
 export async function getGeminiApiKey(): Promise<string | null> {
-  return SecureStore.getItemAsync(KEYS.geminiApiKey, OPTIONS);
+  return getAiApiKey('google');
 }
 
 export async function saveGeminiApiKey(apiKey: string): Promise<void> {
-  const value = apiKey.trim();
-  if (!value) throw new Error('Gemini API key is required.');
-  await SecureStore.setItemAsync(KEYS.geminiApiKey, value, OPTIONS);
+  await saveAiApiKey('google', apiKey);
 }
 
 export async function clearGeminiApiKey(): Promise<void> {
-  await SecureStore.deleteItemAsync(KEYS.geminiApiKey, OPTIONS);
+  await Promise.all([
+    SecureStore.deleteItemAsync(KEYS.geminiApiKey, OPTIONS),
+    clearAiApiKey('google'),
+  ]);
+}
+
+export async function getAiApiKey(providerId: AiProviderId): Promise<string | null> {
+  const value = await SecureStore.getItemAsync(aiKeyName(providerId), OPTIONS);
+  if (value || providerId !== 'google') return value;
+  return SecureStore.getItemAsync(KEYS.geminiApiKey, OPTIONS);
+}
+
+export async function saveAiApiKey(providerId: AiProviderId, apiKey: string): Promise<void> {
+  const value = apiKey.trim();
+  if (!value) throw new Error('API key is required.');
+  await SecureStore.setItemAsync(aiKeyName(providerId), value, OPTIONS);
+}
+
+export async function clearAiApiKey(providerId: AiProviderId): Promise<void> {
+  await SecureStore.deleteItemAsync(aiKeyName(providerId), OPTIONS);
 }
