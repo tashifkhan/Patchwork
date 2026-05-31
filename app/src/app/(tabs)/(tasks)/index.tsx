@@ -18,11 +18,13 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import {
   useReorderTasks,
   useCreateTaskList,
-  useTaskLists,
   useTasks,
+  useTaskLists,
   useUpdateTask,
   type ReorderEntry,
 } from '@/hooks/use-tasks';
+import { useGitHubIssues, useToggleGitHubIssue } from '@/hooks/use-github';
+import { GitHubIssueItem } from '@/components/tasks/github-issue-item';
 import {
   BUCKET_LABELS,
   BUCKET_ORDER,
@@ -30,6 +32,7 @@ import {
   byManualOrder,
   type BucketKey,
 } from '@/lib/task-buckets';
+import { useSettingsStore } from '@/stores/settings-store';
 import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
 
@@ -59,7 +62,7 @@ export default function TasksScreen() {
   const setSelectedListId = useUiStore((s) => s.setSelectedListId);
   const setSelectedTag = useUiStore((s) => s.setSelectedTag);
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ overdue: false, completed: true });
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ overdue: false, completed: true, github_open: false, github_closed: true });
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
   const [createListOpen, setCreateListOpen] = useState(false);
 
@@ -69,6 +72,10 @@ export default function TasksScreen() {
   );
   const allTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
   const allTags = useMemo(() => collectTags(allTasks), [allTasks]);
+
+  const githubQuery = useGitHubIssues();
+  const toggleGitHubIssue = useToggleGitHubIssue();
+  const githubConnected = useSettingsStore((s) => s.githubConnected);
 
   const visibleTasks = useMemo(
     () =>
@@ -113,6 +120,17 @@ export default function TasksScreen() {
     [updateTask]
   );
 
+  const handleGitHubToggle = useCallback(
+    async (issue: GitHubIssue) => {
+      try {
+        await toggleGitHubIssue.mutateAsync(issue);
+      } catch (error) {
+        setAlert({ title: 'Could not update issue', message: error instanceof Error ? error.message : 'Please try again.' });
+      }
+    },
+    [toggleGitHubIssue]
+  );
+
   const handleOpen = useCallback((task: Task) => {
     router.push(`/task/${encodeURIComponent(task.uid)}`);
   }, []);
@@ -145,9 +163,13 @@ export default function TasksScreen() {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  const isLoading = tasksQuery.isLoading;
-  const isEmpty = visibleTasks.length === 0;
+  const isLoading = tasksQuery.isLoading || (githubConnected && githubQuery.isLoading);
+  const isFetching = tasksQuery.isFetching || (githubConnected && githubQuery.isFetching);
+  const isEmpty = visibleTasks.length === 0 && (!githubConnected || (githubQuery.data?.length ?? 0) === 0);
   const showCenteredState = isEmpty && !isLoading;
+
+  const githubOpen = useMemo(() => githubQuery.data?.filter((i) => !i.completed) ?? [], [githubQuery.data]);
+  const githubClosed = useMemo(() => githubQuery.data?.filter((i) => i.completed) ?? [], [githubQuery.data]);
 
   return (
     <>
@@ -183,8 +205,11 @@ export default function TasksScreen() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={tasksQuery.isFetching && !tasksQuery.isLoading}
-            onRefresh={() => tasksQuery.refetch()}
+            refreshing={isFetching && !isLoading}
+            onRefresh={() => {
+              tasksQuery.refetch();
+              if (githubConnected) githubQuery.refetch();
+            }}
           />
         }>
         {allTags.length > 0 ? (
@@ -230,6 +255,39 @@ export default function TasksScreen() {
                   <TaskItem key={task.id} task={task} onToggle={handleToggle} onOpen={handleOpen} />
                 ))}
               </Section>
+            ) : null}
+
+            {githubConnected && githubQuery.data && githubQuery.data.length > 0 ? (
+              <View className="mt-8">
+                <View className="flex-row items-center gap-2 mb-2">
+                  <MaterialCommunityIcons name="github" size={24} color={colors.text} />
+                  <Text className="text-sf-text text-lg font-bold">GitHub Issues</Text>
+                </View>
+                
+                {githubOpen.length > 0 ? (
+                  <Section
+                    title="Open"
+                    count={githubOpen.length}
+                    collapsed={!!collapsed.github_open}
+                    onToggle={() => toggleSection('github_open')}>
+                    {githubOpen.map((issue) => (
+                      <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
+                    ))}
+                  </Section>
+                ) : null}
+
+                {githubClosed.length > 0 ? (
+                  <Section
+                    title="Closed"
+                    count={githubClosed.length}
+                    collapsed={!!collapsed.github_closed}
+                    onToggle={() => toggleSection('github_closed')}>
+                    {githubClosed.map((issue) => (
+                      <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
+                    ))}
+                  </Section>
+                ) : null}
+              </View>
             ) : null}
           </>
         )}
