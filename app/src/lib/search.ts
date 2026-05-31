@@ -4,7 +4,7 @@ import type { DeckStack, Task } from '@/api/types';
 
 export interface SearchNode {
   id: string;
-  type: 'task' | 'subtask' | 'deck-card';
+  type: 'task' | 'subtask' | 'deck-card' | 'github-issue';
   title: string;
   descriptionText: string;
   tags: string[];
@@ -15,6 +15,8 @@ export interface SearchNode {
   boardId?: number;
   stackId?: number;
   cardId?: number;
+  githubIssueNumber?: number;
+  githubRepo?: string;
 }
 
 export const fuseOptions: IFuseOptions<SearchNode> = {
@@ -47,7 +49,8 @@ function flattenTask(task: Task, parentTitle: string | undefined, out: SearchNod
 
 export function buildSearchNodes(
   tasks: Task[],
-  deck: { boardId: number; boardTitle: string; stacks: DeckStack[] }[]
+  deck: { boardId: number; boardTitle: string; stacks: DeckStack[] }[],
+  githubIssues?: import('@/api/types').GitHubIssue[]
 ): SearchNode[] {
   const nodes: SearchNode[] = [];
 
@@ -70,6 +73,21 @@ export function buildSearchNodes(
           cardId: card.id,
         });
       }
+    }
+  }
+
+  if (githubIssues) {
+    for (const issue of githubIssues) {
+      nodes.push({
+        id: `github-issue:${issue.id}`,
+        type: 'github-issue',
+        title: issue.title,
+        descriptionText: issue.body,
+        tags: issue.labels.map(l => l.name),
+        listName: issue.repo,
+        githubIssueNumber: issue.number,
+        githubRepo: issue.repo,
+      });
     }
   }
 

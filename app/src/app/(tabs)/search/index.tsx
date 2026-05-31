@@ -9,9 +9,12 @@ import type { FuseResultMatch } from 'fuse.js';
 
 import { Icon } from '@/components/ui/icon';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
+import { useGitHubIssues } from '@/hooks/use-github';
 import { useTasks } from '@/hooks/use-tasks';
 import { buildSearchNodes, createSearchIndex, type SearchNode } from '@/lib/search';
+import { useSettingsStore } from '@/stores/settings-store';
 import { ScrollView, Text, TextInput, View, useCSSVariable } from '@/tw';
+import * as Linking from 'expo-linking';
 
 const RECENTS_KEY = 'search:recents';
 const MAX_RECENTS = 6;
@@ -44,9 +47,16 @@ const TYPE_META: Record<
     mdIcon: 'card-text-outline',
     tintVar: '--sf-text-2',
   },
+  'github-issue': {
+    label: 'GitHub issue',
+    plural: 'GitHub issues',
+    iosIcon: 'point.topleft.down.curvedto.point.bottomright.up',
+    mdIcon: 'github',
+    tintVar: '--sf-text-2',
+  },
 };
 
-const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'deck-card'];
+const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'deck-card', 'github-issue'];
 
 interface ResultRow {
   node: SearchNode;
@@ -67,10 +77,13 @@ export default function SearchScreen() {
   const tasksQuery = useTasks();
   const boardsQuery = useDeckBoards();
   const deckCards = useAllDeckCards(boardsQuery.data ?? []);
+  
+  const githubConnected = useSettingsStore((s) => s.githubConnected);
+  const githubIssuesQuery = useGitHubIssues();
 
   const nodes = useMemo(
-    () => buildSearchNodes(tasksQuery.data ?? [], deckCards),
-    [tasksQuery.data, deckCards]
+    () => buildSearchNodes(tasksQuery.data ?? [], deckCards, githubConnected ? githubIssuesQuery.data : undefined),
+    [tasksQuery.data, deckCards, githubConnected, githubIssuesQuery.data]
   );
   const fuse = useMemo(() => createSearchIndex(nodes), [nodes]);
 
@@ -115,14 +128,14 @@ export default function SearchScreen() {
   }, [fuse, deferredQuery]);
 
   const counts = useMemo(() => {
-    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0 };
+    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0 };
     for (const r of allResults) c[r.node.type] += 1;
     return c;
   }, [allResults]);
 
   const sections = useMemo(() => {
     const filtered = filter === 'all' ? allResults : allResults.filter((r) => r.node.type === filter);
-    const grouped: Record<NodeType, ResultRow[]> = { task: [], subtask: [], 'deck-card': [] };
+    const grouped: Record<NodeType, ResultRow[]> = { task: [], subtask: [], 'deck-card': [], 'github-issue': [] };
     for (const r of filtered) grouped[r.node.type].push(r);
     return SECTION_ORDER.filter((t) => grouped[t].length > 0).map((t) => ({
       type: t,
@@ -150,6 +163,8 @@ export default function SearchScreen() {
       persistRecent(deferredQuery);
       if (node.type === 'deck-card') {
         router.push('/deck');
+      } else if (node.type === 'github-issue') {
+        Linking.openURL(`https://github.com/${node.githubRepo}/issues/${node.githubIssueNumber}`);
       } else if (node.taskUid) {
         router.push(`/task/${encodeURIComponent(node.taskUid)}`);
       }
@@ -288,6 +303,7 @@ function FilterBar({
     { value: 'task', label: 'Tasks', count: counts.task },
     { value: 'subtask', label: 'Subtasks', count: counts.subtask },
     { value: 'deck-card', label: 'Cards', count: counts['deck-card'] },
+    { value: 'github-issue', label: 'Issues', count: counts['github-issue'] },
   ];
   return (
     <ScrollView
