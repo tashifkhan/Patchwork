@@ -6,7 +6,8 @@ import { Platform } from 'react-native';
 
 import { RowSeparator, SettingsGroup, SettingsRow, SettingsScreen } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
-import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
+import { getAccounts, getGeminiApiKey, getGitHubCredentials, type CalDavAccount } from '@/lib/credentials';
+import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
 export default function SettingsHub() {
@@ -17,14 +18,17 @@ export default function SettingsHub() {
 
   const [accounts, setAccounts] = useState<CalDavAccount[]>([]);
   const [hasGemini, setHasGemini] = useState(false);
+  const githubConnected = useSettingsStore((s) => s.githubConnected);
+  const githubReposCount = useSettingsStore((s) => s.githubRepos.length);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      Promise.all([getAccounts(), getGeminiApiKey()]).then(([list, gemini]) => {
+      Promise.all([getAccounts(), getGeminiApiKey(), getGitHubCredentials()]).then(([list, gemini, github]) => {
         if (!active) return;
         setAccounts(list);
         setHasGemini(!!gemini);
+        useSettingsStore.getState().setGitHubConnected(!!github);
       });
       return () => {
         active = false;
@@ -72,6 +76,16 @@ export default function SettingsHub() {
           subtitle="Reminders and lead time"
           showChevron
           onPress={() => router.push('/settings/notifications')}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup>
+        <SettingsRow
+          icon="github"
+          title="GitHub Issues"
+          subtitle={githubConnected ? `${githubReposCount} repos connected` : 'Connect your account'}
+          showChevron
+          onPress={() => router.push('/settings/github')}
         />
       </SettingsGroup>
 

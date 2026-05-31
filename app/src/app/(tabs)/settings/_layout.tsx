@@ -10,6 +10,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="appearance" options={{ title: 'Look and feel' }} />
       <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
       <Stack.Screen name="ai" options={{ title: 'AI import' }} />
+      <Stack.Screen name="github" options={{ title: 'GitHub Issues' }} />
     </Stack>
   );
 }

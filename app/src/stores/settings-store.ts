@@ -23,6 +23,8 @@ interface SettingsState {
   aiBaseUrlOverrides: Partial<Record<AiProviderId, string>>;
   aiCustomProviders: AiCustomProvider[];
   hydrated: boolean;
+  githubRepos: string[];
+  githubConnected: boolean;
   setProxyUrl: (url: string) => void;
   setThemeMode: (mode: ThemeMode) => void;
   setDynamicColor: (enabled: boolean) => void;
@@ -35,6 +37,8 @@ interface SettingsState {
   setAiBaseUrlOverride: (providerId: AiProviderId, baseUrl: string) => void;
   upsertAiCustomProvider: (provider: AiCustomProvider) => void;
   removeAiCustomProvider: (providerId: string) => void;
+  setGitHubRepos: (repos: string[]) => void;
+  setGitHubConnected: (connected: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -52,6 +56,8 @@ export const useSettingsStore = create<SettingsState>()(
       aiBaseUrlOverrides: {},
       aiCustomProviders: [],
       hydrated: false,
+      githubRepos: [],
+      githubConnected: false,
       setProxyUrl: (url) => {
         setApiBaseUrl(url);
         set({ proxyUrl: url });
@@ -81,6 +87,8 @@ export const useSettingsStore = create<SettingsState>()(
           aiCustomProviders: state.aiCustomProviders.filter((entry) => entry.id !== providerId),
           aiModelSelections: state.aiModelSelections.filter((selection) => selection.providerId !== providerId),
         })),
+      setGitHubRepos: (githubRepos) => set({ githubRepos }),
+      setGitHubConnected: (githubConnected) => set({ githubConnected }),
     }),
     {
       name: 'caldav-todo-settings',
@@ -97,6 +105,8 @@ export const useSettingsStore = create<SettingsState>()(
         aiModelSelections,
         aiBaseUrlOverrides,
         aiCustomProviders,
+        githubRepos,
+        githubConnected,
       }) => ({
         proxyUrl,
         themeMode,
@@ -109,6 +119,8 @@ export const useSettingsStore = create<SettingsState>()(
         aiModelSelections,
         aiBaseUrlOverrides,
         aiCustomProviders,
+        githubRepos,
+        githubConnected,
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.proxyUrl) {
