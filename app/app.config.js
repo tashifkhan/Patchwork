@@ -10,6 +10,10 @@ module.exports = ({ config }) => {
     ios: {
       ...config.ios,
       bundleIdentifier: iosBundleId,
+      infoPlist: {
+        ...(config.ios && config.ios.infoPlist),
+        ITSAppUsesNonExemptEncryption: false,
+      },
       entitlements: {
         ...(config.ios && config.ios.entitlements),
         'com.apple.security.application-groups': [widgetsGroupId],
@@ -21,46 +25,6 @@ module.exports = ({ config }) => {
     },
     plugins: [
       ...(config.plugins ?? []),
-      [
-        'expo-widgets',
-        {
-          bundleIdentifier: widgetsBundleId,
-          groupIdentifier: widgetsGroupId,
-          enablePushNotifications: true,
-          widgets: [
-            {
-              name: 'TodayWidget',
-              displayName: 'Today',
-              description: 'Tasks due today across your accounts.',
-              supportedFamilies: ['systemSmall', 'systemMedium', 'systemLarge'],
-            },
-            {
-              name: 'UpcomingWidget',
-              displayName: 'Upcoming',
-              description: 'Overdue plus what is due next.',
-              supportedFamilies: ['systemMedium', 'systemLarge'],
-            },
-            {
-              name: 'ListWidget',
-              displayName: 'List',
-              description: 'Tasks from your last opened list.',
-              supportedFamilies: ['systemSmall', 'systemMedium'],
-            },
-            {
-              name: 'LockWidget',
-              displayName: 'Quick View',
-              description: 'Lock Screen glance for your tasks.',
-              supportedFamilies: ['accessoryCircular', 'accessoryRectangular', 'accessoryInline'],
-            },
-            {
-              name: 'FocusActivity',
-              displayName: 'Focus Session',
-              description: 'Pomodoro / focus timer Live Activity.',
-              supportedFamilies: [],
-            },
-          ],
-        },
-      ],
       [
         'react-native-android-widget',
         {
@@ -100,6 +64,44 @@ module.exports = ({ config }) => {
               updatePeriodMillis: 1800000,
               resizeMode: 'horizontal|vertical',
               widgetFeatures: 'reconfigurable',
+            },
+          ],
+        },
+      ],
+      [
+        'expo-widgets',
+        {
+          bundleIdentifier: widgetsBundleId,
+          groupIdentifier: widgetsGroupId,
+          enablePushNotifications: true,
+          widgets: [
+            {
+              name: 'TodayWidget',
+              displayName: 'Today',
+              description: 'Tasks due today across your accounts.',
+              supportedFamilies: ['systemSmall', 'systemMedium', 'systemLarge'],
+              android: null,
+            },
+            {
+              name: 'UpcomingWidget',
+              displayName: 'Upcoming',
+              description: 'Overdue plus what is due next.',
+              supportedFamilies: ['systemMedium', 'systemLarge'],
+              android: null,
+            },
+            {
+              name: 'ListWidget',
+              displayName: 'List',
+              description: 'Tasks from your last opened list.',
+              supportedFamilies: ['systemSmall', 'systemMedium'],
+              android: null,
+            },
+            {
+              name: 'LockWidget',
+              displayName: 'Quick View',
+              description: 'Lock Screen glance for your tasks.',
+              supportedFamilies: ['accessoryCircular', 'accessoryRectangular', 'accessoryInline'],
+              android: null,
             },
           ],
         },
