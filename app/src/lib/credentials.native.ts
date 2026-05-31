@@ -1,13 +1,19 @@
 import * as SecureStore from 'expo-secure-store';
 
 import type { AiProviderId } from './ai-models';
-import type { CalDavAccount } from './credentials-types';
+import type { CalDavAccount, GitHubCredentials } from './credentials-types';
 
-export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
+export type {
+  CalDavAccount,
+  GitHubCredentials,
+  NextcloudCredentials,
+  ServerType,
+} from './credentials-types';
 
 const KEYS = {
   accounts: 'caldav-todo.accounts',
   geminiApiKey: 'caldav-todo.gemini.api-key',
+  github: 'caldav-todo.github.credentials',
   // Legacy single-account keys (migrated on first read).
   legacyBaseUrl: 'caldav-todo.nextcloud.base-url',
   legacyUsername: 'caldav-todo.nextcloud.username',
@@ -150,4 +156,24 @@ export async function saveAiApiKey(providerId: AiProviderId, apiKey: string): Pr
 
 export async function clearAiApiKey(providerId: AiProviderId): Promise<void> {
   await SecureStore.deleteItemAsync(aiKeyName(providerId), OPTIONS);
+}
+
+// ── GitHub ─────────────────────────────────────────────────────────────
+
+export async function getGitHubCredentials(): Promise<GitHubCredentials | null> {
+  const raw = await SecureStore.getItemAsync(KEYS.github, OPTIONS);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as GitHubCredentials;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveGitHubCredentials(creds: GitHubCredentials): Promise<void> {
+  await SecureStore.setItemAsync(KEYS.github, JSON.stringify(creds), OPTIONS);
+}
+
+export async function clearGitHubCredentials(): Promise<void> {
+  await SecureStore.deleteItemAsync(KEYS.github, OPTIONS);
 }

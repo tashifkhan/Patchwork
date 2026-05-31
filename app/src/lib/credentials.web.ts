@@ -28,3 +28,13 @@ export async function getGeminiApiKey(): Promise<string | null> {
 export async function saveGeminiApiKey(_apiKey: string): Promise<void> {}
 
 export async function clearGeminiApiKey(): Promise<void> {}
+
+export type { GitHubCredentials } from './credentials-types';
+
+export async function getGitHubCredentials(): Promise<import('./credentials-types').GitHubCredentials | null> {
+  return null;
+}
+
+export async function saveGitHubCredentials(_creds: import('./credentials-types').GitHubCredentials): Promise<void> {}
+
+export async function clearGitHubCredentials(): Promise<void> {}

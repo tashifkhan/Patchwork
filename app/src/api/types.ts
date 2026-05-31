@@ -70,6 +70,7 @@ export interface HealthResponse {
   status: 'ok';
   nextcloud_configured: boolean;
   gemini_configured: boolean;
+  github_configured: boolean;
 }
 
 export interface DeckBoard {
@@ -200,4 +201,48 @@ export interface AiRefineRequest {
   tasks: AiGeneratedTask[];
   available_lists?: TaskList[];
   available_tags?: string[];
+}
+
+// ── GitHub Issues ──────────────────────────────────────────────────────
+
+export interface GitHubLabel {
+  id: number;
+  name: string;
+  color: string;
+}
+
+export interface GitHubUser {
+  login: string;
+  avatar_url: string;
+}
+
+export interface GitHubIssue {
+  id: number;
+  number: number;
+  repo: string;
+  title: string;
+  body: string;
+  state: 'open' | 'closed';
+  labels: GitHubLabel[];
+  assignees: GitHubUser[];
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  completed: boolean;
+  source: 'github';
+}
+
+export interface GitHubIssueUpdate {
+  title?: string;
+  body?: string;
+  state?: 'open' | 'closed';
+  labels?: string[];
+}
+
+export interface GitHubRepo {
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  private: boolean;
+  owner: GitHubUser;
 }
