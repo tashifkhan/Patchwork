@@ -25,6 +25,8 @@ module.exports = ({ config }) => {
     },
     plugins: [
       ...(config.plugins ?? []),
+      'expo-font',
+      'expo-image',
       [
         'react-native-android-widget',
         {
