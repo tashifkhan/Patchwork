@@ -106,6 +106,7 @@ module.exports = ({ config }) => {
           ],
         },
       ],
+      './plugins/with-android-workmanager-dedupe',
     ],
   };
 };
