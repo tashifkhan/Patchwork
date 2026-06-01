@@ -6,6 +6,7 @@ import { getApiBaseUrl, setApiBaseUrl } from '@/api/client';
 import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/lib/ai-models';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+export type GitHubMode = 'public' | 'private';
 
 interface SettingsState {
   proxyUrl: string;
@@ -25,6 +26,7 @@ interface SettingsState {
   hydrated: boolean;
   githubRepos: string[];
   githubConnected: boolean;
+  githubMode: GitHubMode;
   setProxyUrl: (url: string) => void;
   setThemeMode: (mode: ThemeMode) => void;
   setDynamicColor: (enabled: boolean) => void;
@@ -39,6 +41,7 @@ interface SettingsState {
   removeAiCustomProvider: (providerId: string) => void;
   setGitHubRepos: (repos: string[]) => void;
   setGitHubConnected: (connected: boolean) => void;
+  setGitHubMode: (mode: GitHubMode) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -58,6 +61,7 @@ export const useSettingsStore = create<SettingsState>()(
       hydrated: false,
       githubRepos: [],
       githubConnected: false,
+      githubMode: 'public',
       setProxyUrl: (url) => {
         setApiBaseUrl(url);
         set({ proxyUrl: url });
@@ -89,6 +93,7 @@ export const useSettingsStore = create<SettingsState>()(
         })),
       setGitHubRepos: (githubRepos) => set({ githubRepos }),
       setGitHubConnected: (githubConnected) => set({ githubConnected }),
+      setGitHubMode: (githubMode) => set({ githubMode }),
     }),
     {
       name: 'caldav-todo-settings',
@@ -107,6 +112,7 @@ export const useSettingsStore = create<SettingsState>()(
         aiCustomProviders,
         githubRepos,
         githubConnected,
+        githubMode,
       }) => ({
         proxyUrl,
         themeMode,
@@ -121,6 +127,7 @@ export const useSettingsStore = create<SettingsState>()(
         aiCustomProviders,
         githubRepos,
         githubConnected,
+        githubMode,
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.proxyUrl) {

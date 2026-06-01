@@ -17,11 +17,11 @@ function GitHubIssueItemComponent({ issue, onToggle }: GitHubIssueItemProps) {
   return (
     <View className="flex-row items-start gap-3 py-2">
       <Pressable
-        onPress={() => onToggle(issue)}
+        onPress={issue.readOnly ? undefined : () => onToggle(issue)}
         hitSlop={8}
-        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
+        style={({ pressed }) => ({ opacity: pressed && !issue.readOnly ? 0.5 : 1, paddingTop: 1 })}>
         <MaterialCommunityIcons
-          name={issue.completed ? 'checkbox-marked' : 'checkbox-blank-outline'}
+          name={issue.readOnly ? 'checkbox-blank-circle-outline' : issue.completed ? 'checkbox-marked' : 'checkbox-blank-outline'}
           size={24}
           color={issue.completed ? colors.accent : colors.gray}
         />

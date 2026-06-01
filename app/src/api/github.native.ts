@@ -6,9 +6,9 @@ import { useSettingsStore } from '@/stores/settings-store';
 const GITHUB_API = 'https://api.github.com';
 
 class GitHubClient {
-  private token: string;
+  private token?: string;
 
-  constructor(token: string) {
+  constructor(token?: string) {
     this.token = token;
   }
 
@@ -16,7 +16,7 @@ class GitHubClient {
     const response = await fetch(`${GITHUB_API}${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
@@ -57,8 +57,17 @@ async function getClient(): Promise<GitHubClient> {
   return new GitHubClient(creds.token);
 }
 
+async function getOptionalClient(): Promise<GitHubClient> {
+  const creds = await getGitHubCredentials();
+  return new GitHubClient(creds?.token);
+}
+
 function getConfiguredRepos(): string[] {
   return useSettingsStore.getState().githubRepos;
+}
+
+function getGitHubMode() {
+  return useSettingsStore.getState().githubMode;
 }
 
 interface GitHubApiIssue {
@@ -76,7 +85,7 @@ interface GitHubApiIssue {
   pull_request?: unknown;
 }
 
-function mapIssue(raw: GitHubApiIssue, repoFallback?: string): GitHubIssue {
+function mapIssue(raw: GitHubApiIssue, repoFallback?: string, readOnly = false): GitHubIssue {
   const repo = raw.repository?.full_name ?? repoFallback ?? '';
   return {
     id: raw.id,
@@ -92,11 +101,13 @@ function mapIssue(raw: GitHubApiIssue, repoFallback?: string): GitHubIssue {
     html_url: raw.html_url,
     completed: raw.state === 'closed',
     source: 'github',
+    readOnly,
   };
 }
 
 export async function fetchGitHubIssues(): Promise<GitHubIssue[]> {
-  const client = await getClient();
+  const mode = getGitHubMode();
+  const client = mode === 'private' ? await getClient() : await getOptionalClient();
   const repos = getConfiguredRepos();
 
   if (repos.length === 0) return [];
@@ -107,12 +118,12 @@ export async function fetchGitHubIssues(): Promise<GitHubIssue[]> {
     try {
       const raw = await client.request<GitHubApiIssue[]>(
         'GET',
-        `/repos/${repo}/issues?state=all&assignee=@me&per_page=100&sort=updated&direction=desc`
+        `/repos/${repo}/issues?state=all${mode === 'private' ? '&assignee=@me' : ''}&per_page=100&sort=updated&direction=desc`
       );
       // GitHub's issues endpoint also returns PRs — filter them out
       const issues = raw
         .filter((item) => !item.pull_request)
-        .map((item) => mapIssue(item, repo));
+        .map((item) => mapIssue(item, repo, mode === 'public'));
       allIssues.push(...issues);
     } catch (error) {
       // If one repo fails (e.g. no access), continue with others
@@ -127,6 +138,32 @@ export async function fetchGitHubIssues(): Promise<GitHubIssue[]> {
 }
 
 export async function fetchGitHubRepos(): Promise<GitHubRepo[]> {
+  const mode = getGitHubMode();
+
+  if (mode === 'public') {
+    const client = await getOptionalClient();
+    const repos = getConfiguredRepos();
+    const publicRepos: GitHubRepo[] = [];
+
+    for (const repo of repos) {
+      try {
+        const raw = await client.request<GitHubRepo>('GET', `/repos/${repo}`);
+        publicRepos.push({
+          full_name: raw.full_name,
+          description: raw.description,
+          html_url: raw.html_url,
+          private: raw.private,
+          owner: { login: raw.owner.login, avatar_url: raw.owner.avatar_url },
+        });
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) continue;
+        throw error;
+      }
+    }
+
+    return publicRepos;
+  }
+
   const client = await getClient();
   const raw = await client.request<GitHubRepo[]>(
     'GET',

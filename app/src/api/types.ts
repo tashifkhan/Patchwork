@@ -230,6 +230,7 @@ export interface GitHubIssue {
   html_url: string;
   completed: boolean;
   source: 'github';
+  readOnly?: boolean;
 }
 
 export interface GitHubIssueUpdate {

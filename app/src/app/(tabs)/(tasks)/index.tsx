@@ -122,6 +122,7 @@ export default function TasksScreen() {
 
   const handleGitHubToggle = useCallback(
     async (issue: GitHubIssue) => {
+      if (issue.readOnly) return;
       try {
         await toggleGitHubIssue.mutateAsync(issue);
       } catch (error) {
