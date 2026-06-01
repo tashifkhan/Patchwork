@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import vobject
 
-from app.model.task import Task, TaskCreate
+from app.model.task import Task, TaskCreate, TaskUpdate
 
 
 def is_deck_calendar(name: str, href: str = "") -> bool:
@@ -48,6 +48,7 @@ def parse_vtodo(
         parent_uid=_value(todo, "related_to"),
         etag=etag,
         updated_at=_datetime_value(todo, "last_modified"),
+        raw_calendar_data=calendar_data,
     )
 
 
@@ -84,6 +85,49 @@ def serialize_new_vtodo(task: TaskCreate) -> tuple[str, str]:
         alarm.add("trigger").value = _vobject_datetime(task.reminder_at)
 
     return uid, component.serialize()
+
+
+def serialize_updated_vtodo(task: Task, updates: TaskUpdate) -> str:
+    component = vobject.readOne(task.raw_calendar_data)
+    todo = getattr(component, "vtodo", None)
+    if todo is None:
+        raise ValueError("VTODO component not found in existing task data")
+
+    if updates.title is not None:
+        todo.add("summary").value = updates.title
+
+    if updates.markdown is not None:
+        todo.add("description").value = updates.markdown
+
+    if updates.completed is not None:
+        todo.add("status").value = "COMPLETED" if updates.completed else "NEEDS-ACTION"
+
+    if updates.priority is not None:
+        todo.add("priority").value = updates.priority
+
+    if updates.due_at is not None:
+        todo.add("due").value = _vobject_datetime(updates.due_at)
+
+    if updates.reminder_at is not None:
+        alarm_list = getattr(todo, "valarm_list", [])
+        for alarm in alarm_list:
+            todo.remove(alarm)
+        if updates.reminder_at:
+            alarm = todo.add("valarm")
+            alarm.add("action").value = "DISPLAY"
+            alarm.add("description").value = updates.title or task.title
+            alarm.add("trigger").value = _vobject_datetime(updates.reminder_at)
+
+    if updates.tags is not None:
+        todo.add("categories").value = updates.tags
+
+    if updates.parent_uid is not None:
+        todo.add("related-to").value = updates.parent_uid
+
+    todo.add("last-modified").value = _vobject_datetime(datetime.now(UTC))
+    todo.add("dtstamp").value = _vobject_datetime(datetime.now(UTC))
+
+    return component.serialize()
 
 
 def attach_children(tasks: list[Task]) -> list[Task]:

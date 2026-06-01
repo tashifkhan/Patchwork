@@ -32,6 +32,7 @@ class Task(BaseModel):
     children: list["Task"] = Field(default_factory=list)
     etag: str | None = None
     updated_at: datetime | None = None
+    raw_calendar_data: str = ""
 
 
 class TaskCreate(BaseModel):
