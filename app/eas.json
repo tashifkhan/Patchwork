@@ -18,6 +18,17 @@
       "env": {
         "APP_VARIANT": "production"
       }
+    },
+    "github-release": {
+      "environment": "production",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "APP_VARIANT": "production",
+        "NODE_ENV": "production"
+      }
     }
   },
   "submit": {
