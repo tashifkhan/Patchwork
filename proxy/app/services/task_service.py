@@ -4,12 +4,13 @@ from xml.etree import ElementTree as ET
 from fastapi import HTTPException, status
 
 from app.clients.caldav_client import CalDavClient
-from app.model.task import Task, TaskCreate, TaskList, TaskListCreate
+from app.model.task import Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate
 from app.services.caldav_codec import (
     attach_children,
     is_deck_calendar,
     parse_vtodo,
     serialize_new_vtodo,
+    serialize_updated_vtodo,
 )
 
 DAV_NS = "DAV:"
@@ -124,6 +125,62 @@ class TaskService:
             headers={"Content-Type": "application/xml; charset=utf-8"},
         )
         return TaskList(id=slug, href=href, name=task_list.name, is_deck=False)
+
+    async def get_task(self, task_id: str) -> Task:
+        calendars = await self.list_task_calendars()
+        task_url = self.client.absolute_url(task_id)
+
+        response = await self.client.request("GET", task_url)
+
+        calendar = next(
+            (cal for cal in calendars if task_id.startswith(cal.href)),
+            None,
+        )
+
+        task = parse_vtodo(
+            calendar_data=response.text,
+            href=task_id,
+            etag=response.headers.get("etag"),
+            list_id=calendar.id if calendar else "",
+            list_name=calendar.name if calendar else "",
+        )
+
+        if task is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Task not found or could not be parsed",
+            )
+
+        return task
+
+    async def update_task(self, task_id: str, task_update: TaskUpdate) -> Task:
+        existing = await self.get_task(task_id)
+
+        headers = {"Content-Type": "text/calendar; charset=utf-8"}
+        etag = task_update.etag or existing.etag
+        if etag:
+            headers["If-Match"] = etag
+
+        updated_calendar_data = serialize_updated_vtodo(existing, task_update)
+        task_url = self.client.absolute_url(task_id)
+
+        await self.client.request(
+            "PUT",
+            task_url,
+            content=updated_calendar_data,
+            headers=headers,
+        )
+
+        return await self.get_task(task_id)
+
+    async def delete_task(self, task_id: str) -> None:
+        task_url = self.client.absolute_url(task_id)
+        try:
+            await self.client.request("DELETE", task_url)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                return
+            raise
 
     async def _list_calendar_tasks(self, calendar: TaskList) -> list[Task]:
         body = textwrap.dedent(
