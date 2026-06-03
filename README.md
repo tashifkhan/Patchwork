@@ -1,6 +1,25 @@
-# Dev-Centric Tasks Application
+# PatchWork - Dev Centric Tasks Application
 
 This is a developer-centric tasks application designed to unify task management across multiple engineering systems. It integrates CalDAV, Kanban boards, and issues/messages from developer tools like GitHub, Slack, and Jira, powered by on-device and proxy-based AI task generators and analyzers.
+
+## Android Downloads and F-Droid
+
+Android APK releases are built from this repository with EAS, attached to GitHub Releases, and then mirrored into a self-hosted F-Droid-compatible repository served by `tashif.codes`.
+
+Install options:
+
+* F-Droid repo page: `https://tashif.codes/fdroid`
+* F-Droid repo URL: `https://tashif.codes/fdroid/repo`
+* Direct APK downloads: `https://github.com/tashifkhan/caldav-todo/releases/latest`
+
+User install instructions:
+
+1. Open F-Droid on Android.
+2. Go to Settings -> Repositories.
+3. Add `https://tashif.codes/fdroid/repo`.
+4. Refresh repositories and install PatchWork.
+5. If F-Droid is not available, download the APK from the latest GitHub Release.
+
 
 ## Repository Structure
 
@@ -40,10 +59,11 @@ The following checklists highlight what has been completed, what is in progress,
 * [ ] Complete UI forms for managing columns/stacks and cards directly.
 
 ### 3. GitHub Issues Integration
+* [x] Fetch issues from public GitHub repositories without login.
+* [x] Support private repositories through OAuth device flow or Personal Access Token.
+* [x] Render GitHub issues in the task list.
+* [x] Support closing/reopening authenticated private issues from the app.
 * [ ] Implement backend proxy router and service wrappers for the GitHub REST API.
-* [ ] Implement OAuth or Personal Access Token settings in the configuration store.
-* [ ] Implement sync mechanism to fetch assigned or watched issues.
-* [ ] Render GitHub issues as tasks with two-way status syncing (completing in app closes the issue, and vice versa).
 
 ### 4. Slack List and Reminders Integration
 * [ ] Implement backend proxy service connecting to Slack Web API and Slack Lists.
