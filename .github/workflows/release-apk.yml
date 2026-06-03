@@ -25,6 +25,7 @@ jobs:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
       NODE_ENV: production
+      TASHIF_CODES_WORKFLOW_TOKEN: ${{ secrets.TASHIF_CODES_WORKFLOW_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,3 +66,14 @@ jobs:
           name: PatchWork ${{ env.RELEASE_TAG }}
           files: ${{ steps.download_apk.outputs.apk_path }}
           generate_release_notes: true
+
+      - name: Trigger tashif.codes F-Droid publish
+        if: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN }}
+        run: |
+          gh workflow run publish-fdroid.yml \
+            --repo tashifkhan/tashif.codes \
+            --field source_repository="${{ github.repository }}" \
+            --field release_tag="$RELEASE_TAG" \
+            --field apk_pattern='*.apk'

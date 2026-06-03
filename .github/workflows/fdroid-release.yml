@@ -9,32 +9,31 @@ on:
         description: 'Release tag containing the APK, for example v1.0.0'
         required: true
         type: string
+      apk_pattern:
+        description: 'APK asset pattern in the release'
+        required: true
+        default: '*.apk'
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish-fdroid-repo:
-    name: Publish APK to F-Droid-compatible repo
+  trigger-website-fdroid:
+    name: Trigger tashif.codes F-Droid publish
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+      APK_PATTERN: ${{ github.event_name == 'workflow_dispatch' && inputs.apk_pattern || '*.apk' }}
+      GH_TOKEN: ${{ secrets.TASHIF_CODES_WORKFLOW_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Validate token
+        run: test -n "$GH_TOKEN"
 
-      - name: Download release APK
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Trigger tashif.codes workflow
         run: |
-          mkdir -p fdroid-input
-          gh release download "$RELEASE_TAG" --pattern '*.apk' --dir fdroid-input
-          test -n "$(ls fdroid-input/*.apk 2>/dev/null)"
-
-      - name: Publish to F-Droid repo branch
-        uses: pacien/f-droid-repo-action@v1
-        with:
-          repository: ${{ github.repository }}
-          branch: fdroid
-          token: ${{ secrets.FDROID_REPO_TOKEN || github.token }}
-          apk: fdroid-input/*.apk
+          gh workflow run publish-fdroid.yml \
+            --repo tashifkhan/tashif.codes \
+            --field source_repository="${{ github.repository }}" \
+            --field release_tag="$RELEASE_TAG" \
+            --field apk_pattern="$APK_PATTERN"
