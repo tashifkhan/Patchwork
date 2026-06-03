@@ -2,6 +2,40 @@
 
 This directory contains the universal frontend codebase for the developer-centric tasks application. It is built on Expo and React Native, supporting iOS, Android, and Web platforms from a single codebase.
 
+## Android Release Distribution
+
+Production APKs are published through GitHub Releases and mirrored into a self-hosted F-Droid-compatible repository on `tashif.codes`.
+
+User-facing install links:
+
+* F-Droid install page: `https://tashif.codes/fdroid`
+* F-Droid repository URL: `https://tashif.codes/fdroid/repo`
+* Latest GitHub APK release: `https://github.com/tashifkhan/caldav-todo/releases/latest`
+
+Build profile:
+
+* `eas.json` profile: `github-release`
+* Android output: APK
+* Gradle command: `:app:assembleRelease`
+
+Manual build/download commands:
+
+```bash
+bun x eas-cli build --platform android --profile github-release --non-interactive --wait
+bun x eas-cli build:download --platform android --profile github-release --latest --output ./PatchWork.apk
+```
+
+GitHub Actions release flow:
+
+1. Push a tag such as `v1.0.0`.
+2. The release workflow builds and attaches an APK to GitHub Releases.
+3. If configured, it dispatches the `tashif.codes` F-Droid workflow to update the repo index.
+
+Required repository secrets:
+
+* `EXPO_TOKEN`: Expo token for EAS.
+* `TASHIF_CODES_WORKFLOW_TOKEN`: Optional cross-repo workflow token for publishing the F-Droid index automatically.
+
 ## Directory Layout
 
 * [src/app/](file:///Users/taf/Projects/caldav-todo/app/src/app): File-based routes managed by Expo Router.
@@ -74,9 +108,12 @@ The app focuses heavily on user personalization, particularly via the settings i
 * [ ] Analytical summary dashboard.
 
 ### Third-Party Connectors (GitHub, Slack, Jira)
-* [ ] UI integration panels inside settings.
+* [x] GitHub settings panel with public repository mode.
+* [x] GitHub private account mode with OAuth or Personal Access Token.
+* [x] GitHub issues in task lists.
+* [ ] Slack and Jira UI integration panels inside settings.
 * [ ] Synced list tabs.
-* [ ] Two-way update actions.
+* [ ] Two-way update actions for all connected providers.
 
 ## Setup Instructions
 
