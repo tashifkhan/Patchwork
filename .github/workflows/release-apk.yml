@@ -55,7 +55,7 @@ jobs:
         id: download_apk
         run: |
           VERSION="${RELEASE_TAG#v}"
-          APK_PATH="PatchWork-${VERSION}.apk"
+          APK_PATH="Patchwork-${VERSION}.apk"
           bun x eas-cli build:download --platform android --profile github-release --latest --output "$APK_PATH"
           echo "apk_path=app/$APK_PATH" >> "$GITHUB_OUTPUT"
 
@@ -63,7 +63,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: PatchWork ${{ env.RELEASE_TAG }}
+          name: Patchwork ${{ env.RELEASE_TAG }}
           files: ${{ steps.download_apk.outputs.apk_path }}
           generate_release_notes: true
 

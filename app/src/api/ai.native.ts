@@ -110,7 +110,7 @@ async function languageModelFor(
 }
 
 function buildOcrPrompt(availableLists: TaskList[], availableTags: string[]) {
-  return `You are an OCR and task parsing assistant for a Nextcloud CalDAV todo app.
+  return `You are an OCR and task parsing assistant for Patchwork, a Nextcloud CalDAV task app.
 Read the uploaded handwritten note, photo, or screenshot and extract actionable tasks.
 
 Current date/time: ${new Date().toISOString()}
@@ -166,7 +166,7 @@ Rules:
 }
 
 function buildDraftPrompt(request: AiDraftRequest) {
-  return `You are a task planning assistant for a Nextcloud CalDAV todo app.
+  return `You are a task planning assistant for Patchwork, a Nextcloud CalDAV task app.
 Turn the user's natural-language request into staged tasks for review.
 
 Current date/time: ${new Date().toISOString()}

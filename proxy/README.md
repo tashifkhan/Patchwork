@@ -1,4 +1,4 @@
-# CalDAV Todo Backend Proxy (FastAPI)
+# Patchwork Backend Proxy (FastAPI)
 
 This directory contains the FastAPI backend proxy application for the developer-centric tasks app.
 
@@ -10,29 +10,29 @@ The proxy serves two main technical requirements:
 
 ## Directory Structure
 
-* [app/core/](file:///Users/taf/Projects/caldav-todo/proxy/app/core): Configuration settings.
-  * [config.py](file:///Users/taf/Projects/caldav-todo/proxy/app/core/config.py): Pydantic settings schema to validate environment variables.
-  * [application.py](file:///Users/taf/Projects/caldav-todo/proxy/app/core/application.py): FastAPI application factory module configuring CORS settings.
-* [app/clients/](file:///Users/taf/Projects/caldav-todo/proxy/app/clients): Connectors to target service providers.
-  * [caldav_client.py](file:///Users/taf/Projects/caldav-todo/proxy/app/clients/caldav_client.py): Unified HTTP wrapper for basic auth and DAV actions.
-  * [litellm_client.py](file:///Users/taf/Projects/caldav-todo/proxy/app/clients/litellm_client.py): LiteLLM router wrapper supporting JSON object outputs.
-  * [gemini_client.py](file:///Users/taf/Projects/caldav-todo/proxy/app/clients/gemini_client.py): SDK client for accessing Google Gemini models directly via google-genai.
-* [app/services/](file:///Users/taf/Projects/caldav-todo/proxy/app/services): Intermediate service logic.
-  * [task_service.py](file:///Users/taf/Projects/caldav-todo/proxy/app/services/task_service.py): Handlers for creating XML payloads and requesting CalDAV listings.
-  * [caldav_codec.py](file:///Users/taf/Projects/caldav-todo/proxy/app/services/caldav_codec.py): VTODO iCalendar (ics) parsing and generation utility based on vobject.
-  * [deck_service.py](file:///Users/taf/Projects/caldav-todo/proxy/app/services/deck_service.py): Business actions mapping Nextcloud Deck stacks and cards to JSON structures.
-  * [ai_service.py](file:///Users/taf/Projects/caldav-todo/proxy/app/services/ai_service.py): Text prompts assembly and output structure validation for OCR, drafting, and refining.
-* [app/model/](file:///Users/taf/Projects/caldav-todo/proxy/app/model): Pydantic entity models.
-  * [task.py](file:///Users/taf/Projects/caldav-todo/proxy/app/model/task.py): Task definitions, validators, and XML encoders.
-  * [deck.py](file:///Users/taf/Projects/caldav-todo/proxy/app/model/deck.py): Board schema wrapper.
-  * [ai.py](file:///Users/taf/Projects/caldav-todo/proxy/app/model/ai.py): Request payloads and models for generated tasks.
-  * [health.py](file:///Users/taf/Projects/caldav-todo/proxy/app/model/health.py): Health response schemas.
-* [app/router/](file:///Users/taf/Projects/caldav-todo/proxy/app/router): API endpoints wiring.
-  * [dependencies.py](file:///Users/taf/Projects/caldav-todo/proxy/app/router/dependencies.py): Centrally injected service providers.
-  * [health.py](file:///Users/taf/Projects/caldav-todo/proxy/app/router/health.py): Check status check.
-  * [tasks.py](file:///Users/taf/Projects/caldav-todo/proxy/app/router/tasks.py): Task collection retrievals and items instantiation.
-  * [deck.py](file:///Users/taf/Projects/caldav-todo/proxy/app/router/deck.py): Boards and column cards mutations.
-  * [ai.py](file:///Users/taf/Projects/caldav-todo/proxy/app/router/ai.py): Vision file-upload handlers and completion pathways.
+* [app/core/](file:///Users/taf/Projects/PatchWork/proxy/app/core): Configuration settings.
+  * [config.py](file:///Users/taf/Projects/PatchWork/proxy/app/core/config.py): Pydantic settings schema to validate environment variables.
+  * [application.py](file:///Users/taf/Projects/PatchWork/proxy/app/core/application.py): FastAPI application factory module configuring CORS settings.
+* [app/clients/](file:///Users/taf/Projects/PatchWork/proxy/app/clients): Connectors to target service providers.
+  * [caldav_client.py](file:///Users/taf/Projects/PatchWork/proxy/app/clients/caldav_client.py): Unified HTTP wrapper for basic auth and DAV actions.
+  * [litellm_client.py](file:///Users/taf/Projects/PatchWork/proxy/app/clients/litellm_client.py): LiteLLM router wrapper supporting JSON object outputs.
+  * [gemini_client.py](file:///Users/taf/Projects/PatchWork/proxy/app/clients/gemini_client.py): SDK client for accessing Google Gemini models directly via google-genai.
+* [app/services/](file:///Users/taf/Projects/PatchWork/proxy/app/services): Intermediate service logic.
+  * [task_service.py](file:///Users/taf/Projects/PatchWork/proxy/app/services/task_service.py): Handlers for creating XML payloads and requesting CalDAV listings.
+  * [caldav_codec.py](file:///Users/taf/Projects/PatchWork/proxy/app/services/caldav_codec.py): VTODO iCalendar (ics) parsing and generation utility based on vobject.
+  * [deck_service.py](file:///Users/taf/Projects/PatchWork/proxy/app/services/deck_service.py): Business actions mapping Nextcloud Deck stacks and cards to JSON structures.
+  * [ai_service.py](file:///Users/taf/Projects/PatchWork/proxy/app/services/ai_service.py): Text prompts assembly and output structure validation for OCR, drafting, and refining.
+* [app/model/](file:///Users/taf/Projects/PatchWork/proxy/app/model): Pydantic entity models.
+  * [task.py](file:///Users/taf/Projects/PatchWork/proxy/app/model/task.py): Task definitions, validators, and XML encoders.
+  * [deck.py](file:///Users/taf/Projects/PatchWork/proxy/app/model/deck.py): Board schema wrapper.
+  * [ai.py](file:///Users/taf/Projects/PatchWork/proxy/app/model/ai.py): Request payloads and models for generated tasks.
+  * [health.py](file:///Users/taf/Projects/PatchWork/proxy/app/model/health.py): Health response schemas.
+* [app/router/](file:///Users/taf/Projects/PatchWork/proxy/app/router): API endpoints wiring.
+  * [dependencies.py](file:///Users/taf/Projects/PatchWork/proxy/app/router/dependencies.py): Centrally injected service providers.
+  * [health.py](file:///Users/taf/Projects/PatchWork/proxy/app/router/health.py): Check status check.
+  * [tasks.py](file:///Users/taf/Projects/PatchWork/proxy/app/router/tasks.py): Task collection retrievals and items instantiation.
+  * [deck.py](file:///Users/taf/Projects/PatchWork/proxy/app/router/deck.py): Boards and column cards mutations.
+  * [ai.py](file:///Users/taf/Projects/PatchWork/proxy/app/router/ai.py): Vision file-upload handlers and completion pathways.
 
 ## API Specification
 

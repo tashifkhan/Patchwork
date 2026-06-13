@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { ListProps, LockProps, TodayProps, UpcomingProps } from '../shared/types';
 
-const STORAGE_KEY = 'caldav-todo.widget-snapshot';
+const STORAGE_KEY = 'patchwork.widget-snapshot';
 
 export interface StoredWidgetSnapshot {
   today: TodayProps;

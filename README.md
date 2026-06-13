@@ -1,4 +1,4 @@
-# PatchWork - Dev Centric Tasks Application
+# Patchwork - Dev Centric Tasks Application
 
 This is a developer-centric tasks application designed to unify task management across multiple engineering systems. It integrates CalDAV, Kanban boards, and issues/messages from developer tools like GitHub, Slack, and Jira, powered by on-device and proxy-based AI task generators and analyzers.
 
@@ -10,22 +10,22 @@ Install options:
 
 * F-Droid repo page: `https://tashif.codes/fdroid`
 * F-Droid repo URL: `https://tashif.codes/fdroid/repo`
-* Direct APK downloads: `https://github.com/tashifkhan/caldav-todo/releases/latest`
+* Direct APK downloads: `https://github.com/tashifkhan/Patchwork/releases/latest`
 
 User install instructions:
 
 1. Open F-Droid on Android.
 2. Go to Settings -> Repositories.
 3. Add `https://tashif.codes/fdroid/repo`.
-4. Refresh repositories and install PatchWork.
+4. Refresh repositories and install Patchwork.
 5. If F-Droid is not available, download the APK from the latest GitHub Release.
 
 
 ## Repository Structure
 
 The project is structured into two main parts:
-* [app/](file:///Users/taf/Projects/caldav-todo/app): A universal Expo React Native frontend supporting iOS, Android, and Web platforms.
-* [proxy/](file:///Users/taf/Projects/caldav-todo/proxy): A FastAPI Python backend proxy that handles CORS limitations for Web-based interfaces and wraps AI API integrations.
+* [app/](file:///Users/taf/Projects/PatchWork/app): A universal Expo React Native frontend supporting iOS, Android, and Web platforms.
+* [proxy/](file:///Users/taf/Projects/PatchWork/proxy): A FastAPI Python backend proxy that handles CORS limitations for Web-based interfaces and wraps AI API integrations.
 
 ## Architecture and Design Decisions
 

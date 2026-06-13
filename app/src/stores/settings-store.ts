@@ -96,7 +96,7 @@ export const useSettingsStore = create<SettingsState>()(
       setGitHubMode: (githubMode) => set({ githubMode }),
     }),
     {
-      name: 'caldav-todo-settings',
+      name: 'patchwork-settings',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: ({
         proxyUrl,

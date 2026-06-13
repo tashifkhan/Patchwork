@@ -106,7 +106,7 @@ export default function SettingsHub() {
       </SettingsGroup>
 
       <Text className="text-sf-text-3 self-center pt-1 text-xs" style={{ fontVariant: ['tabular-nums'] }}>
-        {Constants.expoConfig?.name ?? 'CalDAV Todo'} · v{Constants.expoConfig?.version ?? '1.0.0'}
+        {Constants.expoConfig?.name ?? 'Patchwork'} · v{Constants.expoConfig?.version ?? '1.0.0'}
       </Text>
     </SettingsScreen>
   );

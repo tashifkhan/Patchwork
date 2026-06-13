@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
 /** Stored separately from the in-memory list filter so widgets can read it across cold starts. */
-export const LAST_LIST_STORAGE_KEY = 'caldav-todo.last-list';
+export const LAST_LIST_STORAGE_KEY = 'patchwork.last-list';
 
 interface UiState {
   selectedListId: string | null;

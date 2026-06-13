@@ -42,7 +42,7 @@ export interface AiModelSelection {
   reasoning?: boolean;
 }
 
-const MODELS_DEV_CACHE_KEY = 'caldav-todo.ai.models-dev-cache';
+const MODELS_DEV_CACHE_KEY = 'patchwork.ai.models-dev-cache';
 const MODELS_DEV_URL = 'https://models.dev/api.json';
 
 export const BUILTIN_PROVIDER_IDS = [

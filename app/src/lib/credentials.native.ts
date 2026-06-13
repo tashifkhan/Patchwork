@@ -11,17 +11,17 @@ export type {
 } from './credentials-types';
 
 const KEYS = {
-  accounts: 'caldav-todo.accounts',
-  geminiApiKey: 'caldav-todo.gemini.api-key',
-  github: 'caldav-todo.github.credentials',
+  accounts: 'patchwork.accounts',
+  geminiApiKey: 'patchwork.gemini.api-key',
+  github: 'patchwork.github.credentials',
   // Legacy single-account keys (migrated on first read).
-  legacyBaseUrl: 'caldav-todo.nextcloud.base-url',
-  legacyUsername: 'caldav-todo.nextcloud.username',
-  legacyAppPassword: 'caldav-todo.nextcloud.app-password',
+  legacyBaseUrl: 'patchwork.nextcloud.base-url',
+  legacyUsername: 'patchwork.nextcloud.username',
+  legacyAppPassword: 'patchwork.nextcloud.app-password',
 };
 
 function aiKeyName(providerId: AiProviderId) {
-  return `caldav-todo.ai.${providerId}.api-key`;
+  return `patchwork.ai.${providerId}.api-key`;
 }
 
 const OPTIONS: SecureStore.SecureStoreOptions = {

@@ -6,7 +6,7 @@ import { fetchTasks } from '@/api/tasks';
 
 import { pushAllWidgets } from './snapshot';
 
-export const WIDGET_REFRESH_TASK = 'caldav-todo.widget-refresh';
+export const WIDGET_REFRESH_TASK = 'patchwork.widget-refresh';
 
 if (Platform.OS === 'ios' || Platform.OS === 'android') {
   // Defining the task at module top-level is required so the OS can rehydrate it

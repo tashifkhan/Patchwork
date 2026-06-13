@@ -367,7 +367,7 @@ function serializeVtodo(task: TaskCreate) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//CalDAV Todo//Expo//EN',
+    'PRODID:-//Patchwork//Expo//EN',
     'BEGIN:VTODO',
     `UID:${escapeIcs(uid)}`,
     `SUMMARY:${escapeIcs(task.title)}`,

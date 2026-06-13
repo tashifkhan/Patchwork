@@ -1,12 +1,12 @@
 module.exports = ({ config }) => {
   const isDev = process.env.APP_VARIANT === 'development';
-  const iosBundleId = isDev ? 'codes.tashhif.tasks.dev' : 'codes.tashhif.tasks';
+  const iosBundleId = isDev ? 'codes.tashhif.patchwork.dev' : 'codes.tashhif.patchwork';
   const widgetsGroupId = `group.${iosBundleId}`;
   const widgetsBundleId = `${iosBundleId}.ExpoWidgetsTarget`;
 
   return {
     ...config,
-    name: isDev ? 'todo (Dev)' : 'todo',
+    name: isDev ? 'Patchwork (Dev)' : 'Patchwork',
     ios: {
       ...config.ios,
       bundleIdentifier: iosBundleId,

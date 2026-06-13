@@ -44,7 +44,7 @@ export async function startFocus(taskUid: string, taskTitle: string, durationSec
   await endFocus();
   const startedAt = Date.now();
   const props: FocusActivityProps = { taskTitle, startedAt, durationSeconds, paused: false };
-  const instance = FocusActivity.start(props, `todo://task/${encodeURIComponent(taskUid)}`);
+  const instance = FocusActivity.start(props, `patchwork://task/${encodeURIComponent(taskUid)}`);
   useFocusStore.getState().set({
     taskUid,
     taskTitle,
