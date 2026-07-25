@@ -77,6 +77,7 @@ export function MoveToTasks({ boardId, stackId, cardId, title, description, dued
         if (subtask.completed && child.id) {
           await updateTask.mutateAsync({
             taskId: child.id,
+            accountId: child.account_id,
             patch: { completed: true, etag: child.etag },
           });
         }

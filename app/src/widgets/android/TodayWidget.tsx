@@ -49,6 +49,8 @@ export function TodayAndroidWidget({ props }: { props: TodayProps }) {
         visible.map((task) => (
           <FlexWidget
             key={task.id}
+            clickAction="OPEN_URI"
+            clickActionData={{ uri: `patchwork:///task/${encodeURIComponent(task.uid)}` }}
             style={{
               flexDirection: 'row',
               width: 'match_parent',

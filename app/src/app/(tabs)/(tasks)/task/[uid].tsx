@@ -8,7 +8,6 @@ import type { Task } from '@/api/types';
 import { useFocusStore } from '@/stores/focus-store';
 import { endFocus, pauseFocus, resumeFocus, startFocus } from '@/widgets/focus';
 import { useTheme } from '@/components/theme/context';
-import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
 import { TaskForm, type TaskFormValues } from '@/components/tasks/task-form';
 import { TaskItem } from '@/components/tasks/task-item';
@@ -22,7 +21,7 @@ import {
 } from '@/hooks/use-tasks';
 import { addTaskToCalendar } from '@/lib/calendar';
 import { formatDateTime } from '@/lib/format';
-import { scheduleTaskReminder } from '@/lib/notifications';
+import { cancelTaskReminder } from '@/lib/notifications';
 import { collectAllTags } from '@/lib/tags';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 
@@ -50,6 +49,7 @@ export default function TaskDetailScreen() {
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
   const [deleteVisible, setDeleteVisible] = useState(false);
+  const [leaveAfterAlert, setLeaveAfterAlert] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
@@ -69,19 +69,44 @@ export default function TaskDetailScreen() {
   if (!task) {
     return (
       <View className="bg-sf-bg flex-1 items-center justify-center px-8">
-        <Text className="text-sf-text-2 text-center">
-          {tasksQuery.isLoading ? 'Loading…' : 'Task not found.'}
+        <Text className="text-sf-text-2 text-center" selectable>
+          {tasksQuery.isLoading
+            ? 'Loading…'
+            : tasksQuery.isError
+              ? tasksQuery.error instanceof Error ? tasksQuery.error.message : 'Task could not be loaded.'
+              : 'Task not found.'}
         </Text>
+        {tasksQuery.isError ? (
+          <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()} className="mt-4">
+            <Text className="text-sf-blue text-base font-semibold">Retry</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
 
   async function handleSubmit(values: TaskFormValues) {
     if (!task) return;
+    const destination = lists.find((list) => list.id === values.list_id);
+    if (
+      task.children.length > 0 &&
+      values.list_id !== task.list_id &&
+      destination?.account_id &&
+      task.account_id &&
+      destination.account_id !== task.account_id
+    ) {
+      setAlert({
+        title: 'Move subtasks first',
+        message: 'A task with subtasks cannot move to a different account because CalDAV parent links do not cross servers.',
+      });
+      return;
+    }
     try {
       await updateTask.mutateAsync({
         taskId: task.id,
+        accountId: task.account_id,
         patch: {
+          list_id: values.list_id,
           title: values.title,
           markdown: values.markdown,
           tags: values.tags,
@@ -92,21 +117,23 @@ export default function TaskDetailScreen() {
           etag: task.etag,
         },
       });
-      if (values.reminder_at) {
-        await scheduleTaskReminder({
-          taskUid: task.uid,
-          title: values.title,
-          reminderAt: values.reminder_at,
-        });
-      }
       if (values.calendar_id) {
-        await addTaskToCalendar({
-          calendarId: values.calendar_id,
-          title: values.title,
-          notes: values.markdown,
-          dueAt: values.due_at,
-          reminderAt: values.reminder_at,
-        });
+        try {
+          await addTaskToCalendar({
+            calendarId: values.calendar_id,
+            title: values.title,
+            notes: values.markdown,
+            dueAt: values.due_at,
+            reminderAt: values.reminder_at,
+          });
+        } catch {
+          setLeaveAfterAlert(true);
+          setAlert({
+            title: 'Task saved',
+            message: 'The task was updated, but it could not be copied to the selected device calendar.',
+          });
+          return;
+        }
       }
       router.back();
     } catch (error) {
@@ -125,7 +152,12 @@ export default function TaskDetailScreen() {
     if (!task) return;
     setDeleteVisible(false);
     try {
-      await deleteTask.mutateAsync(task.id);
+      await deleteTask.mutateAsync({
+        taskId: task.id,
+        accountId: task.account_id,
+        etag: task.etag,
+      });
+      await cancelTaskReminder(task.uid);
       router.back();
     } catch (error) {
       setAlert({
@@ -156,6 +188,7 @@ export default function TaskDetailScreen() {
     try {
       await updateTask.mutateAsync({
         taskId: child.id,
+        accountId: child.account_id,
         patch: { completed: !child.completed, etag: child.etag },
       });
     } catch {
@@ -170,13 +203,6 @@ export default function TaskDetailScreen() {
       keyboardDismissMode="interactive"
       contentContainerStyle={{ paddingBottom: keyboardHeight }}>
       <Stack.Screen options={{ title: task.list_name }} />
-
-      {task.markdown.trim() ? (
-        <View className="border-sf-separator gap-2 border-b px-4 py-3">
-          <Text className="text-sf-text-2 text-xs font-semibold uppercase">Preview</Text>
-          <MarkdownViewer markdown={task.markdown} />
-        </View>
-      ) : null}
 
       <TaskForm
         initial={{
@@ -237,7 +263,9 @@ export default function TaskDetailScreen() {
       <NativeAlert
         visible={deleteVisible}
         title="Delete task"
-        message={`Delete “${task.title}”?`}
+        message={task.children.length > 0
+          ? `Delete “${task.title}”? Its ${task.children.length} subtask${task.children.length === 1 ? '' : 's'} will remain as independent tasks.`
+          : `Delete “${task.title}”?`}
         confirmLabel="Delete"
         dismissLabel="Cancel"
         onDismiss={() => setDeleteVisible(false)}
@@ -248,6 +276,10 @@ export default function TaskDetailScreen() {
         title={alert?.title ?? ''}
         message={alert?.message ?? ''}
         onDismiss={() => setAlert(null)}
+        onConfirm={() => {
+          setAlert(null);
+          if (leaveAfterAlert) router.back();
+        }}
       />
     </ScrollView>
   );
@@ -284,10 +316,11 @@ function FocusSection({ taskUid, taskTitle }: { taskUid: string; taskTitle: stri
             <View className="flex-row gap-4">
               <Pressable
                 onPress={() => (paused ? resumeFocus() : pauseFocus())}
+                accessibilityRole="button"
                 hitSlop={8}>
                 <Text className="text-sf-blue text-base">{paused ? 'Resume' : 'Pause'}</Text>
               </Pressable>
-              <Pressable onPress={() => endFocus()} hitSlop={8}>
+              <Pressable accessibilityRole="button" onPress={() => endFocus()} hitSlop={8}>
                 <Text className="text-base" style={{ color: colors.accent }}>End</Text>
               </Pressable>
             </View>
@@ -295,7 +328,7 @@ function FocusSection({ taskUid, taskTitle }: { taskUid: string; taskTitle: stri
         ) : (
           <>
             <Text className="text-sf-text text-base">Start a 25-minute focus session</Text>
-            <Pressable onPress={() => startFocus(taskUid, taskTitle, 25 * 60)} hitSlop={8}>
+            <Pressable accessibilityRole="button" onPress={() => startFocus(taskUid, taskTitle, 25 * 60)} hitSlop={8}>
               <Text className="text-sf-blue text-base">Start</Text>
             </Pressable>
           </>

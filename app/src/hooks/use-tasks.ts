@@ -35,8 +35,8 @@ export function useCreateTask() {
 export function useUpdateTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, patch }: { taskId: string; patch: TaskUpdate }) =>
-      updateTask(taskId, patch),
+    mutationFn: ({ taskId, patch, accountId }: { taskId: string; patch: TaskUpdate; accountId?: string }) =>
+      updateTask(taskId, patch, accountId),
     onMutate: async ({ taskId, patch }) => {
       await client.cancelQueries({ queryKey: queryKeys.tasks });
       const previous = client.getQueryData<Task[]>(queryKeys.tasks);
@@ -58,6 +58,7 @@ export function useUpdateTask() {
 
 export interface ReorderEntry {
   taskId: string;
+  accountId?: string;
   sort_order: number;
   etag: string | null;
 }
@@ -69,7 +70,11 @@ export function useReorderTasks() {
   return useMutation({
     mutationFn: async (entries: ReorderEntry[]) => {
       for (const entry of entries) {
-        await updateTask(entry.taskId, { sort_order: entry.sort_order, etag: entry.etag });
+        await updateTask(
+          entry.taskId,
+          { sort_order: entry.sort_order, etag: entry.etag },
+          entry.accountId
+        );
       }
     },
     onMutate: async (entries) => {
@@ -101,8 +106,9 @@ export function useReorderTasks() {
 export function useDeleteTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (taskId: string) => deleteTask(taskId),
-    onMutate: async (taskId) => {
+    mutationFn: ({ taskId, accountId, etag }: { taskId: string; accountId?: string; etag?: string | null }) =>
+      deleteTask(taskId, accountId, etag),
+    onMutate: async ({ taskId }) => {
       await client.cancelQueries({ queryKey: queryKeys.tasks });
       const previous = client.getQueryData<Task[]>(queryKeys.tasks);
       if (previous) {
@@ -110,7 +116,7 @@ export function useDeleteTask() {
       }
       return { previous };
     },
-    onError: (_error, _taskId, context) => {
+    onError: (_error, _input, context) => {
       if (context?.previous) {
         client.setQueryData(queryKeys.tasks, context.previous);
       }

@@ -18,6 +18,8 @@ export default function SettingsHub() {
 
   const [accounts, setAccounts] = useState<CalDavAccount[]>([]);
   const [hasGemini, setHasGemini] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const githubConnected = useSettingsStore((s) => s.githubConnected);
   const githubReposCount = useSettingsStore((s) => s.githubRepos.length);
 
@@ -28,7 +30,17 @@ export default function SettingsHub() {
         if (!active) return;
         setAccounts(list);
         setHasGemini(!!gemini);
-        useSettingsStore.getState().setGitHubConnected(!!github);
+        // Keep public-repo mode connected even without credentials
+        const { githubMode, githubRepos, setGitHubConnected } = useSettingsStore.getState();
+        if (github) {
+          setGitHubConnected(true);
+        } else if (githubMode === 'public' && githubRepos.length > 0) {
+          setGitHubConnected(true);
+        } else if (!github && githubMode === 'private') {
+          setGitHubConnected(false);
+        }
+      }).catch((error) => {
+        if (active) setErrorMessage(error instanceof Error ? error.message : 'Settings could not be loaded.');
       });
       return () => {
         active = false;
@@ -101,9 +113,22 @@ export default function SettingsHub() {
         <SettingsRow
           icon="refresh"
           title="Refresh all data"
-          onPress={() => queryClient.invalidateQueries()}
+          onPress={async () => {
+            setRefreshMessage(null);
+            try {
+              await queryClient.invalidateQueries({ predicate: (query) =>
+                ['tasks', 'task-lists', 'deck', 'github'].includes(String(query.queryKey[0]))
+              });
+              setRefreshMessage('Refresh completed.');
+            } catch (error) {
+              setErrorMessage(error instanceof Error ? error.message : 'Refresh failed.');
+            }
+          }}
         />
       </SettingsGroup>
+
+      {errorMessage ? <Text selectable className="text-sf-red px-2 text-sm">{errorMessage}</Text> : null}
+      {refreshMessage ? <Text selectable className="text-sf-green px-2 text-sm">{refreshMessage}</Text> : null}
 
       <Text className="text-sf-text-3 self-center pt-1 text-xs" style={{ fontVariant: ['tabular-nums'] }}>
         {Constants.expoConfig?.name ?? 'Patchwork'} · v{Constants.expoConfig?.version ?? '1.0.0'}

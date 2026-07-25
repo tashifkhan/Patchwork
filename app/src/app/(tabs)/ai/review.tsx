@@ -12,7 +12,6 @@ import { StagedTaskCard } from '@/components/ai/staged-task-card';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useTaskLists } from '@/hooks/use-tasks';
-import { scheduleTaskReminder } from '@/lib/notifications';
 import { queryKeys } from '@/lib/query-client';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -23,6 +22,11 @@ export default function AiReviewScreen() {
   const { colors } = useTheme();
   const refineRef = useRef<TextInputRef>(null);
   const queryClient = useQueryClient();
+  const importProgressRef = useRef(new Map<string, {
+    parentUid: string;
+    listId: string;
+    completedSubtasks: Set<number>;
+  }>());
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
@@ -44,7 +48,9 @@ export default function AiReviewScreen() {
   const listsQuery = useTaskLists();
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const aiDefaultListId = useSettingsStore((s) => s.aiDefaultListId);
-  const fallbackListId = aiDefaultListId ?? lists[0]?.id ?? '';
+  const fallbackListId = lists.some((list) => list.id === aiDefaultListId)
+    ? aiDefaultListId ?? ''
+    : lists[0]?.id ?? '';
 
   const [instruction, setInstruction] = useState('');
   const [refining, setRefining] = useState(false);
@@ -62,6 +68,7 @@ export default function AiReviewScreen() {
         available_tags: [],
       });
       setStaged(response.tasks);
+      importProgressRef.current.clear();
       setInstruction('');
       refineRef.current?.clear();
     } catch (error) {
@@ -81,41 +88,72 @@ export default function AiReviewScreen() {
       return;
     }
 
+    const invalidIndex = staged.findIndex((task) => !task.title.trim());
+    if (invalidIndex >= 0) {
+      setAlert({ title: 'Title required', message: `Task ${invalidIndex + 1} needs a title.` });
+      return;
+    }
+
     setCreating(true);
+    const failures: string[] = [];
+    let newlyCreated = 0;
     try {
-      for (const task of staged) {
-        const listId = task.list_id ?? fallbackListId;
-        const created = await createTask({
-          list_id: listId,
-          title: task.title,
-          markdown: task.description ?? '',
-          tags: task.tags,
-          due_at: task.due_at ?? null,
-          reminder_at: task.reminder_at ?? null,
-          priority: task.priority ?? null,
-        });
-        if (created.reminder_at) {
-          await scheduleTaskReminder({
-            taskUid: created.uid,
-            title: created.title,
-            reminderAt: created.reminder_at,
-          });
+      for (const [index, task] of staged.entries()) {
+        const key = task.draft_id ?? `staged-${index}`;
+        const listId = task.list_id && lists.some((list) => list.id === task.list_id)
+          ? task.list_id
+          : fallbackListId;
+        let progress = importProgressRef.current.get(key);
+        if (!progress) {
+          try {
+            const created = await createTask({
+              list_id: listId,
+              title: task.title.trim(),
+              markdown: task.description ?? '',
+              tags: task.tags,
+              due_at: task.due_at ?? null,
+              reminder_at: task.reminder_at ?? null,
+              priority: task.priority ?? null,
+            });
+            progress = { parentUid: created.uid, listId, completedSubtasks: new Set() };
+            importProgressRef.current.set(key, progress);
+            newlyCreated += 1;
+          } catch (error) {
+            failures.push(`${task.title}: ${error instanceof ApiError ? error.message : 'could not create task'}`);
+            continue;
+          }
         }
-        for (const sub of task.subtasks) {
-          await createTask({
-            list_id: listId,
-            title: sub.title,
-            markdown: sub.description ?? '',
-            parent_uid: created.uid,
-          });
+
+        for (const [subtaskIndex, subtask] of task.subtasks.entries()) {
+          if (progress.completedSubtasks.has(subtaskIndex) || !subtask.title.trim()) continue;
+          try {
+            await createTask({
+              list_id: progress.listId,
+              title: subtask.title.trim(),
+              markdown: subtask.description ?? '',
+              parent_uid: progress.parentUid,
+            });
+            progress.completedSubtasks.add(subtaskIndex);
+          } catch (error) {
+            failures.push(`${task.title} › ${subtask.title}: ${error instanceof ApiError ? error.message : 'could not create subtask'}`);
+          }
         }
       }
 
       await queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+      if (failures.length > 0) {
+        setAlert({
+          title: 'Partially imported',
+          message: `${newlyCreated > 0 ? `${newlyCreated} new parent task${newlyCreated === 1 ? ' was' : 's were'} created. ` : ''}Retry Create to continue only the unfinished items.\n\n${failures.slice(0, 3).join('\n')}`,
+        });
+        return;
+      }
+
       setAlert({
         title: 'Imported',
         message: `Created ${staged.length} task${staged.length === 1 ? '' : 's'}.`,
         onClose: () => {
+          importProgressRef.current.clear();
           clear();
           router.dismissTo('/');
         },

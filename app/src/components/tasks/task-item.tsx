@@ -3,7 +3,6 @@ import { memo } from 'react';
 import { Platform, Pressable } from 'react-native';
 
 import type { Task } from '@/api/types';
-import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { useTheme } from '@/components/theme/context';
 import { formatRelativeDue } from '@/lib/format';
 import { useFocusStore } from '@/stores/focus-store';
@@ -24,7 +23,10 @@ interface TaskItemProps {
 function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = true }: TaskItemProps) {
   const { colors } = useTheme();
   const due = formatRelativeDue(task.due_at);
-  const hasMarkdown = task.markdown.trim().length > 0;
+  const excerpt = task.markdown
+    .replace(/[`*_>#\[\]()!-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const childCount = task.children.length;
   const showList = !task.parent_uid && Boolean(task.list_name);
   const focusUid = useFocusStore((s) => s.taskUid);
@@ -36,6 +38,9 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
       <View className="flex-row items-start gap-3 py-2" style={{ paddingLeft: depth * 28 }}>
         <Pressable
           onPress={() => onToggle(task)}
+          accessibilityRole="checkbox"
+          accessibilityLabel={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
+          accessibilityState={{ checked: task.completed }}
           hitSlop={8}
           style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
           <MaterialCommunityIcons
@@ -47,6 +52,8 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
 
         <Pressable
           onPress={() => onOpen(task)}
+          accessibilityRole="button"
+          accessibilityLabel={`${task.title}${due.label ? `, ${due.label}` : ''}`}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
           <View className="flex-1 gap-1.5">
             <View className="flex-row items-start justify-between gap-2">
@@ -62,10 +69,10 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
               ) : null}
             </View>
 
-            {hasMarkdown ? (
-              <View className="pt-0.5">
-                <MarkdownViewer markdown={task.markdown} compact />
-              </View>
+            {excerpt ? (
+              <Text numberOfLines={2} className="text-sf-text-2 text-sm" selectable={false}>
+                {excerpt}
+              </Text>
             ) : null}
 
             {(showList || task.tags.length > 0 || childCount > 0) ? (
@@ -102,6 +109,7 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
             }}
             hitSlop={8}
             accessibilityLabel={isFocused ? 'End focus session' : 'Start 25-minute focus session'}
+            accessibilityRole="button"
             style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
             <MaterialCommunityIcons
               name={isFocused ? 'timer-off-outline' : 'timer-outline'}

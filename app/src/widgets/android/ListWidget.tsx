@@ -31,6 +31,8 @@ export function ListAndroidWidget({ props }: { props: ListProps }) {
       ) : (
         visible.map((task) => (
           <FlexWidget
+            clickAction="OPEN_URI"
+            clickActionData={{ uri: `patchwork:///task/${encodeURIComponent(task.uid)}` }}
             key={task.id}
             style={{
               flexDirection: 'row',

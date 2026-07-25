@@ -1,7 +1,7 @@
-import SegmentedControl from '@expo/ui/community/segmented-control';
+import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Pressable } from 'react-native';
 
 import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
@@ -46,6 +46,7 @@ export default function GitHubSettingsScreen() {
   const [deviceFlowState, setDeviceFlowState] = useState<{ userCode: string; url: string } | null>(
     null
   );
+  const oauthAbortRef = useRef<AbortController | null>(null);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   useEffect(() => {
@@ -82,11 +83,25 @@ export default function GitHubSettingsScreen() {
     queryClient.removeQueries({ queryKey: queryKeys.githubRepos });
   };
 
+  const cancelOAuth = () => {
+    oauthAbortRef.current?.abort();
+    oauthAbortRef.current = null;
+    setDeviceFlowState(null);
+  };
+
   const handleStartOAuth = async () => {
+    const controller = new AbortController();
+    oauthAbortRef.current = controller;
     try {
       const response = await requestDeviceCode();
+      if (controller.signal.aborted) return;
       setDeviceFlowState({ userCode: response.user_code, url: response.verification_uri });
-      const token = await pollForAccessToken(response.device_code, response.interval);
+      const token = await pollForAccessToken(
+        response.device_code,
+        response.interval,
+        controller.signal,
+        response.expires_in
+      );
       const userCreds = await validatePat(token);
       userCreds.method = 'oauth';
       await saveGitHubCredentials(userCreds);
@@ -96,7 +111,10 @@ export default function GitHubSettingsScreen() {
       setDeviceFlowState(null);
     } catch (e) {
       setDeviceFlowState(null);
+      if (controller.signal.aborted) return;
       setAlert({ title: 'OAuth Error', message: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      if (oauthAbortRef.current === controller) oauthAbortRef.current = null;
     }
   };
 
@@ -124,6 +142,7 @@ export default function GitHubSettingsScreen() {
       ? githubRepos.filter((r) => r !== repoFullName)
       : [...githubRepos, repoFullName];
     setGitHubRepos(next);
+    queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
   };
 
   const addPublicRepo = () => {
@@ -393,7 +412,7 @@ export default function GitHubSettingsScreen() {
               <Text className="text-sf-text-3 text-center text-sm">
                 Waiting for authorization...
               </Text>
-              <Pressable onPress={() => setDeviceFlowState(null)} className="py-2">
+              <Pressable onPress={cancelOAuth} className="py-2">
                 <Text className="text-sf-blue text-center text-base font-medium">Cancel</Text>
               </Pressable>
             </View>

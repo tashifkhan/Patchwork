@@ -83,6 +83,15 @@ export function DraggableColumn<T>({
     heights.current[index] = event.nativeEvent.layout.height;
   }, []);
 
+  const moveAccessibly = useCallback((index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= data.length) return;
+    const next = [...data];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    onReorder(next);
+  }, [data, onReorder]);
+
   return (
     <View>
       {data.map((item, index) => (
@@ -94,6 +103,7 @@ export function DraggableColumn<T>({
           onStart={(i) => setActiveIndex(i)}
           onUpdate={updateTarget}
           onCommit={commit}
+          onAccessibilityMove={moveAccessibly}
           showIndicatorAbove={insertAt === index && activeIndex !== index && activeIndex !== index - 1}
           indicatorColor={indicatorColor}>
           {renderItem(item)}
@@ -113,6 +123,7 @@ interface RowProps {
   onStart: (index: number) => void;
   onUpdate: (index: number, translationY: number) => void;
   onCommit: (index: number) => void;
+  onAccessibilityMove: (index: number, direction: -1 | 1) => void;
   showIndicatorAbove: boolean;
   indicatorColor: string;
   children: React.ReactNode;
@@ -125,23 +136,29 @@ function Row({
   onStart,
   onUpdate,
   onCommit,
+  onAccessibilityMove,
   showIndicatorAbove,
   indicatorColor,
   children,
 }: RowProps) {
   const dragY = useSharedValue(0);
   const active = useSharedValue(false);
+  const lastReportedY = useSharedValue(0);
 
   const pan = Gesture.Pan()
     .activateAfterLongPress(longPressMs)
     .onStart(() => {
       active.value = true;
       dragY.value = 0;
+      lastReportedY.value = 0;
       runOnJS(onStart)(index);
     })
     .onUpdate((event) => {
       dragY.value = event.translationY;
-      runOnJS(onUpdate)(index, event.translationY);
+      if (Math.abs(event.translationY - lastReportedY.value) >= 8) {
+        lastReportedY.value = event.translationY;
+        runOnJS(onUpdate)(index, event.translationY);
+      }
     })
     .onEnd(() => {
       runOnJS(onCommit)(index);
@@ -163,7 +180,20 @@ function Row({
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={style} onLayout={(event) => onLayout(index, event)}>
+      <Animated.View
+        style={style}
+        onLayout={(event) => onLayout(index, event)}
+        accessible
+        accessibilityLabel="Reorder task"
+        accessibilityHint="Use the move up or move down actions"
+        accessibilityActions={[
+          { name: 'decrement', label: 'Move up' },
+          { name: 'increment', label: 'Move down' },
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'decrement') onAccessibilityMove(index, -1);
+          if (event.nativeEvent.actionName === 'increment') onAccessibilityMove(index, 1);
+        }}>
         {showIndicatorAbove ? (
           <View
             style={{

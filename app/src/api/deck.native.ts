@@ -2,74 +2,101 @@ import { ApiError } from './client';
 import type { DeckBoard, DeckBoardCreate, DeckBoardDetail, DeckCard, DeckCardCreate, DeckCardDelete, DeckCardReorder, DeckCardUpdate, DeckStack, DeckStackCreate, DeckStackDelete, DeckStackUpdate } from './types';
 import { base64Encode } from '@/lib/base64';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
+import { useSyncStatusStore } from '@/stores/sync-status-store';
 
-const boardClients = new Map<number, DeckClient>();
+const boardClients = new Map<number, { client: DeckClient; serverBoardId: number }>();
 
 export async function fetchDeckBoards(): Promise<DeckBoard[]> {
   const clients = await allClients();
-  const perAccount = await Promise.all(clients.map((client) => client.listBoards()));
-  return perAccount.flat();
+  boardClients.clear();
+  const perAccount = await Promise.allSettled(clients.map((client) => client.listBoards()));
+  const boards = perAccount.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  useSyncStatusStore.getState().setDeckSync(
+    perAccount.flatMap((result) => result.status === 'rejected'
+      ? [result.reason instanceof Error ? result.reason.message : 'A Deck account could not be loaded.']
+      : [])
+  );
+  if (boards.length === 0) {
+    const failure = perAccount.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failure) throw failure.reason;
+  }
+  return boards;
+}
+
+/** Resolve the Deck client for a board. Never falls back to another account's credentials. */
+async function clientForBoard(boardId: number): Promise<{ client: DeckClient; serverBoardId: number }> {
+  const cached = boardClients.get(boardId);
+  if (cached) return cached;
+
+  // Rebuild mapping after cold start / process restart.
+  await fetchDeckBoards();
+  const client = boardClients.get(boardId);
+  if (!client) {
+    throw new ApiError(404, 'Deck board not found on any configured account.');
+  }
+  return client;
 }
 
 export async function fetchDeckBoard(boardId: number): Promise<DeckBoardDetail> {
-  const client = boardClients.get(boardId) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  return client.getBoard(boardId);
+  const target = await clientForBoard(boardId);
+  return target.client.getBoard(target.serverBoardId, boardId);
 }
 
 export async function createDeckBoard(payload: DeckBoardCreate): Promise<DeckBoard> {
-  const client = (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  const clients = await allClients();
+  const client = payload.account_id
+    ? clients.find((candidate) => candidate.account.id === payload.account_id)
+    : clients.length === 1 ? clients[0] : null;
+  if (!client) {
+    throw new ApiError(400, clients.length > 1
+      ? 'Choose which account should own this board.'
+      : 'No CalDAV accounts are configured on this device.');
+  }
   return client.createBoard(payload);
 }
 
 export async function createDeckCard(payload: DeckCardCreate): Promise<DeckCard> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  return client.createCard(payload);
+  const target = await clientForBoard(payload.board_id);
+  return target.client.createCard({ ...payload, board_id: target.serverBoardId });
 }
 
 export async function updateDeckCard(payload: DeckCardUpdate): Promise<DeckCard> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  return client.updateCard(payload);
+  const target = await clientForBoard(payload.board_id);
+  return target.client.updateCard({ ...payload, board_id: target.serverBoardId });
 }
 
 export async function reorderDeckCard(payload: DeckCardReorder): Promise<DeckCard> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  return client.reorderCard(payload);
+  const target = await clientForBoard(payload.board_id);
+  return target.client.reorderCard({ ...payload, board_id: target.serverBoardId });
 }
 
 export async function deleteDeckCard(payload: DeckCardDelete): Promise<void> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  await client.deleteCard(payload);
+  const target = await clientForBoard(payload.board_id);
+  await target.client.deleteCard({ ...payload, board_id: target.serverBoardId });
 }
 
 export async function createDeckStack(payload: DeckStackCreate): Promise<DeckStack> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  return client.createStack(payload);
+  const target = await clientForBoard(payload.board_id);
+  return target.client.createStack({ ...payload, board_id: target.serverBoardId });
 }
 
 export async function updateDeckStack(payload: DeckStackUpdate): Promise<DeckStack> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  return client.updateStack(payload);
+  const target = await clientForBoard(payload.board_id);
+  return target.client.updateStack({ ...payload, board_id: target.serverBoardId });
 }
 
 export async function deleteDeckStack(payload: DeckStackDelete): Promise<void> {
-  const client = boardClients.get(payload.board_id) ?? (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
-  await client.deleteStack(payload);
+  const target = await clientForBoard(payload.board_id);
+  await target.client.deleteStack({ ...payload, board_id: target.serverBoardId });
 }
 
 class DeckClient {
+  readonly account: CalDavAccount;
   private baseUrl: string;
   private authHeader: string;
 
   constructor(account: CalDavAccount) {
+    this.account = account;
     this.baseUrl = serverRootFromUrl(account.baseUrl.replace(/\/+$/, ''));
     this.authHeader = `Basic ${base64Encode(`${account.username}:${account.appPassword}`)}`;
   }
@@ -85,12 +112,15 @@ class DeckClient {
       const id = typeof raw.id === 'number' ? raw.id : Number(raw.id);
       if (!Number.isFinite(id)) return [];
 
+      const publicId = scopedBoardId(this.account.id, id);
       const board = {
-        id,
+        id: publicId,
         title: typeof raw.title === 'string' ? raw.title : 'Untitled board',
+        account_id: this.account.id,
+        account_name: this.account.displayName,
         raw,
       } satisfies DeckBoard;
-      boardClients.set(id, this);
+      boardClients.set(publicId, { client: this, serverBoardId: id });
       return [board];
     });
   }
@@ -102,9 +132,16 @@ class DeckClient {
     });
     const id = typeof raw.id === 'number' ? raw.id : Number(raw.id);
     if (!Number.isFinite(id)) throw new ApiError(502, 'Deck created a board without an id.');
-    boardClients.set(id, this);
+    const publicId = scopedBoardId(this.account.id, id);
+    boardClients.set(publicId, { client: this, serverBoardId: id });
     await this.createDefaultStacks(id);
-    return { id, title: typeof raw.title === 'string' ? raw.title : payload.title, raw };
+    return {
+      id: publicId,
+      title: typeof raw.title === 'string' ? raw.title : payload.title,
+      account_id: this.account.id,
+      account_name: this.account.displayName,
+      raw,
+    };
   }
 
   async createDefaultStacks(boardId: number): Promise<void> {
@@ -116,9 +153,9 @@ class DeckClient {
     ));
   }
 
-  async getBoard(boardId: number): Promise<DeckBoardDetail> {
+  async getBoard(boardId: number, publicBoardId = boardId): Promise<DeckBoardDetail> {
     const stacks = await this.request<unknown[]>('GET', `/index.php/apps/deck/api/v1.0/boards/${boardId}/stacks`);
-    return { board_id: boardId, stacks: normalizeStacks(stacks) };
+    return { board_id: publicBoardId, stacks: normalizeStacks(stacks) };
   }
 
   async createCard(payload: DeckCardCreate): Promise<DeckCard> {
@@ -141,12 +178,17 @@ class DeckClient {
       duedate: payload.duedate ?? null,
     });
     if (payload.target_stack_id != null && payload.target_stack_id !== payload.stack_id) {
-      const moved = await this.request<unknown>('PUT', `${path}/reorder`, {
-        ...updated,
-        order: existing.order ?? updated.order ?? 999,
-        stackId: payload.target_stack_id,
-      });
-      return cardFromMutationResponse(moved, payload.card_id) ?? { ...updated, stackId: payload.target_stack_id };
+      try {
+        const moved = await this.request<unknown>('PUT', `${path}/reorder`, {
+          ...updated,
+          order: existing.order ?? updated.order ?? 999,
+          stackId: payload.target_stack_id,
+        });
+        return cardFromMutationResponse(moved, payload.card_id) ?? { ...updated, stackId: payload.target_stack_id };
+      } catch (error) {
+        await this.request<DeckCard>('PUT', path, existing).catch(() => {});
+        throw error;
+      }
     }
     return updated;
   }
@@ -261,4 +303,16 @@ function normalizeStacks(value: unknown): DeckStack[] {
 
 function isActiveDeckItem(item: Record<string, unknown>) {
   return item.archived !== true && (item.deletedAt == null || item.deletedAt === 0);
+}
+
+function scopedBoardId(accountId: string, serverBoardId: number) {
+  const value = `${accountId}:${serverBoardId}`;
+  let high = 0x811c9dc5;
+  let low = 0x9e3779b1;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    high = Math.imul(high ^ code, 0x01000193) >>> 0;
+    low = Math.imul(low ^ code, 0x85ebca6b) >>> 0;
+  }
+  return (high & 0x1fffff) * 0x100000000 + low;
 }

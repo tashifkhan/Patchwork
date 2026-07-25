@@ -1,0 +1,15 @@
+appId: codes.tashhif.patchwork
+---
+- launchApp:
+    clearState: false
+- assertVisible: "Tasks"
+- tapOn: "Settings"
+- assertVisible: "Add account"
+- tapOn: "Notifications"
+- assertVisible: "Task reminders"
+- back
+- tapOn: "Add account"
+- assertVisible: "Display name"
+- assertVisible: "Test connection"
+- back
+- tapOn: "Tasks"

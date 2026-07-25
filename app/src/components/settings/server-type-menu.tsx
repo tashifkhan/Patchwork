@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { Modal, Pressable, View as RNView, Text as RNText, ScrollView, useWindowDimensions, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import MenuView from '@expo/ui/community/menu';
+import { MenuView } from '@expo/ui/community/menu';
 
 import { useTheme } from '@/components/theme/context';
 

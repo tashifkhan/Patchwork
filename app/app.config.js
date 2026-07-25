@@ -10,6 +10,7 @@ module.exports = ({ config }) => {
     ios: {
       ...config.ios,
       bundleIdentifier: iosBundleId,
+      deploymentTarget: '16.4',
       infoPlist: {
         ...(config.ios && config.ios.infoPlist),
         ITSAppUsesNonExemptEncryption: false,
@@ -25,6 +26,7 @@ module.exports = ({ config }) => {
     },
     plugins: [
       ...(config.plugins ?? []),
+      'expo-background-task',
       'expo-font',
       'expo-image',
       [

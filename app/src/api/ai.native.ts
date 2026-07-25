@@ -9,6 +9,7 @@ import { ApiError } from './client';
 import type { AiDraftRequest, AiGeneratedTask, AiRefineRequest, AiTasksResponse, TaskList } from './types';
 import { DEFAULT_AI_MODELS, buildProvidersWithCustom, providerById, supportsImage, type AiModelSelection } from '@/lib/ai-models';
 import { getAiApiKey } from '@/lib/credentials';
+import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { useSettingsStore } from '@/stores/settings-store';
 
 type ImageInput = { mimeType: string; data: string };
@@ -27,23 +28,26 @@ export async function ocrUploadImage(input: OcrUploadInput): Promise<AiTasksResp
   if (imageBytes.byteLength === 0) {
     throw new ApiError(400, 'Image is empty');
   }
+  if (imageBytes.byteLength > 8 * 1024 * 1024) {
+    throw new ApiError(413, 'Image is larger than 8 MB. Crop it or choose a smaller image.');
+  }
 
   const prompt = buildOcrPrompt(input.availableLists ?? [], input.availableTags ?? []);
   const responseText = await generateModelJson(prompt, {
     mimeType: input.mimeType,
     data: bytesToBase64(imageBytes),
   });
-  return { tasks: parseTaskJson(responseText) };
+  return { tasks: parseTaskJson(responseText, input.availableLists, input.availableTags) };
 }
 
 export async function draftTasks(payload: AiDraftRequest): Promise<AiTasksResponse> {
   const responseText = await generateModelJson(buildDraftPrompt(payload));
-  return { tasks: parseTaskJson(responseText) };
+  return { tasks: parseTaskJson(responseText, payload.available_lists, payload.available_tags) };
 }
 
 export async function refineTasks(payload: AiRefineRequest): Promise<AiTasksResponse> {
   const responseText = await generateModelJson(buildRefinePrompt(payload));
-  return { tasks: parseTaskJson(responseText) };
+  return { tasks: parseTaskJson(responseText, payload.available_lists, payload.available_tags) };
 }
 
 async function generateModelJson(prompt: string, image?: ImageInput) {
@@ -104,8 +108,9 @@ async function languageModelFor(
   if (provider.kind === 'anthropic') {
     return createAnthropic({ apiKey })(selection.modelId);
   }
-  const baseURL = baseUrlOverrides[provider.id]?.trim() || provider.defaultBaseUrl;
-  if (!baseURL) throw new Error(`${provider.name} base URL is required.`);
+  const rawBaseURL = baseUrlOverrides[provider.id]?.trim() || provider.defaultBaseUrl;
+  if (!rawBaseURL) throw new Error(`${provider.name} base URL is required.`);
+  const baseURL = assertSafeAiBaseUrl(rawBaseURL);
   return createOpenAICompatible({ name: provider.id, apiKey, baseURL })(selection.modelId);
 }
 
@@ -200,7 +205,11 @@ Rules:
 - Do not save anything; this response is still only a staging draft.`;
 }
 
-function parseTaskJson(responseText: string): AiGeneratedTask[] {
+function parseTaskJson(
+  responseText: string,
+  availableLists: TaskList[] = [],
+  availableTags: string[] = []
+): AiGeneratedTask[] {
   const cleaned = stripMarkdownFence(responseText);
   let payload: unknown;
   try {
@@ -219,31 +228,58 @@ function parseTaskJson(responseText: string): AiGeneratedTask[] {
     throw new ApiError(502, 'AI JSON must be a task array or an object with a tasks array');
   }
 
-  return tasks.map(normalizeGeneratedTask).filter((task): task is AiGeneratedTask => task !== null);
+  const listIds = new Set(availableLists.map((list) => list.id));
+  const canonicalTags = new Map(availableTags.map((tag) => [tag.toLocaleLowerCase(), tag]));
+  return tasks
+    .map((task) => normalizeGeneratedTask(task, listIds, canonicalTags))
+    .filter((task): task is AiGeneratedTask => task !== null);
 }
 
-function normalizeGeneratedTask(value: unknown): AiGeneratedTask | null {
+function normalizeGeneratedTask(
+  value: unknown,
+  listIds: Set<string>,
+  canonicalTags: Map<string, string>
+): AiGeneratedTask | null {
   if (typeof value !== 'object' || value === null) return null;
   const item = value as Record<string, unknown>;
   if (typeof item.title !== 'string' || !item.title.trim()) return null;
   return {
-    title: item.title,
-    description: typeof item.description === 'string' ? item.description : null,
-    list_id: typeof item.list_id === 'string' ? item.list_id : null,
-    tags: Array.isArray(item.tags) ? item.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-    due_at: typeof item.due_at === 'string' ? item.due_at : null,
-    reminder_at: typeof item.reminder_at === 'string' ? item.reminder_at : null,
-    priority: typeof item.priority === 'number' ? item.priority : null,
+    draft_id: typeof item.draft_id === 'string' && item.draft_id ? item.draft_id : randomDraftId(),
+    title: item.title.trim(),
+    description: typeof item.description === 'string' ? item.description.trim() || null : null,
+    list_id: typeof item.list_id === 'string' && listIds.has(item.list_id) ? item.list_id : null,
+    tags: Array.isArray(item.tags)
+      ? [...new Set(item.tags.flatMap((tag) => {
+          if (typeof tag !== 'string' || !tag.trim()) return [];
+          const trimmed = tag.trim();
+          return [canonicalTags.get(trimmed.toLocaleLowerCase()) ?? trimmed];
+        }))]
+      : [],
+    due_at: validIsoDate(item.due_at),
+    reminder_at: validIsoDate(item.reminder_at),
+    priority: typeof item.priority === 'number' && Number.isInteger(item.priority) && item.priority >= 0 && item.priority <= 9
+      ? item.priority
+      : null,
     subtasks: Array.isArray(item.subtasks)
       ? item.subtasks.flatMap((subtask) => {
           if (typeof subtask !== 'object' || subtask === null) return [];
           const record = subtask as Record<string, unknown>;
-          return typeof record.title === 'string'
-            ? [{ title: record.title, description: typeof record.description === 'string' ? record.description : null }]
+          return typeof record.title === 'string' && record.title.trim()
+            ? [{ title: record.title.trim(), description: typeof record.description === 'string' ? record.description.trim() || null : null }]
             : [];
         })
       : [],
   };
+}
+
+function validIsoDate(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function randomDraftId() {
+  return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function stripMarkdownFence(value: string) {

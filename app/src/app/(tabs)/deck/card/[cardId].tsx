@@ -41,7 +41,7 @@ export default function DeckCardDetailScreen() {
       values.description !== (card.description ?? '') ||
       values.duedate !== (card.duedate ?? null);
     try {
-      if (contentChanged) {
+      if (contentChanged || targetStackId !== stackNumber) {
         await updateCard.mutateAsync({
           board_id: boardNumber,
           stack_id: stackNumber,
@@ -49,15 +49,7 @@ export default function DeckCardDetailScreen() {
           title: values.title,
           description: values.description,
           duedate: values.duedate,
-        });
-      }
-      if (targetStackId !== stackNumber) {
-        await reorderCard.mutateAsync({
-          board_id: boardNumber,
-          stack_id: stackNumber,
-          card_id: cardNumber,
           target_stack_id: targetStackId,
-          order: targetStack?.cards?.length ?? 0,
         });
       }
       router.back();

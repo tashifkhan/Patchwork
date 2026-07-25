@@ -1,4 +1,4 @@
-import { HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { HStack, Link, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import { font, foregroundStyle, padding } from '@expo/ui/swift-ui/modifiers';
 import { createWidget, type WidgetEnvironment } from 'expo-widgets';
 
@@ -49,13 +49,15 @@ function TaskRow({ task, tint, muted }: { task: WidgetTask; tint: string; muted:
   'widget';
   const due = formatDue(task.due_at);
   return (
-    <HStack modifiers={[padding({ top: 6 })]}>
-      <Text modifiers={[font({ size: 13 }), foregroundStyle(tint)]}>{task.title}</Text>
-      <Spacer />
-      {due ? (
-        <Text modifiers={[font({ size: 11 }), foregroundStyle(muted)]}>{due}</Text>
-      ) : null}
-    </HStack>
+    <Link destination={`patchwork:///task/${encodeURIComponent(task.uid)}`}>
+      <HStack modifiers={[padding({ top: 6 })]}>
+        <Text modifiers={[font({ size: 13 }), foregroundStyle(tint)]}>{task.title}</Text>
+        <Spacer />
+        {due ? (
+          <Text modifiers={[font({ size: 11 }), foregroundStyle(muted)]}>{due}</Text>
+        ) : null}
+      </HStack>
+    </Link>
   );
 }
 

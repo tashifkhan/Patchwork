@@ -16,6 +16,8 @@ export interface TaskList {
 
 export interface TaskListCreate {
   name: string;
+  /** Native multi-account destination. Defaults only when exactly one account exists. */
+  account_id?: string;
 }
 
 export interface Task {
@@ -39,6 +41,8 @@ export interface Task {
   updated_at: string | null;
   /** Owning CalDAV account (native multi-account). */
   account_id?: string;
+  /** Human-readable account label for multi-account surfaces and widgets. */
+  account_name?: string;
 }
 
 export interface TaskCreate {
@@ -54,6 +58,8 @@ export interface TaskCreate {
 }
 
 export interface TaskUpdate {
+  /** Move a native CalDAV task to another list while applying the patch. */
+  list_id?: string;
   title?: string;
   markdown?: string;
   completed?: boolean;
@@ -70,18 +76,21 @@ export interface HealthResponse {
   status: 'ok';
   nextcloud_configured: boolean;
   gemini_configured: boolean;
-  github_configured: boolean;
 }
 
 export interface DeckBoard {
+  /** App-scoped stable id; the server-local id remains inside `raw.id`. */
   id: number;
   title: string;
+  account_id?: string;
+  account_name?: string;
   raw: Record<string, unknown>;
 }
 
 export interface DeckBoardCreate {
   title: string;
   color?: string;
+  account_id?: string;
 }
 
 // Deck card/stack shapes are passed through as `raw` JSON from the Nextcloud
@@ -176,6 +185,8 @@ export interface AiGeneratedSubtask {
 }
 
 export interface AiGeneratedTask {
+  /** Client-generated stable identity used to make staged imports retry-safe. */
+  draft_id?: string;
   title: string;
   description?: string | null;
   list_id?: string | null;

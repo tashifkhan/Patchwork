@@ -10,7 +10,6 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { addTaskToCalendar } from '@/lib/calendar';
-import { scheduleTaskReminder } from '@/lib/notifications';
 import { collectAllTags } from '@/lib/tags';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 
@@ -20,6 +19,7 @@ export default function NewTaskScreen() {
   const tasksQuery = useTasks();
   const createTask = useCreateTask();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [createdWithWarnings, setCreatedWithWarnings] = useState(false);
   const [subtaskDrafts, setSubtaskDrafts] = useState<string[]>([]);
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -58,28 +58,29 @@ export default function NewTaskScreen() {
         reminder_at: values.reminder_at,
         priority: values.priority,
       });
-      if (created.reminder_at) {
-        await scheduleTaskReminder({
-          taskUid: created.uid,
-          title: created.title,
-          reminderAt: created.reminder_at,
-        });
-      }
-      if (values.calendar_id) {
-        await addTaskToCalendar({
-          calendarId: values.calendar_id,
-          title: created.title,
-          notes: created.markdown,
-          dueAt: created.due_at,
-          reminderAt: created.reminder_at,
-        });
-      }
-      for (const title of subtaskDrafts) {
-        await createTask.mutateAsync({
+      const followUps = await Promise.allSettled([
+        ...(values.calendar_id
+          ? [addTaskToCalendar({
+              calendarId: values.calendar_id,
+              title: created.title,
+              notes: created.markdown,
+              dueAt: created.due_at,
+              reminderAt: created.reminder_at,
+            })]
+          : []),
+        ...subtaskDrafts.map((title) => createTask.mutateAsync({
           list_id: created.list_id,
           title,
           parent_uid: created.uid,
-        });
+        })),
+      ]);
+      const failedCount = followUps.filter((result) => result.status === 'rejected').length;
+      if (failedCount > 0) {
+        setCreatedWithWarnings(true);
+        setErrorMessage(
+          `The task was created, but ${failedCount} follow-up ${failedCount === 1 ? 'item' : 'items'} could not be added. You can retry those from the task detail screen.`
+        );
+        return;
       }
       router.back();
     } catch (error) {
@@ -92,9 +93,25 @@ export default function NewTaskScreen() {
     return (
       <SheetSurface>
         <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-sf-text-2 text-center">
-            {listsQuery.isLoading ? 'Loading lists…' : 'No task lists available. Check Settings.'}
+          <Text className="text-sf-text-2 text-center" selectable>
+            {listsQuery.isLoading
+              ? 'Loading lists…'
+              : listsQuery.isError
+                ? 'Task lists could not be loaded.'
+                : 'Connect a CalDAV account to create your first task.'}
           </Text>
+          {!listsQuery.isLoading ? (
+            <View className="mt-4 flex-row gap-3">
+              {listsQuery.isError ? (
+                <Pressable accessibilityRole="button" onPress={() => listsQuery.refetch()}>
+                  <Text className="text-sf-blue text-base font-semibold">Retry</Text>
+                </Pressable>
+              ) : null}
+              <Pressable accessibilityRole="button" onPress={() => router.push('/settings/account')}>
+                <Text className="text-sf-blue text-base font-semibold">Connect account</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </SheetSurface>
     );
@@ -113,7 +130,6 @@ export default function NewTaskScreen() {
           availableTags={availableTags}
           submitting={createTask.isPending}
           submitLabel={createTask.isPending ? 'Creating…' : 'Create Task'}
-          showPreview
           onSubmit={handleSubmit}
         />
 
@@ -128,6 +144,8 @@ export default function NewTaskScreen() {
                 <Text className="text-sf-text flex-1 text-base">{title}</Text>
                 <Pressable
                   onPress={() => removeDraft(index)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove subtask ${title}`}
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                   <MaterialCommunityIcons name="close" size={18} color={colors.text2} />
                 </Pressable>
@@ -152,7 +170,10 @@ export default function NewTaskScreen() {
           visible={errorMessage != null}
           title="Create failed"
           message={errorMessage ?? ''}
-          onDismiss={() => setErrorMessage(null)}
+          onDismiss={() => {
+            setErrorMessage(null);
+            if (createdWithWarnings) router.back();
+          }}
         />
       </ScrollView>
     </SheetSurface>

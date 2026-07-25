@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { getApiBaseUrl, setApiBaseUrl } from '@/api/client';
 import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/lib/ai-models';
+import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type GitHubMode = 'public' | 'private';
@@ -74,16 +75,22 @@ export const useSettingsStore = create<SettingsState>()(
       setDefaultReminderMinutes: (defaultReminderMinutes) => set({ defaultReminderMinutes }),
       setAiDefaultListId: (aiDefaultListId) => set({ aiDefaultListId }),
       setAiModelSelections: (aiModelSelections) => set({ aiModelSelections }),
+      // Store raw while typing; ai.native.ts validates before sending API keys.
       setAiBaseUrlOverride: (providerId, baseUrl) =>
         set((state) => ({
           aiBaseUrlOverrides: { ...state.aiBaseUrlOverrides, [providerId]: baseUrl.trim() },
         })),
       upsertAiCustomProvider: (provider) =>
         set((state) => {
-          const existing = state.aiCustomProviders.findIndex((entry) => entry.id === provider.id);
+          const safeProvider = {
+            ...provider,
+            name: provider.name.trim(),
+            baseUrl: assertSafeAiBaseUrl(provider.baseUrl),
+          };
+          const existing = state.aiCustomProviders.findIndex((entry) => entry.id === safeProvider.id);
           const next = [...state.aiCustomProviders];
-          if (existing >= 0) next[existing] = provider;
-          else next.push(provider);
+          if (existing >= 0) next[existing] = safeProvider;
+          else next.push(safeProvider);
           return { aiCustomProviders: next };
         }),
       removeAiCustomProvider: (providerId) =>

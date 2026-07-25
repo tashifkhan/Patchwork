@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import SegmentedControl from '@expo/ui/community/segmented-control';
+import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable } from 'react-native';
@@ -7,7 +7,7 @@ import { Pressable } from 'react-native';
 import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
-import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
+import { MarkdownEditor } from '@/components/tasks/markdown-editor';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
@@ -37,6 +37,7 @@ interface TaskFormProps {
   showReminder?: boolean;
   showPriority?: boolean;
   showCalendar?: boolean;
+  /** @deprecated Live preview is always on via MarkdownEditor. Kept for call-site compat. */
   showPreview?: boolean;
   onSubmit: (values: TaskFormValues) => void;
   onDelete?: () => void;
@@ -62,7 +63,7 @@ export function TaskForm({
   showReminder = true,
   showPriority = true,
   showCalendar = true,
-  showPreview = false,
+  showPreview: _showPreview = true,
   onSubmit,
   onDelete,
 }: TaskFormProps) {
@@ -118,6 +119,7 @@ export function TaskForm({
           onChangeText={setTitle}
           placeholder="What needs doing?"
           placeholderTextColor={textColor as string}
+          accessibilityLabel="Task title"
           className="text-sf-text bg-sf-bg-2 rounded-xl px-3 py-3 text-base"
           style={{ borderCurve: 'continuous' }}
         />
@@ -132,6 +134,8 @@ export function TaskForm({
                 <Pressable
                   key={list.id}
                   onPress={() => setListId(list.id)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                   <View
                     className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
@@ -148,30 +152,17 @@ export function TaskForm({
       ) : null}
 
       <Field label={notesLabel} icon="text-long">
-        <TextInput
+        <MarkdownEditor
           value={markdown}
           onChangeText={setMarkdown}
-          placeholder="Add details…"
+          placeholder="Add details…  (# heading, **bold**, - list)"
           placeholderTextColor={textColor as string}
-          multiline
-          className="text-sf-text bg-sf-bg-2 min-h-24 rounded-xl px-3 py-3 text-base"
-          style={{ borderCurve: 'continuous', textAlignVertical: 'top' }}
         />
       </Field>
 
-      {showPreview && markdown.trim() ? (
-        <Field label="Preview" icon="eye-outline">
-          <View
-            className="bg-sf-bg-2 rounded-xl px-3 py-2"
-            style={{ borderCurve: 'continuous' }}>
-            <MarkdownViewer markdown={markdown} />
-          </View>
-        </Field>
-      ) : null}
-
       {showTags ? (
         <Field label="Tags" icon="tag-multiple-outline">
-          <Pressable onPress={pickTags} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose tags" onPress={pickTags} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
             <View
               className="bg-sf-bg-2 flex-row items-center justify-between rounded-xl px-3 py-3"
               style={{ borderCurve: 'continuous' }}>
@@ -211,6 +202,8 @@ export function TaskForm({
           <View className="bg-sf-bg-2 rounded-xl" style={{ borderCurve: 'continuous' }}>
             <Pressable
               onPress={() => setShowCalendarList((prev) => !prev)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showCalendarList }}
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
               <View className="flex-row items-center justify-between px-3 py-3">
                 <View className="flex-row items-center gap-3">
@@ -283,6 +276,8 @@ export function TaskForm({
       <Pressable
         onPress={submit}
         disabled={!canSubmit}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSubmit }}
         style={({ pressed }) => ({ opacity: !canSubmit ? 0.4 : pressed ? 0.8 : 1 })}>
         <View
           className="bg-sf-blue items-center rounded-xl py-3.5"
@@ -292,7 +287,7 @@ export function TaskForm({
       </Pressable>
 
       {onDelete ? (
-        <Pressable onPress={onDelete} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+        <Pressable accessibilityRole="button" onPress={onDelete} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
           <View className="flex-row items-center justify-center gap-2 py-2">
             <MaterialCommunityIcons name="trash-can-outline" size={18} color={red as string} />
             <Text className="text-sf-red text-base">Delete task</Text>
@@ -316,7 +311,11 @@ function CalendarRow({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
       <View className="flex-row items-center justify-between px-3 py-3">
         <View className="flex-row items-center gap-3">
           <View

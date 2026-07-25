@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/icon';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeckBoards, useReorderDeckCard } from '@/hooks/use-deck';
 import { useUiStore } from '@/stores/ui-store';
+import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
 
 export default function BoardsScreen() {
@@ -21,6 +22,7 @@ export default function BoardsScreen() {
   const isWide = width >= 768;
 
   const boardsQuery = useDeckBoards();
+  const deckWarnings = useSyncStatusStore((state) => state.deckWarnings);
   const reorderCard = useReorderDeckCard();
   const boards = useMemo(() => boardsQuery.data ?? [], [boardsQuery.data]);
 
@@ -115,12 +117,14 @@ export default function BoardsScreen() {
             <Pressable
               key={board.id}
               onPress={() => setSelectedBoardId(board.id)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
               <View
                 className={`rounded-full px-4 py-1.5 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
                 style={{ borderCurve: 'continuous' }}>
                 <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
-                  {board.title}
+                  {board.title}{boards.some((candidate) => candidate.account_id !== board.account_id) && board.account_name ? ` · ${board.account_name}` : ''}
                 </Text>
               </View>
             </Pressable>
@@ -169,9 +173,27 @@ export default function BoardsScreen() {
           isWide ? { alignSelf: 'center', width: '100%', maxWidth: 720 } : null,
         ]}>
         <View style={{ marginHorizontal: -24 }}>{boardSelector}</View>
+        {deckWarnings.length > 0 ? (
+          <View className="bg-sf-bg-2 mb-3 flex-row items-start gap-3 rounded-xl px-3 py-3">
+            <MaterialCommunityIcons name="cloud-alert-outline" size={20} color={colors.orange} />
+            <View className="flex-1 gap-1">
+              <Text className="text-sf-text text-sm font-semibold">Some Deck accounts did not sync</Text>
+              <Text selectable className="text-sf-text-2 text-xs">{deckWarnings[0]}</Text>
+            </View>
+          </View>
+        ) : null}
         {boardQuery.isLoading ? (
           <View className="items-center py-16">
             <Text className="text-sf-text-2 text-sm">Loading cards…</Text>
+          </View>
+        ) : boardQuery.isError ? (
+          <View className="items-center gap-3 py-16">
+            <Text selectable className="text-sf-red text-center text-sm">
+              {boardQuery.error instanceof Error ? boardQuery.error.message : 'Could not load this board.'}
+            </Text>
+            <Pressable accessibilityRole="button" onPress={() => boardQuery.refetch()}>
+              <Text className="text-sf-blue text-base font-semibold">Retry</Text>
+            </Pressable>
           </View>
         ) : (
           <KanbanBoard

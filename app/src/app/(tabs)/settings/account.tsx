@@ -4,6 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable } from 'react-native';
 
+import { validateCalDavAccount } from '@/api/tasks';
 import { ServerTypeMenu } from '@/components/settings/server-type-menu';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
@@ -13,6 +14,7 @@ import {
   saveAccount,
   type ServerType,
 } from '@/lib/credentials';
+import { queryKeys } from '@/lib/query-client';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 
 export default function AccountEditor() {
@@ -30,6 +32,8 @@ export default function AccountEditor() {
   const [serverType, setServerType] = useState<ServerType>('nextcloud');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [removeVisible, setRemoveVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -48,12 +52,47 @@ export default function AccountEditor() {
   }, [id]);
 
   async function handleSave() {
+    if (saving) return;
+    setSaving(true);
     try {
-      await saveAccount({ id, displayName, baseUrl, username, appPassword: password, serverType });
-      queryClient.invalidateQueries();
+      const candidate = {
+        id: id ?? `validation-${Date.now()}`,
+        displayName: displayName.trim() || username.trim(),
+        baseUrl,
+        username,
+        appPassword: password,
+        serverType,
+      };
+      await validateCalDavAccount(candidate);
+      await saveAccount({ ...candidate, id });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.taskLists }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasks }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.deckBoards }),
+      ]);
       router.back();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testConnection() {
+    setConnectionStatus(null);
+    try {
+      await validateCalDavAccount({
+        id: id ?? `validation-${Date.now()}`,
+        displayName: displayName.trim() || username.trim(),
+        baseUrl,
+        username,
+        appPassword: password,
+        serverType,
+      });
+      setConnectionStatus('Connection successful. CalDAV task access is available.');
+    } catch (error) {
+      setConnectionStatus(null);
+      setErrorMessage(error instanceof Error ? error.message : 'Connection failed.');
     }
   }
 
@@ -65,9 +104,17 @@ export default function AccountEditor() {
   async function confirmRemove() {
     if (!id) return;
     setRemoveVisible(false);
-    await deleteAccount(id);
-    queryClient.invalidateQueries();
-    router.back();
+    try {
+      await deleteAccount(id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.taskLists }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasks }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.deckBoards }),
+      ]);
+      router.back();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not remove the account.');
+    }
   }
 
   return (
@@ -81,11 +128,11 @@ export default function AccountEditor() {
           title: isNew ? 'Add account' : displayName || 'Account',
           headerRight: () => (
             <View className="flex-row items-center gap-5">
-              <Pressable onPress={handleSave} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Save account" disabled={saving} onPress={handleSave} hitSlop={8} style={({ pressed }) => ({ opacity: saving ? 0.4 : pressed ? 0.5 : 1 })}>
                 <MaterialCommunityIcons name="content-save-outline" size={24} color={colors.accent} />
               </Pressable>
               {!isNew ? (
-                <Pressable onPress={handleDelete} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Remove account" onPress={handleDelete} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
                   <MaterialCommunityIcons name="trash-can-outline" size={24} color={colors.red} />
                 </Pressable>
               ) : null}
@@ -136,6 +183,19 @@ export default function AccountEditor() {
       <Field label="Server type">
         <ServerTypeMenu value={serverType} onChange={setServerType} />
       </Field>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={testConnection}
+        disabled={saving}
+        style={({ pressed }) => ({ opacity: saving ? 0.4 : pressed ? 0.7 : 1 })}>
+        <View className="bg-sf-bg-2 items-center rounded-xl py-3" style={{ borderCurve: 'continuous' }}>
+          <Text className="text-sf-blue text-base font-semibold">Test connection</Text>
+        </View>
+      </Pressable>
+      {connectionStatus ? (
+        <Text selectable className="text-sf-green text-sm">{connectionStatus}</Text>
+      ) : null}
 
       <NativeAlert
         visible={removeVisible}

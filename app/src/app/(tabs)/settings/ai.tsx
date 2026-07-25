@@ -159,7 +159,15 @@ export default function AiScreen() {
     }
     const id = `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`;
     const modelIds = newCustom.modelId.trim() ? [newCustom.modelId.trim()] : [];
-    upsertAiCustomProvider({ id, name, baseUrl, modelIds });
+    try {
+      upsertAiCustomProvider({ id, name, baseUrl, modelIds });
+    } catch (error) {
+      setAlert({
+        title: 'Invalid base URL',
+        message: error instanceof Error ? error.message : 'Use HTTPS, or HTTP only for a local/LAN model server.',
+      });
+      return;
+    }
     if (newCustom.key.trim()) {
       try {
         await saveAiApiKey(id, newCustom.key.trim());

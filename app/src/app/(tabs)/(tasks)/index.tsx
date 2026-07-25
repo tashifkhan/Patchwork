@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Modal, Platform, Pressable, RefreshControl } from 'react-native';
 
 import { ApiError } from '@/api/client';
-import type { Task } from '@/api/types';
+import type { GitHubIssue, Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { CreateTaskListForm } from '@/components/tasks/create-task-list-form';
 import { DraggableColumn } from '@/components/tasks/draggable-column';
@@ -34,6 +34,7 @@ import {
 } from '@/lib/task-buckets';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useUiStore } from '@/stores/ui-store';
+import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
 
 function collectTags(tasks: Task[]): string[] {
@@ -56,6 +57,7 @@ export default function TasksScreen() {
   const updateTask = useUpdateTask();
   const createList = useCreateTaskList();
   const reorderTasks = useReorderTasks();
+  const taskWarnings = useSyncStatusStore((state) => state.taskWarnings);
 
   const selectedListId = useUiStore((s) => s.selectedListId);
   const selectedTag = useUiStore((s) => s.selectedTag);
@@ -107,6 +109,7 @@ export default function TasksScreen() {
       try {
         await updateTask.mutateAsync({
           taskId: task.id,
+          accountId: task.account_id,
           patch: { completed: !task.completed, etag: task.etag },
         });
       } catch (error) {
@@ -138,13 +141,25 @@ export default function TasksScreen() {
 
   const handleCreateList = useCallback(async (name: string) => {
     try {
-      const list = await createList.mutateAsync({ name });
+      const selectedAccountId = lists.find((list) => list.id === selectedListId)?.account_id;
+      const accountIds = [...new Set(lists.map((list) => list.account_id).filter(Boolean))];
+      if (!selectedAccountId && accountIds.length > 1) {
+        setAlert({
+          title: 'Choose an account',
+          message: 'Select one of that account’s lists first, then create the new list.',
+        });
+        return;
+      }
+      const list = await createList.mutateAsync({
+        name,
+        account_id: selectedAccountId ?? accountIds[0],
+      });
       setSelectedListId(list.id);
       setCreateListOpen(false);
     } catch (error) {
       setAlert({ title: 'Could not create list', message: error instanceof ApiError ? error.message : 'Please try again.' });
     }
-  }, [createList, setSelectedListId]);
+  }, [createList, lists, selectedListId, setSelectedListId]);
 
   const handleReorder = useCallback(
     (next: Task[]) => {
@@ -152,7 +167,12 @@ export default function TasksScreen() {
       next.forEach((task, index) => {
         const order = (index + 1) * 10;
         if (task.sort_order !== order) {
-          entries.push({ taskId: task.id, sort_order: order, etag: task.etag });
+          entries.push({
+            taskId: task.id,
+            accountId: task.account_id,
+            sort_order: order,
+            etag: task.etag,
+          });
         }
       });
       if (entries.length > 0) reorderTasks.mutate(entries);
@@ -164,10 +184,11 @@ export default function TasksScreen() {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  const isLoading = tasksQuery.isLoading || (githubConnected && githubQuery.isLoading);
+  const githubRepos = useSettingsStore((s) => s.githubRepos);
+  const isLoading = tasksQuery.isLoading || (githubConnected && githubRepos.length > 0 && githubQuery.isLoading);
   const isFetching = tasksQuery.isFetching || (githubConnected && githubQuery.isFetching);
   const isEmpty = visibleTasks.length === 0 && (!githubConnected || (githubQuery.data?.length ?? 0) === 0);
-  const showCenteredState = isEmpty && !isLoading;
+  const showCenteredState = isEmpty && !isLoading && !githubQuery.isError;
 
   const githubOpen = useMemo(() => githubQuery.data?.filter((i) => !i.completed) ?? [], [githubQuery.data]);
   const githubClosed = useMemo(() => githubQuery.data?.filter((i) => i.completed) ?? [], [githubQuery.data]);
@@ -219,11 +240,42 @@ export default function TasksScreen() {
           </View>
         ) : null}
 
+        {tasksQuery.isError && !showCenteredState ? (
+          <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
+            <MaterialCommunityIcons name="cloud-alert-outline" size={20} color={colors.red} />
+            <View className="flex-1 gap-1">
+              <Text className="text-sf-text text-sm font-semibold">CalDAV sync failed</Text>
+              <Text selectable className="text-sf-text-2 text-xs">
+                {tasksQuery.error instanceof Error ? tasksQuery.error.message : 'Tasks could not be refreshed.'}
+              </Text>
+              <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()}>
+                <Text className="text-sf-blue text-sm font-semibold">Retry</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+        {!tasksQuery.isError && taskWarnings.length > 0 ? (
+          <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
+            <MaterialCommunityIcons name="cloud-alert-outline" size={20} color={colors.orange} />
+            <View className="flex-1 gap-1">
+              <Text className="text-sf-text text-sm font-semibold">Partially synchronized</Text>
+              <Text selectable className="text-sf-text-2 text-xs">{taskWarnings[0]}</Text>
+              <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()}>
+                <Text className="text-sf-blue text-sm font-semibold">Retry all sources</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         {isLoading ? (
           <TaskListSkeleton />
         ) : showCenteredState ? (
           <View className="flex-1 justify-center">
-            <EmptyState error={tasksQuery.error} onRetry={() => tasksQuery.refetch()} />
+            <EmptyState
+              error={tasksQuery.error}
+              onRetry={() => tasksQuery.refetch()}
+              onConnect={() => router.push('/settings/account')}
+            />
           </View>
         ) : (
           <>
@@ -258,36 +310,68 @@ export default function TasksScreen() {
               </Section>
             ) : null}
 
-            {githubConnected && githubQuery.data && githubQuery.data.length > 0 ? (
+            {githubConnected ? (
               <View className="mt-8">
-                <View className="flex-row items-center gap-2 mb-2">
+                <View className="mb-2 flex-row items-center gap-2">
                   <MaterialCommunityIcons name="github" size={24} color={colors.text} />
                   <Text className="text-sf-text text-lg font-bold">GitHub Issues</Text>
                 </View>
-                
-                {githubOpen.length > 0 ? (
-                  <Section
-                    title="Open"
-                    count={githubOpen.length}
-                    collapsed={!!collapsed.github_open}
-                    onToggle={() => toggleSection('github_open')}>
-                    {githubOpen.map((issue) => (
-                      <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
-                    ))}
-                  </Section>
-                ) : null}
 
-                {githubClosed.length > 0 ? (
-                  <Section
-                    title="Closed"
-                    count={githubClosed.length}
-                    collapsed={!!collapsed.github_closed}
-                    onToggle={() => toggleSection('github_closed')}>
-                    {githubClosed.map((issue) => (
-                      <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
-                    ))}
-                  </Section>
-                ) : null}
+                {githubRepos.length === 0 ? (
+                  <View className="bg-sf-bg-2 gap-1 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
+                    <Text className="text-sf-text text-sm">No repositories selected</Text>
+                    <Text className="text-sf-text-2 text-xs">
+                      Pick repos in Settings → GitHub Issues to sync them here.
+                    </Text>
+                  </View>
+                ) : githubQuery.isError ? (
+                  <View className="bg-sf-bg-2 gap-2 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
+                    <Text className="text-sf-text text-sm">Could not load GitHub issues</Text>
+                    <Text selectable className="text-sf-text-2 text-xs">
+                      {githubQuery.error instanceof Error
+                        ? githubQuery.error.message
+                        : 'Unknown error'}
+                    </Text>
+                    <Pressable
+                      onPress={() => githubQuery.refetch()}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                      <Text className="text-sf-blue text-sm font-medium">Retry</Text>
+                    </Pressable>
+                  </View>
+                ) : githubQuery.data && githubQuery.data.length === 0 ? (
+                  <View className="bg-sf-bg-2 gap-1 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
+                    <Text className="text-sf-text text-sm">No issues found</Text>
+                    <Text className="text-sf-text-2 text-xs">
+                      Private mode shows issues assigned to you. Public mode shows all open/closed issues.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {githubOpen.length > 0 ? (
+                      <Section
+                        title="Open"
+                        count={githubOpen.length}
+                        collapsed={!!collapsed.github_open}
+                        onToggle={() => toggleSection('github_open')}>
+                        {githubOpen.map((issue) => (
+                          <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
+                        ))}
+                      </Section>
+                    ) : null}
+
+                    {githubClosed.length > 0 ? (
+                      <Section
+                        title="Closed"
+                        count={githubClosed.length}
+                        collapsed={!!collapsed.github_closed}
+                        onToggle={() => toggleSection('github_closed')}>
+                        {githubClosed.map((issue) => (
+                          <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
+                        ))}
+                      </Section>
+                    ) : null}
+                  </>
+                )}
               </View>
             ) : null}
           </>
@@ -340,7 +424,12 @@ function Section({
   const { colors } = useTheme();
   return (
     <View className="pt-4">
-      <Pressable onPress={onToggle} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !collapsed }}
+        accessibilityLabel={`${title}, ${count} items`}
+        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
         <View className="flex-row items-center justify-between py-1">
           <Text className="text-sf-text-2 text-sm font-semibold uppercase">
             {title} · {count}
@@ -360,9 +449,11 @@ function Section({
 function EmptyState({
   error,
   onRetry,
+  onConnect,
 }: {
   error: unknown;
   onRetry: () => void;
+  onConnect: () => void;
 }) {
   const { colors } = useTheme();
 
@@ -374,9 +465,14 @@ function EmptyState({
         <Text selectable className="text-sf-text-2 px-8 text-center">
           {message}
         </Text>
-        <Pressable onPress={onRetry} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+        <Pressable accessibilityRole="button" onPress={onRetry} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
           <Text className="text-sf-blue text-base">Retry</Text>
         </Pressable>
+        {error instanceof ApiError && error.status === 503 ? (
+          <Pressable accessibilityRole="button" onPress={onConnect}>
+            <Text className="text-sf-blue text-base font-semibold">Connect account</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }

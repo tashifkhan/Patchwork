@@ -42,14 +42,23 @@ export async function requestDeviceCode(): Promise<DeviceCodeResponse> {
 export async function pollForAccessToken(
   deviceCode: string,
   interval: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  expiresInSeconds = 900
 ): Promise<string> {
-  let waitSeconds = interval;
+  let waitSeconds = Math.max(1, interval);
+  const deadline = Date.now() + Math.max(30, expiresInSeconds) * 1000;
 
   while (true) {
     if (signal?.aborted) throw new Error('OAuth flow was cancelled.');
+    if (Date.now() >= deadline) {
+      throw new Error('The device code has expired. Please try again.');
+    }
 
-    await sleep(waitSeconds * 1000);
+    await sleep(waitSeconds * 1000, signal);
+    if (signal?.aborted) throw new Error('OAuth flow was cancelled.');
+    if (Date.now() >= deadline) {
+      throw new Error('The device code has expired. Please try again.');
+    }
 
     const response = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -133,6 +142,17 @@ export async function validatePat(token: string): Promise<GitHubCredentials> {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('OAuth flow was cancelled.'));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('OAuth flow was cancelled.'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }

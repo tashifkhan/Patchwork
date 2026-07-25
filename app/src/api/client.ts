@@ -29,7 +29,7 @@ export class ApiError extends Error {
   }
 
   get isConflict() {
-    return this.status === 409;
+    return this.status === 409 || this.status === 412;
   }
 
   get isNotImplemented() {

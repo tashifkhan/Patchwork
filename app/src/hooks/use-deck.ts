@@ -23,19 +23,25 @@ export interface DeckBoardCards {
 }
 
 // Fetches every board's stacks so search can index all Deck cards at once.
-export function useAllDeckCards(boards: DeckBoard[]): DeckBoardCards[] {
+export function useAllDeckCards(boards: DeckBoard[]) {
   const results = useQueries({
     queries: boards.map((board) => ({
       queryKey: queryKeys.deckBoard(board.id),
       queryFn: () => fetchDeckBoard(board.id),
+      staleTime: 5 * 60_000,
+      retry: 1,
     })),
   });
 
-  return boards.map((board, index) => ({
-    boardId: board.id,
-    boardTitle: board.title,
-    stacks: results[index]?.data?.stacks ?? [],
-  }));
+  return {
+    data: boards.map((board, index) => ({
+      boardId: board.id,
+      boardTitle: board.title,
+      stacks: results[index]?.data?.stacks ?? [],
+    })),
+    isLoading: results.some((result) => result.isLoading),
+    errors: results.flatMap((result) => result.error ? [result.error] : []),
+  };
 }
 
 export function useCreateDeckBoard() {
@@ -53,7 +59,7 @@ export function useCreateDeckCard() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: DeckCardCreate) => createDeckCard(payload),
-    onSuccess: (_card, payload) => {
+    onSettled: (_card, _error, payload) => {
       client.invalidateQueries({ queryKey: queryKeys.deckBoards });
       client.invalidateQueries({ queryKey: queryKeys.deckBoard(payload.board_id) });
     },
@@ -64,7 +70,7 @@ export function useUpdateDeckCard() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: DeckCardUpdate) => updateDeckCard(payload),
-    onSuccess: (_card, payload) => {
+    onSettled: (_card, _error, payload) => {
       client.invalidateQueries({ queryKey: queryKeys.deckBoards });
       client.invalidateQueries({ queryKey: queryKeys.deckBoard(payload.board_id) });
     },

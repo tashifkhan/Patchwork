@@ -3,6 +3,7 @@ import { Pressable } from 'react-native';
 
 import type { AiGeneratedTask, TaskList } from '@/api/types';
 import { DateField } from '@/components/tasks/date-field';
+import { MarkdownEditor } from '@/components/tasks/markdown-editor';
 import { Icon } from '@/components/ui/icon';
 import { Text, TextInput, View, useCSSVariable } from '@/tw';
 
@@ -33,20 +34,22 @@ function StagedTaskCardComponent({ index, task, lists, onChange, onRemove }: Sta
         />
         <Pressable
           onPress={() => onRemove(index)}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${task.title || 'draft task'}`}
           hitSlop={8}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingTop: 6 })}>
           <Icon name="trash" size={18} color={red as string} />
         </Pressable>
       </View>
 
-      <TextInput
+      <MarkdownEditor
         value={task.description ?? ''}
         onChangeText={(description) => onChange(index, { description })}
         placeholder="Description (optional, Markdown)"
         placeholderTextColor={textSecondary as string}
-        multiline
+        compact
+        minHeight={64}
         className="text-sf-text bg-sf-bg-3 min-h-16 rounded-lg px-3 py-2 text-sm"
-        style={{ borderCurve: 'continuous' }}
       />
 
       {lists.length > 1 ? (
@@ -57,6 +60,8 @@ function StagedTaskCardComponent({ index, task, lists, onChange, onRemove }: Sta
               <Pressable
                 key={list.id}
                 onPress={() => onChange(index, { list_id: list.id })}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
                 style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                 <View
                   className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-3'}`}
@@ -81,6 +86,18 @@ function StagedTaskCardComponent({ index, task, lists, onChange, onRemove }: Sta
         </View>
       ) : null}
 
+      <TextInput
+        value={task.tags.join(', ')}
+        onChangeText={(value) => onChange(index, {
+          tags: [...new Set(value.split(',').map((tag) => tag.trim()).filter(Boolean))],
+        })}
+        placeholder="Tags, separated by commas"
+        placeholderTextColor={textSecondary as string}
+        accessibilityLabel="Tags separated by commas"
+        className="text-sf-text bg-sf-bg-3 rounded-lg px-3 py-2 text-sm"
+        style={{ borderCurve: 'continuous' }}
+      />
+
       <DateField
         label="Due date"
         iconName="calendar"
@@ -88,16 +105,77 @@ function StagedTaskCardComponent({ index, task, lists, onChange, onRemove }: Sta
         onChange={(due_at) => onChange(index, { due_at })}
       />
 
-      {task.subtasks.length > 0 ? (
-        <View className="border-sf-separator gap-1 border-t pt-2">
-          {task.subtasks.map((sub, subIndex) => (
+      <DateField
+        label="Reminder"
+        iconName="bell-outline"
+        value={task.reminder_at ?? null}
+        onChange={(reminder_at) => onChange(index, { reminder_at })}
+      />
+
+      <View className="gap-2">
+        <Text className="text-sf-text-2 text-xs font-semibold uppercase">Priority</Text>
+        <View className="flex-row flex-wrap gap-2">
+          {[
+            { label: 'None', value: null },
+            { label: 'Low', value: 9 },
+            { label: 'Medium', value: 5 },
+            { label: 'High', value: 1 },
+          ].map((option) => {
+            const selected = task.priority === option.value;
+            return (
+              <Pressable
+                key={option.label}
+                onPress={() => onChange(index, { priority: option.value })}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}>
+                <View className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-3'}`}>
+                  <Text className={`text-xs ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
+                    {option.label}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View className="border-sf-separator gap-2 border-t pt-2">
+        <Text className="text-sf-text-2 text-xs font-semibold uppercase">Subtasks</Text>
+        {task.subtasks.length > 0 ? (
+          task.subtasks.map((sub, subIndex) => (
             <View key={subIndex} className="flex-row items-center gap-2">
               <Icon name="arrow.turn.down.right" size={12} color={textSecondary as string} />
-              <Text className="text-sf-text-2 flex-1 text-sm">{sub.title}</Text>
+              <TextInput
+                value={sub.title}
+                onChangeText={(title) => onChange(index, {
+                  subtasks: task.subtasks.map((entry, entryIndex) =>
+                    entryIndex === subIndex ? { ...entry, title } : entry
+                  ),
+                })}
+                placeholder="Subtask title"
+                placeholderTextColor={textSecondary as string}
+                className="text-sf-text bg-sf-bg-3 flex-1 rounded-lg px-2 py-1.5 text-sm"
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove subtask ${sub.title}`}
+                onPress={() => onChange(index, {
+                  subtasks: task.subtasks.filter((_, entryIndex) => entryIndex !== subIndex),
+                })}
+                hitSlop={8}>
+                <Icon name="xmark.circle.fill" size={16} color={textSecondary as string} />
+              </Pressable>
             </View>
-          ))}
-        </View>
-      ) : null}
+          ))
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onChange(index, {
+            subtasks: [...task.subtasks, { title: '', description: null }],
+          })}>
+          <Text className="text-sf-blue text-sm font-semibold">Add subtask</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }

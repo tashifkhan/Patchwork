@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { Switch } from '@/components/ui/switch';
-import { ensureNotificationPermissions } from '@/lib/notifications';
+import { cancelAllTaskReminders, ensureNotificationPermissions } from '@/lib/notifications';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -27,6 +27,7 @@ export default function NotificationsScreen() {
       }
     }
     setNotificationsEnabled(value);
+    if (!value) await cancelAllTaskReminders();
   }
 
   return (

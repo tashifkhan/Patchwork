@@ -1,4 +1,4 @@
-import { HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { HStack, Link, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import { font, foregroundStyle, padding } from '@expo/ui/swift-ui/modifiers';
 import { createWidget, type WidgetEnvironment } from 'expo-widgets';
 
@@ -30,13 +30,15 @@ const UpcomingWidgetView = (props: UpcomingProps, env: WidgetEnvironment) => {
               {group.label.toUpperCase()} · {group.tasks.length}
             </Text>
             {group.tasks.slice(0, perBucket).map((task) => (
-              <HStack key={task.id} modifiers={[padding({ top: 2 })]}>
-                <Text modifiers={[font({ size: 12 }), foregroundStyle(tint)]}>{task.title}</Text>
-                <Spacer />
-                <Text modifiers={[font({ size: 10 }), foregroundStyle(muted)]}>
-                  {formatDue(task.due_at)}
-                </Text>
-              </HStack>
+              <Link key={task.id} destination={`patchwork:///task/${encodeURIComponent(task.uid)}`}>
+                <HStack modifiers={[padding({ top: 2 })]}>
+                  <Text modifiers={[font({ size: 12 }), foregroundStyle(tint)]}>{task.title}</Text>
+                  <Spacer />
+                  <Text modifiers={[font({ size: 10 }), foregroundStyle(muted)]}>
+                    {formatDue(task.due_at)}
+                  </Text>
+                </HStack>
+              </Link>
             ))}
           </VStack>
         ))}

@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, Platform, Pressable, View as RNView } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, useWindowDimensions, View as RNView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
@@ -45,6 +45,7 @@ export default function AiChatScreen() {
   const { colors } = useTheme();
   const isWeb = Platform.OS === 'web';
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
 
   const healthQuery = useHealth();
   const listsQuery = useTaskLists();
@@ -52,7 +53,6 @@ export default function AiChatScreen() {
 
   const setStaged = useAiStagingStore((s) => s.setStaged);
   const staged = useAiStagingStore((s) => s.staged);
-  const removeStagedTask = useAiStagingStore((s) => s.removeTask);
   const clearStaged = useAiStagingStore((s) => s.clear);
   const aiModelSelections = useSettingsStore((s) => s.aiModelSelections);
 
@@ -61,7 +61,7 @@ export default function AiChatScreen() {
   const [busy, setBusy] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<ChatTurn>>(null);
   const inputRef = useRef<TextInputRef>(null);
   const rootRef = useRef<RNView>(null);
   const keyboard = useAnimatedKeyboard();
@@ -72,11 +72,10 @@ export default function AiChatScreen() {
   const bottomOffset = useSharedValue(0);
   const measureBottom = useCallback(() => {
     rootRef.current?.measureInWindow((_x, y, _w, h) => {
-      const screenH = Dimensions.get('window').height;
-      const offset = screenH - (y + h);
+      const offset = windowHeight - (y + h);
       bottomOffset.value = offset > 0 ? offset : 0;
     });
-  }, [bottomOffset]);
+  }, [bottomOffset, windowHeight]);
   const composerStyle = useAnimatedStyle(() => {
     const baseline = Math.max(insets.bottom, 8);
     const kh = keyboard.height.value;
@@ -102,9 +101,9 @@ export default function AiChatScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.7,
+      quality: 0.5,
       allowsMultipleSelection: true,
-      selectionLimit: 6,
+      selectionLimit: 4,
     });
     if (result.canceled) return;
     const picked: Attachment[] = result.assets.map((asset) => ({
@@ -112,7 +111,7 @@ export default function AiChatScreen() {
       mimeType: asset.mimeType ?? 'image/jpeg',
       fileName: asset.fileName ?? undefined,
     }));
-    setAttachments((prev) => [...prev, ...picked].slice(0, 6));
+    setAttachments((prev) => [...prev, ...picked].slice(0, 4));
   }, []);
 
   const pickFromCamera = useCallback(async () => {
@@ -121,14 +120,14 @@ export default function AiChatScreen() {
       setAlert({ title: 'Permission needed', message: 'Allow camera access to capture an image.' });
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.5 });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
     setAttachments((prev) =>
       [
         ...prev,
         { uri: asset.uri, mimeType: asset.mimeType ?? 'image/jpeg', fileName: asset.fileName ?? undefined },
-      ].slice(0, 6)
+      ].slice(0, 4)
     );
   }, []);
 
@@ -143,13 +142,10 @@ export default function AiChatScreen() {
   function dropTask(turnId: string, taskIndex: number) {
     const turn = turns.find((t) => t.id === turnId);
     if (!turn?.tasks) return;
-    const droppedTitle = turn.tasks[taskIndex]?.title;
     const nextTasks = turn.tasks.filter((_, i) => i !== taskIndex);
     patchTurn(turnId, { tasks: nextTasks });
-    if (droppedTitle) {
-      const stagedIndex = staged.findIndex((t) => t.title === droppedTitle);
-      if (stagedIndex >= 0) removeStagedTask(stagedIndex);
-    }
+    const currentTurnId = [...turns].reverse().find((candidate) => candidate.tasks)?.id;
+    if (turnId === currentTurnId) setStaged(nextTasks);
   }
 
   function removeAttachment(index: number) {
@@ -253,25 +249,26 @@ export default function AiChatScreen() {
               : undefined,
         }}
       />
-      <ScrollView
+      <FlatList
         ref={scrollRef}
-        className="bg-sf-bg flex-1"
+        style={{ flex: 1, backgroundColor: colors.bg }}
+        data={turns}
+        keyExtractor={(turn) => turn.id}
+        renderItem={({ item }) => (
+          <Bubble turn={item} onRemoveTask={(taskIndex) => dropTask(item.id, taskIndex)} />
+        )}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
-        contentContainerStyle={{ gap: 12, paddingHorizontal: 16, paddingVertical: 16, paddingBottom: 12 }}>
-        {turns.length === 0 ? (
+        contentContainerStyle={{ gap: 12, paddingHorizontal: 16, paddingVertical: 16, paddingBottom: 12 }}
+        ListEmptyComponent={
           <EmptyState
             geminiReady={geminiReady}
             noModelsConfigured={noModelsConfigured}
             onCamera={pickFromCamera}
             onLibrary={pickFromLibrary}
           />
-        ) : (
-          turns.map((turn) => (
-            <Bubble key={turn.id} turn={turn} onRemoveTask={(taskIndex) => dropTask(turn.id, taskIndex)} />
-          ))
-        )}
-      </ScrollView>
+        }
+      />
 
       <Animated.View style={[{ backgroundColor: colors.bg }, composerStyle]}>
         {staged.length > 0 ? (

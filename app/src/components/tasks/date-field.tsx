@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker from '@expo/ui/community/datetime-picker';
+import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { useState } from 'react';
 import { Platform, Pressable } from 'react-native';
 
@@ -54,6 +54,9 @@ export function DateField({ label, iconName, value, onChange }: DateFieldProps) 
       <View className="flex-row items-center justify-between">
         <Pressable
           onPress={openPicker}
+          accessibilityRole="button"
+          accessibilityLabel={`${label}${date ? `, ${formatDateTime(value)}` : ', not set'}`}
+          accessibilityState={{ expanded: Platform.OS === 'ios' ? showIos : stage != null }}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
           <View className="flex-row items-center gap-3 py-1">
             <MaterialCommunityIcons name={iconName} size={20} color={colors.accent} />
@@ -67,6 +70,8 @@ export function DateField({ label, iconName, value, onChange }: DateFieldProps) 
         {date ? (
           <Pressable
             onPress={() => onChange(null)}
+            accessibilityRole="button"
+            accessibilityLabel={`Clear ${label}`}
             hitSlop={8}
             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
             <MaterialCommunityIcons name="close-circle" size={20} color={colors.red} />

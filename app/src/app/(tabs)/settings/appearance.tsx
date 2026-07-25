@@ -1,4 +1,4 @@
-import SegmentedControl from '@expo/ui/community/segmented-control';
+import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Platform, Pressable } from 'react-native';
 

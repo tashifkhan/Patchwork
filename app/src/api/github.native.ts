@@ -105,6 +105,21 @@ function mapIssue(raw: GitHubApiIssue, repoFallback?: string, readOnly = false):
   };
 }
 
+async function fetchRepoIssues(
+  client: GitHubClient,
+  repo: string,
+  mode: 'public' | 'private'
+): Promise<GitHubIssue[]> {
+  const raw = await client.request<GitHubApiIssue[]>(
+    'GET',
+    `/repos/${repo}/issues?state=all${mode === 'private' ? '&assignee=@me' : ''}&per_page=100&sort=updated&direction=desc`
+  );
+  // GitHub's issues endpoint also returns PRs — filter them out
+  return raw
+    .filter((item) => !item.pull_request)
+    .map((item) => mapIssue(item, repo, mode === 'public'));
+}
+
 export async function fetchGitHubIssues(): Promise<GitHubIssue[]> {
   const mode = getGitHubMode();
   const client = mode === 'private' ? await getClient() : await getOptionalClient();
@@ -112,27 +127,26 @@ export async function fetchGitHubIssues(): Promise<GitHubIssue[]> {
 
   if (repos.length === 0) return [];
 
-  const allIssues: GitHubIssue[] = [];
+  const results = await Promise.allSettled(
+    repos.map((repo) => fetchRepoIssues(client, repo, mode))
+  );
 
-  for (const repo of repos) {
-    try {
-      const raw = await client.request<GitHubApiIssue[]>(
-        'GET',
-        `/repos/${repo}/issues?state=all${mode === 'private' ? '&assignee=@me' : ''}&per_page=100&sort=updated&direction=desc`
-      );
-      // GitHub's issues endpoint also returns PRs — filter them out
-      const issues = raw
-        .filter((item) => !item.pull_request)
-        .map((item) => mapIssue(item, repo, mode === 'public'));
-      allIssues.push(...issues);
-    } catch (error) {
-      // If one repo fails (e.g. no access), continue with others
-      if (error instanceof ApiError && error.status === 404) continue;
-      throw error;
+  const allIssues: GitHubIssue[] = [];
+  let hardError: unknown = null;
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      allIssues.push(...result.value);
+      continue;
     }
+    const error = result.reason;
+    // Skip missing/inaccessible repos; surface other failures if nothing loaded
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) continue;
+    hardError = error;
   }
 
-  // Sort by updated_at descending
+  if (allIssues.length === 0 && hardError) throw hardError;
+
   allIssues.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
   return allIssues;
 }
@@ -143,25 +157,22 @@ export async function fetchGitHubRepos(): Promise<GitHubRepo[]> {
   if (mode === 'public') {
     const client = await getOptionalClient();
     const repos = getConfiguredRepos();
-    const publicRepos: GitHubRepo[] = [];
-
-    for (const repo of repos) {
-      try {
+    const results = await Promise.allSettled(
+      repos.map(async (repo) => {
         const raw = await client.request<GitHubRepo>('GET', `/repos/${repo}`);
-        publicRepos.push({
+        return {
           full_name: raw.full_name,
           description: raw.description,
           html_url: raw.html_url,
           private: raw.private,
           owner: { login: raw.owner.login, avatar_url: raw.owner.avatar_url },
-        });
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 404) continue;
-        throw error;
-      }
-    }
+        } satisfies GitHubRepo;
+      })
+    );
 
-    return publicRepos;
+    return results
+      .filter((r): r is PromiseFulfilledResult<GitHubRepo> => r.status === 'fulfilled')
+      .map((r) => r.value);
   }
 
   const client = await getClient();

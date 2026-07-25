@@ -17,10 +17,10 @@ export function createTask(payload: TaskCreate) {
   return api.post<Task>('/api/tasks', payload);
 }
 
-export function updateTask(taskId: string, payload: TaskUpdate) {
+export function updateTask(taskId: string, payload: TaskUpdate, _accountId?: string) {
   return api.patch<Task>(`/api/tasks/${encodeURIComponent(taskId)}`, payload);
 }
 
-export function deleteTask(taskId: string) {
+export function deleteTask(taskId: string, _accountId?: string, _etag?: string | null) {
   return api.delete<void>(`/api/tasks/${encodeURIComponent(taskId)}`);
 }

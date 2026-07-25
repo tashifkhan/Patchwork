@@ -2,6 +2,8 @@ import { ApiError } from './client';
 import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from './types';
 import { base64Encode } from '@/lib/base64';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
+import { assertUrlSameOrigin, originOf } from '@/lib/secure-url';
+import { useSyncStatusStore } from '@/stores/sync-status-store';
 
 const DAV_NS = 'DAV:';
 const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
@@ -10,6 +12,7 @@ export async function fetchTaskLists() {
   const clients = await allClients();
   const results = await Promise.allSettled(clients.map((client) => client.listTaskCalendars()));
   const lists = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  useSyncStatusStore.getState().setTaskSync(rejectionMessages(results));
   if (lists.length === 0) throw firstRejected(results) ?? new ApiError(404, 'No task lists found.');
   return lists;
 }
@@ -19,13 +22,25 @@ export async function fetchTasks() {
   const results = await Promise.allSettled(
     clients.map(async (client) => {
       const lists = await client.listTaskCalendars();
-      const tasks = (await Promise.all(lists.map((list) => client.listCalendarTasks(list)))).flat();
+      const listResults = await Promise.allSettled(
+        lists.map((list) => client.listCalendarTasks(list))
+      );
+      const tasks = listResults.flatMap((result) =>
+        result.status === 'fulfilled' ? result.value : []
+      );
+      if (tasks.length === 0 && listResults.some((result) => result.status === 'rejected')) {
+        throw firstRejected(listResults) ?? new ApiError(502, 'Task lists could not be synchronized.');
+      }
       // Build the parent/child tree per account so RELATED-TO uids never
       // collide across servers.
-      return attachChildren(tasks);
+      return { tasks: attachChildren(tasks), warnings: rejectionMessages(listResults) };
     })
   );
-  const tasks = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  const tasks = results.flatMap((result) => result.status === 'fulfilled' ? result.value.tasks : []);
+  const warnings = results.flatMap((result) => result.status === 'fulfilled'
+    ? result.value.warnings
+    : [errorMessage(result.reason)]);
+  useSyncStatusStore.getState().setTaskSync(warnings);
   if (tasks.length === 0 && results.some((result) => result.status === 'rejected')) {
     throw firstRejected(results) ?? new ApiError(404, 'No tasks found.');
   }
@@ -37,9 +52,29 @@ function firstRejected<T>(results: PromiseSettledResult<T>[]) {
   return rejected?.reason instanceof Error ? rejected.reason : undefined;
 }
 
+function rejectionMessages<T>(results: PromiseSettledResult<T>[]) {
+  return results.flatMap((result) => result.status === 'rejected' ? [errorMessage(result.reason)] : []);
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'A sync source could not be loaded.';
+}
+
 export async function createTaskList(payload: TaskListCreate) {
-  const client = (await allClients())[0];
-  if (!client) throw new ApiError(503, 'No CalDAV accounts are configured on this device.');
+  const clients = await allClients();
+  const client = payload.account_id
+    ? clients.find((candidate) => candidate.account.id === payload.account_id)
+    : clients.length === 1
+      ? clients[0]
+      : null;
+  if (!client) {
+    throw new ApiError(
+      400,
+      clients.length > 1
+        ? 'Choose which account should own this task list.'
+        : 'No CalDAV accounts are configured on this device.'
+    );
+  }
   return client.createTaskCalendar(payload);
 }
 
@@ -60,10 +95,43 @@ export async function createTask(payload: TaskCreate) {
   return created;
 }
 
-export async function updateTask(taskId: string, payload: TaskUpdate) {
-  const client = await clientForTask(taskId);
+export async function updateTask(taskId: string, payload: TaskUpdate, accountId?: string) {
+  const client = await clientForTask(taskId, accountId);
   const existing = await client.fetchTaskByHref(taskId);
   const calendarData = updateVtodo(existing.calendarData, payload);
+
+  if (payload.list_id && payload.list_id !== existing.list.id) {
+    const destination = await resolveListTarget(payload.list_id);
+    const fileName = new URL(taskId).pathname.split('/').filter(Boolean).pop() ?? `${randomUuid()}.ics`;
+    const destinationHref = `${destination.target.href.replace(/\/+$/, '')}/${fileName}`;
+    const destinationUrl = destination.client.absoluteUrl(destinationHref);
+    const copied = await destination.client.request('PUT', destinationUrl, {
+      body: calendarData,
+      headers: {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        'If-None-Match': '*',
+      },
+    });
+
+    try {
+      await client.request('DELETE', client.absoluteUrl(taskId), {
+        headers: payload.etag ? { 'If-Match': payload.etag } : undefined,
+      });
+    } catch (error) {
+      await destination.client.request('DELETE', destinationUrl).catch(() => {});
+      throw error;
+    }
+
+    const moved = parseVtodo(
+      calendarData,
+      destinationUrl,
+      copied.headers.get('etag'),
+      destination.target
+    );
+    if (!moved) throw new ApiError(500, 'Moved task could not be parsed');
+    return moved;
+  }
+
   const response = await client.request('PUT', client.absoluteUrl(taskId), {
     body: calendarData,
     headers: {
@@ -78,9 +146,16 @@ export async function updateTask(taskId: string, payload: TaskUpdate) {
   return updated;
 }
 
-export async function deleteTask(taskId: string) {
-  const client = await clientForTask(taskId);
-  await client.request('DELETE', client.absoluteUrl(taskId));
+export async function deleteTask(taskId: string, accountId?: string, etag?: string | null) {
+  const client = await clientForTask(taskId, accountId);
+  await client.request('DELETE', client.absoluteUrl(taskId), {
+    headers: etag ? { 'If-Match': etag } : undefined,
+  });
+}
+
+export async function validateCalDavAccount(account: CalDavAccount): Promise<void> {
+  const client = new CalDavClient(account);
+  await client.listTaskCalendars();
 }
 
 class CalDavClient {
@@ -112,13 +187,27 @@ class CalDavClient {
   }
 
   absoluteUrl(href: string) {
-    return href.startsWith('http://') || href.startsWith('https://')
-      ? href
-      : `${this.baseUrl}/${href.replace(/^\/+/, '')}`;
+    const resolved =
+      href.startsWith('http://') || href.startsWith('https://')
+        ? href
+        : `${this.baseUrl}/${href.replace(/^\/+/, '')}`;
+    // Never attach this account's Basic auth to an off-origin absolute href from CalDAV XML.
+    try {
+      return assertUrlSameOrigin(resolved, this.origin);
+    } catch (error) {
+      throw new ApiError(400, error instanceof Error ? error.message : 'Refusing off-origin CalDAV URL');
+    }
   }
 
   async request(method: string, url: string, options: RequestInit = {}) {
-    const response = await fetch(url, {
+    let safeUrl = url;
+    try {
+      safeUrl = assertUrlSameOrigin(url, this.origin);
+    } catch (error) {
+      throw new ApiError(400, error instanceof Error ? error.message : 'Refusing off-origin CalDAV URL');
+    }
+
+    const response = await fetch(safeUrl, {
       ...options,
       method,
       headers: {
@@ -132,7 +221,14 @@ class CalDavClient {
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
-      throw new ApiError(response.status, davErrorMessage(detail) || `CalDAV request failed with status ${response.status}`, detail);
+      const conflictMessage = response.status === 412
+        ? 'This task changed on the server. Refresh it and apply your changes again.'
+        : null;
+      throw new ApiError(
+        response.status,
+        conflictMessage ?? (davErrorMessage(detail) || `CalDAV request failed with status ${response.status}`),
+        detail
+      );
     }
     return response;
   }
@@ -228,10 +324,6 @@ class CalDavClient {
   }
 }
 
-function originOf(url: string): string {
-  return url.match(/^https?:\/\/[^/]+/i)?.[0]?.toLowerCase() ?? url.toLowerCase();
-}
-
 function calendarHomeFromUrl(url: string, username: string): string | null {
   try {
     const parsed = new URL(url);
@@ -276,12 +368,25 @@ async function resolveListTarget(listId: string): Promise<{ client: CalDavClient
   return { client, target };
 }
 
-/** Pick the account client whose origin owns an absolute task URL. */
-async function clientForTask(taskId: string): Promise<CalDavClient> {
+/** Resolve an exact account first; origin-only routing is safe only when unambiguous. */
+async function clientForTask(taskId: string, accountId?: string): Promise<CalDavClient> {
   const clients = await allClients();
+  if (accountId) {
+    const exact = clients.find((candidate) => candidate.account.id === accountId);
+    if (exact) return exact;
+    throw new ApiError(404, 'The account that owns this task is no longer configured.');
+  }
   const origin = originOf(taskId);
-  const client = clients.find((candidate) => candidate.origin === origin) ?? clients[0];
-  return client;
+  const matches = clients.filter((candidate) => candidate.origin === origin);
+  if (matches.length !== 1) {
+    throw new ApiError(
+      matches.length > 1 ? 409 : 404,
+      matches.length > 1
+        ? 'More than one account uses this server. Refresh the task before changing it.'
+        : 'No configured account matches this task’s server. Re-add the account or refresh your lists.'
+    );
+  }
+  return matches[0];
 }
 
 function parseCalendarList(xml: string): TaskList[] {
@@ -346,6 +451,7 @@ function parseVtodo(calendarData: string, href: string, etag: string | null, lis
     list_id: list.id,
     list_name: list.name,
     account_id: list.account_id,
+    account_name: list.account_name,
     title: fields.get('SUMMARY')?.[0] ?? 'Untitled task',
     description,
     markdown: description,
@@ -391,14 +497,40 @@ function updateVtodo(calendarData: string, patch: TaskUpdate) {
   let next = calendarData;
   if (patch.title !== undefined) next = setIcsField(next, 'SUMMARY', patch.title);
   if (patch.markdown !== undefined) next = setIcsField(next, 'DESCRIPTION', patch.markdown);
-  if (patch.completed !== undefined) next = setIcsField(next, 'STATUS', patch.completed ? 'COMPLETED' : 'NEEDS-ACTION');
+  if (patch.completed !== undefined) {
+    next = setIcsField(next, 'STATUS', patch.completed ? 'COMPLETED' : 'NEEDS-ACTION');
+    next = setIcsField(
+      next,
+      'COMPLETED',
+      patch.completed ? formatIcsDate(new Date().toISOString()) : null,
+      false
+    );
+  }
   if (patch.priority !== undefined) next = setIcsField(next, 'PRIORITY', patch.priority == null ? null : String(patch.priority));
   if (patch.sort_order !== undefined) next = setIcsField(next, 'X-APPLE-SORT-ORDER', patch.sort_order == null ? null : String(patch.sort_order), false);
   if (patch.due_at !== undefined) next = setIcsField(next, 'DUE', patch.due_at ? formatIcsDate(patch.due_at) : null, false);
   if (patch.tags !== undefined) next = setIcsField(next, 'CATEGORIES', patch.tags.length ? patch.tags.join(',') : null);
   if (patch.parent_uid !== undefined) next = setIcsField(next, 'RELATED-TO', patch.parent_uid);
+  if (patch.reminder_at !== undefined) next = setVAlarm(next, patch.reminder_at, patch.title);
   next = setIcsField(next, 'LAST-MODIFIED', formatIcsDate(new Date().toISOString()), false);
   return next;
+}
+
+function setVAlarm(calendarData: string, reminderAt: string | null, title?: string) {
+  const withoutAlarm = calendarData
+    .replace(/BEGIN:VALARM\r?\n[\s\S]*?END:VALARM\r?\n?/gi, '')
+    .replace(/\r?\nEND:VTODO/i, '\r\nEND:VTODO');
+  if (!reminderAt) return withoutAlarm;
+
+  const summary = title ?? parseIcs(withoutAlarm).get('SUMMARY')?.[0] ?? 'Task';
+  const alarm = [
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${escapeIcs(summary)}`,
+    `TRIGGER:${formatIcsDate(reminderAt)}`,
+    'END:VALARM',
+  ].join('\r\n');
+  return withoutAlarm.replace(/END:VTODO/i, `${alarm}\r\nEND:VTODO`);
 }
 
 function setIcsField(calendarData: string, name: string, value: string | null, escape = true) {

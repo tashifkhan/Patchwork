@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, router } from 'expo-router';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, SectionList } from 'react-native';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuseResultMatch } from 'fuse.js';
@@ -64,6 +64,7 @@ interface ResultRow {
 }
 
 export default function SearchScreen() {
+  const reduceMotion = useReducedMotion();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterValue>('all');
   const [recents, setRecents] = useState<string[]>([]);
@@ -76,14 +77,14 @@ export default function SearchScreen() {
 
   const tasksQuery = useTasks();
   const boardsQuery = useDeckBoards();
-  const deckCards = useAllDeckCards(boardsQuery.data ?? []);
+  const deckCardsQuery = useAllDeckCards(boardsQuery.data ?? []);
   
   const githubConnected = useSettingsStore((s) => s.githubConnected);
   const githubIssuesQuery = useGitHubIssues();
 
   const nodes = useMemo(
-    () => buildSearchNodes(tasksQuery.data ?? [], deckCards, githubConnected ? githubIssuesQuery.data : undefined),
-    [tasksQuery.data, deckCards, githubConnected, githubIssuesQuery.data]
+    () => buildSearchNodes(tasksQuery.data ?? [], deckCardsQuery.data, githubConnected ? githubIssuesQuery.data : undefined),
+    [tasksQuery.data, deckCardsQuery.data, githubConnected, githubIssuesQuery.data]
   );
   const fuse = useMemo(() => createSearchIndex(nodes), [nodes]);
 
@@ -162,7 +163,18 @@ export default function SearchScreen() {
     (node: SearchNode) => {
       persistRecent(deferredQuery);
       if (node.type === 'deck-card') {
-        router.push('/deck');
+        if (node.boardId != null && node.stackId != null && node.cardId != null) {
+          router.push({
+            pathname: '/deck/card/[cardId]',
+            params: {
+              boardId: String(node.boardId),
+              stackId: String(node.stackId),
+              cardId: String(node.cardId),
+            },
+          });
+        } else {
+          router.push('/deck');
+        }
       } else if (node.type === 'github-issue') {
         Linking.openURL(`https://github.com/${node.githubRepo}/issues/${node.githubIssueNumber}`);
       } else if (node.taskUid) {
@@ -235,6 +247,14 @@ export default function SearchScreen() {
                 {totalResults} {totalResults === 1 ? 'match' : 'matches'}
               </Text>
             ) : null}
+            {deckCardsQuery.isLoading ? (
+              <Text className="text-sf-text-3 px-1 text-xs">Indexing Deck cards…</Text>
+            ) : null}
+            {deckCardsQuery.errors.length > 0 ? (
+              <Text selectable className="text-sf-orange px-1 text-xs">
+                Some Deck boards could not be indexed.
+              </Text>
+            ) : null}
           </View>
         }
         renderSectionHeader={({ section }) =>
@@ -253,7 +273,7 @@ export default function SearchScreen() {
           const isFirst = index === 0;
           const isLast = index === section.data.length - 1;
           return (
-            <Animated.View entering={FadeInDown.duration(220).delay(Math.min(index * 24, 240))}>
+            <Animated.View entering={reduceMotion ? undefined : FadeInDown.duration(220).delay(Math.min(index * 24, 240))}>
               <ResultRowView
                 row={item}
                 onPress={openNode}

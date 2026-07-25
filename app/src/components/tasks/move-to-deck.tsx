@@ -52,7 +52,11 @@ export function MoveToDeck({ task }: { task: Task }) {
         description: buildDescription(),
         duedate: task.due_at,
       });
-      await deleteTask.mutateAsync(task.id);
+      await deleteTask.mutateAsync({
+        taskId: task.id,
+        accountId: task.account_id,
+        etag: task.etag,
+      });
       router.back();
     } catch (error) {
       setBusy(false);

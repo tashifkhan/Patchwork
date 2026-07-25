@@ -46,6 +46,8 @@ export function UpcomingAndroidWidget({ props }: { props: UpcomingProps }) {
             />
             {group.tasks.slice(0, 2).map((task) => (
               <FlexWidget
+                clickAction="OPEN_URI"
+                clickActionData={{ uri: `patchwork:///task/${encodeURIComponent(task.uid)}` }}
                 key={task.id}
                 style={{
                   flexDirection: 'row',

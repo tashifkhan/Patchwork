@@ -33,7 +33,7 @@ function toWidgetTask(task: Task): WidgetTask {
     title: task.title,
     due_at: task.due_at,
     list_name: task.list_name,
-    account_name: '',
+    account_name: task.account_name ?? '',
     bucket: bucketOf(task),
   };
 }
@@ -52,6 +52,7 @@ function pickNext(active: Task[]): Task | undefined {
 export interface SnapshotInputs {
   tasks: Task[];
   lastListId: string | null;
+  now?: Date;
 }
 
 export function buildSnapshots(inputs: SnapshotInputs): {
@@ -60,14 +61,15 @@ export function buildSnapshots(inputs: SnapshotInputs): {
   list: ListProps;
   lock: LockProps;
 } {
-  const generatedAt = Date.now();
+  const now = inputs.now ?? new Date();
+  const generatedAt = now.getTime();
   const all = flattenTasks(inputs.tasks);
   const active = all.filter((task) => !task.completed).sort(byManualOrder);
 
-  const overdue = active.filter((t) => bucketOf(t) === 'overdue').map(toWidgetTask).slice(0, BUCKET_CAP);
-  const today = active.filter((t) => bucketOf(t) === 'today').map(toWidgetTask).slice(0, BUCKET_CAP);
-  const tomorrow = active.filter((t) => bucketOf(t) === 'tomorrow').map(toWidgetTask).slice(0, BUCKET_CAP);
-  const upcoming = active.filter((t) => bucketOf(t) === 'upcoming').map(toWidgetTask).slice(0, BUCKET_CAP);
+  const overdue = active.filter((t) => bucketOf(t, now) === 'overdue').map(toWidgetTask).slice(0, BUCKET_CAP);
+  const today = active.filter((t) => bucketOf(t, now) === 'today').map(toWidgetTask).slice(0, BUCKET_CAP);
+  const tomorrow = active.filter((t) => bucketOf(t, now) === 'tomorrow').map(toWidgetTask).slice(0, BUCKET_CAP);
+  const upcoming = active.filter((t) => bucketOf(t, now) === 'upcoming').map(toWidgetTask).slice(0, BUCKET_CAP);
 
   const next = pickNext(active);
 
@@ -115,13 +117,14 @@ export async function pushAllWidgets(tasks: Task[]): Promise<void> {
 
     // Schedule bucket rollover at next midnight so the widget recomputes Today/Tomorrow on its own.
     const rollover = startOfTomorrow();
+    const rolloverSnaps = buildSnapshots({ tasks, lastListId, now: rollover });
     TodayWidget.updateTimeline([
       { date: new Date(), props: snaps.today },
-      { date: rollover, props: snaps.today },
+      { date: rollover, props: rolloverSnaps.today },
     ]);
     UpcomingWidget.updateTimeline([
       { date: new Date(), props: snaps.upcoming },
-      { date: rollover, props: snaps.upcoming },
+      { date: rollover, props: rolloverSnaps.upcoming },
     ]);
   }
 

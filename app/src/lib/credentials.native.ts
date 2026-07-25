@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { AiProviderId } from './ai-models';
 import type { CalDavAccount, GitHubCredentials } from './credentials-types';
+import { assertSafeAccountUrl, normalizeServiceUrl } from './secure-url';
 
 export type {
   CalDavAccount,
@@ -24,16 +25,13 @@ function aiKeyName(providerId: AiProviderId) {
   return `patchwork.ai.${providerId}.api-key`;
 }
 
+// Keep secrets on this device only — do not include in iCloud/Android backup sync of keychain items.
 const OPTIONS: SecureStore.SecureStoreOptions = {
-  keychainAccessible: SecureStore.WHEN_UNLOCKED,
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
 function newId(): string {
   return `acc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function normalizeBaseUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '');
 }
 
 async function readAccounts(): Promise<CalDavAccount[]> {
@@ -60,10 +58,23 @@ async function migrateLegacy(): Promise<CalDavAccount[]> {
   ]);
   if (!baseUrl || !username || !appPassword) return [];
 
+  let safeBaseUrl: string;
+  try {
+    safeBaseUrl = assertSafeAccountUrl(baseUrl);
+  } catch {
+    // Drop unsafe legacy entries rather than blocking app start.
+    await Promise.all([
+      SecureStore.deleteItemAsync(KEYS.legacyBaseUrl, OPTIONS),
+      SecureStore.deleteItemAsync(KEYS.legacyUsername, OPTIONS),
+      SecureStore.deleteItemAsync(KEYS.legacyAppPassword, OPTIONS),
+    ]);
+    return [];
+  }
+
   const account: CalDavAccount = {
     id: newId(),
     displayName: username,
-    baseUrl: normalizeBaseUrl(baseUrl),
+    baseUrl: safeBaseUrl,
     username,
     appPassword,
     serverType: 'nextcloud',
@@ -95,12 +106,12 @@ export async function getAccount(id: string): Promise<CalDavAccount | null> {
 export async function saveAccount(
   input: Omit<CalDavAccount, 'id'> & { id?: string }
 ): Promise<CalDavAccount> {
-  const baseUrl = normalizeBaseUrl(input.baseUrl);
+  const baseUrl = assertSafeAccountUrl(input.baseUrl);
   const username = input.username.trim();
   const appPassword = input.appPassword.trim();
-  const displayName = input.displayName.trim() || username;
+  const displayName = input.displayName.trim() || username || normalizeServiceUrl(baseUrl);
 
-  if (!baseUrl || !username || !appPassword) {
+  if (!username || !appPassword) {
     throw new Error('Server URL, username, and password are required.');
   }
 

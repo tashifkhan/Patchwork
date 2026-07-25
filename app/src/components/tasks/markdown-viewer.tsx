@@ -309,9 +309,11 @@ type CompactProp = boolean | undefined;
 export const MarkdownViewer = memo(function MarkdownViewer({
   markdown,
   compact,
+  allowRemoteImages = false,
 }: {
   markdown: string;
   compact?: CompactProp;
+  allowRemoteImages?: boolean;
 }) {
   const text = useCSSVariable('--sf-text');
   const textSecondary = useCSSVariable('--sf-text-2');
@@ -417,7 +419,11 @@ export const MarkdownViewer = memo(function MarkdownViewer({
       }
       if (node.type === 'link') {
         return (
-          <Text key={idx} style={styles.link} onPress={() => void Linking.openURL(node.url)}>
+          <Text
+            key={idx}
+            style={styles.link}
+            accessibilityRole="link"
+            onPress={() => void openSafeUrl(node.url)}>
             {renderNodes(node.children)}
           </Text>
         );
@@ -444,6 +450,9 @@ export const MarkdownViewer = memo(function MarkdownViewer({
         );
       }
       if (node.type === 'image') {
+        if (!allowRemoteImages && isRemoteUrl(node.url)) {
+          return <Text key={idx} style={styles.bodySecondary}>[{node.alt || 'Remote image'}]</Text>;
+        }
         return (
           <Image
             key={idx}
@@ -530,6 +539,13 @@ export const MarkdownViewer = memo(function MarkdownViewer({
         return <View key={index} style={styles.hr} />;
       }
       if (block.type === 'image') {
+        if (!allowRemoteImages && isRemoteUrl(block.url)) {
+          return (
+            <Text key={index} style={[styles.bodySecondary, styles.block]}>
+              [{block.alt || 'Remote image blocked for privacy'}]
+            </Text>
+          );
+        }
         return (
           <Image
             key={index}
@@ -573,3 +589,23 @@ export const MarkdownViewer = memo(function MarkdownViewer({
 
   return <View>{renderBlocks(blocks)}</View>;
 });
+
+async function openSafeUrl(rawUrl: string) {
+  let scheme: string;
+  try {
+    scheme = new URL(rawUrl).protocol.toLowerCase();
+  } catch {
+    return;
+  }
+  if (!['https:', 'http:', 'mailto:', 'tel:'].includes(scheme)) return;
+  if (await Linking.canOpenURL(rawUrl)) await Linking.openURL(rawUrl);
+}
+
+function isRemoteUrl(rawUrl: string) {
+  try {
+    const scheme = new URL(rawUrl).protocol.toLowerCase();
+    return scheme === 'http:' || scheme === 'https:';
+  } catch {
+    return false;
+  }
+}

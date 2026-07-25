@@ -13,19 +13,25 @@ import { useSettingsStore } from '@/stores/settings-store';
 
 export function useGitHubIssues() {
   const connected = useSettingsStore((s) => s.githubConnected);
+  const repos = useSettingsStore((s) => s.githubRepos);
+  const mode = useSettingsStore((s) => s.githubMode);
+
   return useQuery({
-    queryKey: queryKeys.githubIssues,
+    queryKey: [...queryKeys.githubIssues, mode, repos] as const,
     queryFn: fetchGitHubIssues,
-    enabled: connected,
+    enabled: connected && repos.length > 0,
   });
 }
 
 export function useGitHubRepos() {
   const connected = useSettingsStore((s) => s.githubConnected);
+  const mode = useSettingsStore((s) => s.githubMode);
+  const repos = useSettingsStore((s) => s.githubRepos);
+
   return useQuery({
-    queryKey: queryKeys.githubRepos,
+    queryKey: [...queryKeys.githubRepos, mode, mode === 'public' ? repos : null] as const,
     queryFn: fetchGitHubRepos,
-    enabled: connected,
+    enabled: connected && (mode === 'private' || repos.length > 0),
   });
 }
 
@@ -33,6 +39,9 @@ export function useToggleGitHubIssue() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (issue: GitHubIssue) => {
+      if (issue.readOnly) {
+        throw new Error('Public GitHub issues are read-only. Connect a private account to close them.');
+      }
       if (issue.completed) {
         return reopenGitHubIssue(issue.repo, issue.number);
       }
@@ -40,22 +49,23 @@ export function useToggleGitHubIssue() {
     },
     onMutate: async (issue) => {
       await client.cancelQueries({ queryKey: queryKeys.githubIssues });
-      const previous = client.getQueryData<GitHubIssue[]>(queryKeys.githubIssues);
-      if (previous) {
-        client.setQueryData<GitHubIssue[]>(
-          queryKeys.githubIssues,
-          previous.map((i) =>
-            i.id === issue.id
-              ? { ...i, completed: !i.completed, state: i.completed ? 'open' : 'closed' }
-              : i
-          )
-        );
-      }
-      return { previous };
+      const previousEntries = client.getQueriesData<GitHubIssue[]>({
+        queryKey: queryKeys.githubIssues,
+      });
+      client.setQueriesData<GitHubIssue[]>({ queryKey: queryKeys.githubIssues }, (previous) =>
+        previous?.map((i) =>
+          i.id === issue.id
+            ? { ...i, completed: !i.completed, state: i.completed ? 'open' : 'closed' }
+            : i
+        )
+      );
+      return { previousEntries };
     },
     onError: (_error, _issue, context) => {
-      if (context?.previous) {
-        client.setQueryData(queryKeys.githubIssues, context.previous);
+      if (context?.previousEntries) {
+        for (const [key, data] of context.previousEntries) {
+          client.setQueryData(key, data);
+        }
       }
     },
     onSettled: () => {
