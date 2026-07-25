@@ -1,5 +1,17 @@
 name: Release Android APK
 
+# Builds a production APK with EAS, attaches it to a GitHub Release, then
+# dispatches the F-Droid publish workflow on tashif.codes.
+#
+# Triggers:
+#   - Push a version tag:   git tag v1.2.3 && git push origin v1.2.3
+#   - Manual run:           Actions → Release Android APK → Run workflow
+#
+# Required secrets (Patchwork / caldav-todo repo):
+#   EXPO_TOKEN                    — Expo account token for EAS builds
+#   TASHIF_CODES_WORKFLOW_TOKEN   — PAT with actions:write on tashifkhan/tashif.codes
+#                                   (optional; skip F-Droid if unset)
+
 on:
   push:
     tags:
@@ -7,9 +19,18 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish, for example v1.0.0'
+        description: 'Release tag to publish (e.g. v1.0.0). Must match vX.Y.Z.'
         required: true
         type: string
+      skip_fdroid:
+        description: 'Skip triggering the tashif.codes F-Droid publish workflow'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-apk-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -18,17 +39,37 @@ jobs:
   release-apk:
     name: Build and publish APK
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: app
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      NODE_ENV: production
       TASHIF_CODES_WORKFLOW_TOKEN: ${{ secrets.TASHIF_CODES_WORKFLOW_TOKEN }}
+      TASHIF_CODES_REPO: tashifkhan/tashif.codes
+      NODE_ENV: production
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate tag and secrets
+        working-directory: .
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must look like v1.2.3 (got: $RELEASE_TAG)"
+            exit 1
+          fi
+          if [[ -z "${EXPO_TOKEN:-}" ]]; then
+            echo "::error::Missing EXPO_TOKEN secret (required for EAS builds)"
+            exit 1
+          fi
+          VERSION="${RELEASE_TAG#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APK_NAME=Patchwork-${VERSION}.apk" >> "$GITHUB_ENV"
+          echo "Resolved version: $VERSION"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -43,37 +84,161 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Validate project
+      - name: Sync app version from tag
         run: |
-          bun x expo-doctor
-          bun run lint
+          set -euo pipefail
+          # versionName comes from app.json / package.json for the EAS build.
+          # versionCode is managed by EAS (appVersionSource: remote + autoIncrement).
+          bun -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            for (const file of ["package.json", "app.json"]) {
+              const data = JSON.parse(fs.readFileSync(file, "utf8"));
+              if (file === "app.json") {
+                data.expo = data.expo || {};
+                data.expo.version = version;
+              } else {
+                data.version = version;
+              }
+              fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+              console.log(`Set ${file} version → ${version}`);
+            }
+          '
 
-      - name: Build APK on EAS
-        run: bun x eas-cli build --platform android --profile github-release --non-interactive --wait
+      - name: Lint
+        run: bun run lint
 
-      - name: Download latest APK
+      - name: Expo doctor (advisory)
+        continue-on-error: true
+        run: bun x expo-doctor
+
+      - name: Build release APK on EAS
+        id: eas_build
+        run: |
+          set -euo pipefail
+          # --json writes machine-readable output to stdout; progress stays on stderr
+          bun x eas-cli build \
+            --platform android \
+            --profile github-release \
+            --non-interactive \
+            --wait \
+            --json \
+            > eas-build.json
+
+          python3 - <<'PY'
+          import json, os
+          data = json.load(open("eas-build.json"))
+          build = data[0] if isinstance(data, list) else data
+          artifacts = build.get("artifacts") or {}
+          url = artifacts.get("buildUrl") or artifacts.get("applicationArchiveUrl") or ""
+          status = (build.get("status") or "unknown").lower()
+          build_id = build.get("id") or ""
+          if not build_id:
+              raise SystemExit(f"EAS response missing build id: {build!r}")
+          if not url:
+              raise SystemExit(f"EAS build {build_id} finished without an APK URL (status={status})")
+          if status not in {"finished", "complete", "completed"}:
+              # --wait normally exits non-zero on failure; still guard
+              print(f"::warning::Unexpected EAS status: {status}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"build_id={build_id}\n")
+              fh.write(f"build_url={url}\n")
+          print(f"EAS build id={build_id} status={status}")
+          print(f"Artifact: {url}")
+          PY
+
+      - name: Download APK artifact
         id: download_apk
         run: |
-          VERSION="${RELEASE_TAG#v}"
-          APK_PATH="Patchwork-${VERSION}.apk"
-          bun x eas-cli build:download --platform android --profile github-release --latest --output "$APK_PATH"
-          echo "apk_path=app/$APK_PATH" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-delay 5 \
+            -o "$APK_NAME" \
+            "${{ steps.eas_build.outputs.build_url }}"
+
+          # Confirm it is a zip/apk payload
+          file "$APK_NAME" | tee /dev/stderr | grep -qiE 'zip|android|package' \
+            || echo "::warning::Unexpected file type for $APK_NAME"
+
+          sha256sum "$APK_NAME" | tee "${APK_NAME}.sha256"
+          SIZE="$(du -h "$APK_NAME" | cut -f1)"
+          echo "apk_path=app/${APK_NAME}" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=app/${APK_NAME}.sha256" >> "$GITHUB_OUTPUT"
+          echo "apk_size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "Downloaded $APK_NAME ($SIZE)"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           name: Patchwork ${{ env.RELEASE_TAG }}
-          files: ${{ steps.download_apk.outputs.apk_path }}
+          draft: false
+          prerelease: false
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Patchwork ${{ env.RELEASE_TAG }}
+
+            Production Android APK built with EAS (`github-release` profile).
+
+            | | |
+            |---|---|
+            | **Package** | `codes.tashhif.patchwork` |
+            | **Version** | `${{ env.VERSION }}` |
+            | **EAS build** | `${{ steps.eas_build.outputs.build_id }}` |
+            | **Size** | ${{ steps.download_apk.outputs.apk_size }} |
+
+            ### Install
+
+            - **F-Droid (recommended):** add `https://tashif.codes/fdroid/repo` in F-Droid → Settings → Repositories, then install Patchwork.
+            - **Direct APK:** download the `.apk` attached below (enable “Install unknown apps” if prompted).
+
+            ### Verify
+
+            ```bash
+            sha256sum -c ${{ env.APK_NAME }}.sha256
+            ```
+          files: |
+            ${{ steps.download_apk.outputs.apk_path }}
+            ${{ steps.download_apk.outputs.checksum_path }}
 
       - name: Trigger tashif.codes F-Droid publish
-        if: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN != '' }}
+        if: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN != '' && !(github.event_name == 'workflow_dispatch' && inputs.skip_fdroid) }}
         env:
           GH_TOKEN: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN }}
+        working-directory: .
         run: |
+          set -euo pipefail
+          echo "Dispatching publish-fdroid.yml on $TASHIF_CODES_REPO for $RELEASE_TAG"
           gh workflow run publish-fdroid.yml \
-            --repo tashifkhan/tashif.codes \
+            --repo "$TASHIF_CODES_REPO" \
             --field source_repository="${{ github.repository }}" \
             --field release_tag="$RELEASE_TAG" \
             --field apk_pattern='*.apk'
+
+          # Best-effort: surface the run URL once GitHub registers the dispatch
+          sleep 3
+          RUN_URL="$(gh run list \
+            --repo "$TASHIF_CODES_REPO" \
+            --workflow=publish-fdroid.yml \
+            --limit 1 \
+            --json url \
+            --jq '.[0].url' || true)"
+          if [[ -n "${RUN_URL:-}" ]]; then
+            echo "F-Droid workflow: $RUN_URL"
+            echo "### F-Droid publish" >> "$GITHUB_STEP_SUMMARY"
+            echo "Triggered: $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Summary
+        working-directory: .
+        run: |
+          {
+            echo "## Patchwork ${RELEASE_TAG}"
+            echo ""
+            echo "- APK: \`${APK_NAME}\` (${{ steps.download_apk.outputs.apk_size }})"
+            echo "- EAS build: \`${{ steps.eas_build.outputs.build_id }}\`"
+            echo "- Release: https://github.com/${{ github.repository }}/releases/tag/${RELEASE_TAG}"
+            echo "- F-Droid page: https://tashif.codes/fdroid"
+            echo "- F-Droid repo: https://tashif.codes/fdroid/repo"
+          } >> "$GITHUB_STEP_SUMMARY"

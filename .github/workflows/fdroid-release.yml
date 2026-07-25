@@ -1,12 +1,19 @@
 name: Publish F-Droid Repo
 
+# Re-dispatch F-Droid publishing on tashif.codes without rebuilding the APK.
+#
+# Prefer the automatic path: "Release Android APK" already triggers F-Droid
+# after publishing the GitHub Release. Use this only to re-import an existing
+# release (or to publish from a release that was created outside that flow).
+#
+# Required secret:
+#   TASHIF_CODES_WORKFLOW_TOKEN — PAT with actions:write on tashifkhan/tashif.codes
+
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag containing the APK, for example v1.0.0'
+        description: 'Release tag containing the APK (e.g. v1.0.0)'
         required: true
         type: string
       apk_pattern:
@@ -14,6 +21,10 @@ on:
         required: true
         default: '*.apk'
         type: string
+
+concurrency:
+  group: fdroid-dispatch-${{ inputs.tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -23,17 +34,33 @@ jobs:
     name: Trigger tashif.codes F-Droid publish
     runs-on: ubuntu-latest
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
-      APK_PATTERN: ${{ github.event_name == 'workflow_dispatch' && inputs.apk_pattern || '*.apk' }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      APK_PATTERN: ${{ inputs.apk_pattern }}
       GH_TOKEN: ${{ secrets.TASHIF_CODES_WORKFLOW_TOKEN }}
+      TASHIF_CODES_REPO: tashifkhan/tashif.codes
     steps:
       - name: Validate token
-        run: test -n "$GH_TOKEN"
+        run: |
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Missing TASHIF_CODES_WORKFLOW_TOKEN secret"
+            exit 1
+          fi
 
       - name: Trigger tashif.codes workflow
         run: |
+          set -euo pipefail
           gh workflow run publish-fdroid.yml \
-            --repo tashifkhan/tashif.codes \
+            --repo "$TASHIF_CODES_REPO" \
             --field source_repository="${{ github.repository }}" \
             --field release_tag="$RELEASE_TAG" \
             --field apk_pattern="$APK_PATTERN"
+
+          sleep 3
+          RUN_URL="$(gh run list \
+            --repo "$TASHIF_CODES_REPO" \
+            --workflow=publish-fdroid.yml \
+            --limit 1 \
+            --json url \
+            --jq '.[0].url' || true)"
+          echo "Dispatched F-Droid publish for $RELEASE_TAG"
+          [[ -n "${RUN_URL:-}" ]] && echo "Run: $RUN_URL"

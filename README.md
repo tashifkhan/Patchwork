@@ -4,21 +4,44 @@ This is a developer-centric tasks application designed to unify task management 
 
 ## Android Downloads and F-Droid
 
-Android APK releases are built from this repository with EAS, attached to GitHub Releases, and then mirrored into a self-hosted F-Droid-compatible repository served by `tashif.codes`.
+Android APK releases are built with EAS, attached to GitHub Releases, and mirrored into a self-hosted F-Droid-compatible repository on `tashif.codes`.
 
-Install options:
+| | |
+|---|---|
+| F-Droid install page | https://tashif.codes/fdroid |
+| F-Droid repo URL | https://tashif.codes/fdroid/repo |
+| Direct APK | GitHub Releases → latest |
 
-* F-Droid repo page: `https://tashif.codes/fdroid`
-* F-Droid repo URL: `https://tashif.codes/fdroid/repo`
-* Direct APK downloads: `https://github.com/tashifkhan/Patchwork/releases/latest`
+### Cut a release
 
-User install instructions:
+```bash
+# from a clean main with the code you want shipped
+git tag v1.0.0
+git push origin v1.0.0
+```
 
-1. Open F-Droid on Android.
-2. Go to Settings -> Repositories.
-3. Add `https://tashif.codes/fdroid/repo`.
-4. Refresh repositories and install Patchwork.
-5. If F-Droid is not available, download the APK from the latest GitHub Release.
+That starts [`.github/workflows/release-apk.yml`](.github/workflows/release-apk.yml):
+
+1. Sets `app.json` / `package.json` version from the tag
+2. Builds a production APK on EAS (`github-release` profile, auto-incremented `versionCode`)
+3. Publishes a GitHub Release with the APK + SHA-256 checksum
+4. Dispatches F-Droid publishing on `tashifkhan/tashif.codes`
+
+You can also run **Actions → Release Android APK → Run workflow** and pass a tag like `v1.0.0`.
+
+### Required GitHub secrets (this repo)
+
+| Secret | Purpose |
+|---|---|
+| `EXPO_TOKEN` | Expo account token for EAS cloud builds |
+| `TASHIF_CODES_WORKFLOW_TOKEN` | Fine-grained PAT with **Actions: Read and write** on `tashifkhan/tashif.codes` (optional; skips F-Droid if unset) |
+
+### User install (F-Droid)
+
+1. Open F-Droid on Android
+2. Settings → Repositories → add `https://tashif.codes/fdroid/repo`
+3. Refresh repositories and install **Patchwork**
+4. Or download the APK from the latest GitHub Release
 
 
 ## Repository Structure

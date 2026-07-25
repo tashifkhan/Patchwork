@@ -1,3 +1,3 @@
-PatchWork is a developer-focused task manager built with Expo and React Native.
+Patchwork is a developer-focused task manager built with Expo and React Native.
 
-It supports CalDAV task sync, Nextcloud Deck boards, AI-assisted task drafting, custom model providers, and GitHub issue tracking. Android APK releases are published through GitHub Releases and can be mirrored by F-Droid-compatible repositories such as IzzyOnDroid.
+It supports CalDAV task sync, Nextcloud Deck boards, AI-assisted task drafting, custom model providers, and GitHub issue tracking. Android APK releases are published through GitHub Releases and mirrored to the self-hosted F-Droid repository at https://tashif.codes/fdroid/repo.
