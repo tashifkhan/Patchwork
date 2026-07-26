@@ -1,9 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Host, TextInput as ExpoTextInput, type TextInputRef } from '@expo/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Pressable } from 'react-native';
+import { Keyboard, Pressable, type TextInput as RNTextInput } from 'react-native';
 
 import { refineTasks } from '@/api/ai';
 import { ApiError } from '@/api/client';
@@ -15,12 +14,12 @@ import { useTaskLists } from '@/hooks/use-tasks';
 import { queryKeys } from '@/lib/query-client';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { ScrollView, Text, View, useCSSVariable } from '@/tw';
+import { ScrollView, Text, TextInput, View, useCSSVariable } from '@/tw';
 
 export default function AiReviewScreen() {
   const textSecondary = useCSSVariable('--sf-text-2');
   const { colors } = useTheme();
-  const refineRef = useRef<TextInputRef>(null);
+  const refineRef = useRef<RNTextInput>(null);
   const queryClient = useQueryClient();
   const importProgressRef = useRef(new Map<string, {
     parentUid: string;
@@ -70,7 +69,6 @@ export default function AiReviewScreen() {
       setStaged(response.tasks);
       importProgressRef.current.clear();
       setInstruction('');
-      refineRef.current?.clear();
     } catch (error) {
       setAlert({
         title: 'Refine failed',
@@ -201,21 +199,29 @@ export default function AiReviewScreen() {
         <View className="bg-sf-bg-2 gap-2 rounded-2xl p-3" style={{ borderCurve: 'continuous' }}>
           <Text className="text-sf-text-2 text-xs font-semibold uppercase">Refine with AI</Text>
           <View className="bg-sf-bg-3 rounded-lg px-2" style={{ borderCurve: 'continuous', minHeight: 40, justifyContent: 'center' }}>
-            <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
-              <ExpoTextInput
-                ref={refineRef}
-                placeholder="e.g. split into morning and evening tasks"
-                placeholderTextColor={colors.text3}
-                multiline
-                autoCapitalize="sentences"
-                underlineColorAndroid="transparent"
-                cursorColor={colors.accent}
-                selectionColor={colors.accent}
-                onChangeText={setInstruction}
-                textStyle={{ color: colors.text, fontSize: 16 }}
-                style={{ paddingHorizontal: 6, paddingVertical: 6, backgroundColor: 'transparent' }}
-              />
-            </Host>
+            {/* Controlled RN input — see the composer in ai/index.tsx. */}
+            <TextInput
+              ref={refineRef}
+              value={instruction}
+              onChangeText={setInstruction}
+              placeholder="e.g. split into morning and evening tasks"
+              placeholderTextColor={colors.text3}
+              multiline
+              autoCapitalize="sentences"
+              underlineColorAndroid="transparent"
+              cursorColor={colors.accent}
+              selectionColor={colors.accent}
+              style={{
+                color: colors.text,
+                fontSize: 16,
+                lineHeight: 22,
+                minHeight: 40,
+                maxHeight: 120,
+                paddingHorizontal: 6,
+                paddingVertical: 8,
+                backgroundColor: 'transparent',
+              }}
+            />
           </View>
           <Pressable
             onPress={handleRefine}
