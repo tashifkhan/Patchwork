@@ -1,43 +1,90 @@
+import { Platform } from 'react-native';
+
+import { headerBackButtonLeft } from '@/components/ui/header-back-button';
+import type { ThemeColors } from '@/lib/theme';
+
 // Shared native stack header options. Large titles everywhere; a solid (themed)
 // header — not transparent/blurred — so the title renders reliably regardless of
 // whether the screen's root is a scroll view (transparent + blur large titles
-// were dropping the title on scroll-rooted screens). The header background and
-// title color come from the navigation theme (see components/theme/shell).
+// were dropping the title on scroll-rooted screens).
 export const stackScreenOptions = {
   headerLargeTitle: true,
   headerShadowVisible: false,
   headerLargeTitleShadowVisible: false,
-  headerBackButtonDisplayMode: 'minimal',
-} as const;
+  headerBackButtonDisplayMode: 'minimal' as const,
+};
 
 /**
- * Platform-aware defaults for `presentation: 'formSheet'` screens.
+ * Themed stack options. Always prefer this over bare `stackScreenOptions` so
+ * screen chrome (content + header) tracks dark/light mode instead of falling
+ * back to the system default white background.
  *
- * - iOS: `contentStyle.backgroundColor = transparent` so iOS 26+ paints the
- *   sheet with the system liquid-glass material. Older releases fall back to
- *   the standard sheet chrome automatically.
- * - Android: react-native-screens' formSheet renders a Material 3 modal
- *   bottom sheet. We bump elevation a touch so the surface separates from the
- *   scrim, and lean on `SheetSurface` for the drag handle / rounded top.
+ * On Android the bare toolbar navigation icon is replaced with a circular
+ * Material icon button (`headerBackButtonLeft`) so every stack back control
+ * matches the rest of the circular chrome.
+ */
+export function themedStackScreenOptions(colors: ThemeColors) {
+  return {
+    ...stackScreenOptions,
+    contentStyle: { backgroundColor: colors.bg },
+    headerStyle: { backgroundColor: colors.bg },
+    headerTintColor: colors.accent,
+    headerTitleStyle: { color: colors.text },
+    headerLargeStyle: { backgroundColor: colors.bg },
+    ...(Platform.OS === 'android'
+      ? {
+          // Hide the native up-arrow so only the circular headerLeft renders.
+          headerBackVisible: false as const,
+          headerLeft: headerBackButtonLeft,
+        }
+      : null),
+  };
+}
+
+/**
+ * Platform-aware defaults for sheet screens.
  *
- * Pass an array of detents (0-1) — defaults to a half/full sheet.
+ * - iOS: system `formSheet` with liquid-glass-friendly transparent content and
+ *   grabber. Detents come from `detents` (0–1).
+ * - Android: transparent host route so `@expo/ui/jetpack-compose`
+ *   `ModalBottomSheet` (in `SheetSurface`) owns the Material 3 sheet, scrim,
+ *   drag handle, and dismiss gestures — matching Paisa's Compose bottomsheet.
+ *   Animation is disabled on the stack so only the native sheet animates.
+ *
+ * Prefer taller first detent on iOS for forms so fields aren't cramped.
  */
 export function sheetScreenOptions(
-  detents: number[] = [0.5, 1.0],
+  detents: number[] = [0.72, 1.0],
   title?: string,
 ) {
   const ios = process.env.EXPO_OS === 'ios';
+
+  if (!ios) {
+    return {
+      // Transparent host — ModalBottomSheet draws the real Material sheet.
+      presentation: 'transparentModal' as const,
+      animation: 'none' as const,
+      headerShown: false,
+      contentStyle: { backgroundColor: 'transparent' as const },
+      // Keep the previous screen interactive under the Compose scrim's hit test.
+      // (Scrim itself captures outside taps via shouldDismissOnClickOutside.)
+    };
+  }
+
   return {
     presentation: 'formSheet' as const,
     sheetGrabberVisible: true,
     sheetAllowedDetents: detents,
     sheetCornerRadius: 28,
     sheetElevation: 24,
+    // Keep the dimmed scrim under all detents so the sheet feels modal.
+    sheetLargestUndimmedDetentIndex: -1 as const,
+    // Expand to full when keyboard opens so form fields stay visible.
+    sheetExpandsWhenScrolledToEdge: true,
     headerLargeTitle: false,
-    // iOS: transparent so iOS 26+ paints the sheet with the system liquid-glass
-    // material. Android: keep the themed surface — `SheetSurface` paints a
-    // Material 3 surfaceContainerHigh background with a drag handle.
-    contentStyle: ios ? { backgroundColor: 'transparent' as const } : undefined,
+    headerShadowVisible: false,
+    headerShown: Boolean(title),
+    contentStyle: { backgroundColor: 'transparent' as const },
     ...(title ? { title } : {}),
   };
 }
