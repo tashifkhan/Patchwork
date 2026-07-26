@@ -1,10 +1,13 @@
 import { Stack } from 'expo-router/stack';
 
-import { stackScreenOptions } from '@/lib/screen-options';
+import { useTheme } from '@/components/theme/context';
+import { themedStackScreenOptions } from '@/lib/screen-options';
 
 export default function DeckLayout() {
+  const { colors } = useTheme();
+
   return (
-    <Stack screenOptions={stackScreenOptions}>
+    <Stack screenOptions={themedStackScreenOptions(colors)}>
       <Stack.Screen name="index" options={{ title: 'Boards' }} />
       <Stack.Screen name="card/[cardId]" options={{ title: 'Card' }} />
     </Stack>

@@ -1,31 +1,41 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { type ComponentProps } from 'react';
 import { Platform, Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { GlassSurface } from '@/components/ui/glass-surface';
+import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import { ScrollView, Text, View } from '@/tw';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
+/** Minimum tappable row height (Material / Apple HIG). */
+const ROW_MIN_HEIGHT = 56;
+
 /** Scroll container shared by every settings screen. */
 export function SettingsScreen({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
+  const paddingBottom = useTabBarContentPadding(48);
+  const onTabBarScroll = useTabBarMinimizeOnScroll();
   return (
     <ScrollView
       className="flex-1"
       style={{ backgroundColor: colors.bg }}
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 48, gap: 18 }}>
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      scrollEventThrottle={16}
+      onScroll={onTabBarScroll}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom, gap: 20 }}>
       {children}
     </ScrollView>
   );
 }
 
 /**
- * A rounded, elevated card that visually groups a cluster of rows. On iOS 26+
- * the surface is rendered as liquid glass; everywhere else it falls back to
- * the themed grouped-background tint with a subtle shadow.
+ * A rounded, elevated card that visually groups a cluster of rows.
+ * Paisa-inspired: large continuous corners (24dp), surfaceContainerLow fill,
+ * 2dp gap between visual groups. On iOS 26+ uses liquid glass.
  */
 export function SettingsGroup({
   title,
@@ -34,33 +44,41 @@ export function SettingsGroup({
   title?: string;
   children: React.ReactNode;
 }) {
-  const { colors, scheme } = useTheme();
-  const glass = Platform.OS === 'ios' && isLiquidGlassAvailable();
+  const { colors } = useTheme();
   return (
-    <View className="gap-1.5">
+    <View className="gap-2">
       {title ? (
-        <Text className="text-sf-text-2 px-4 text-xs font-semibold uppercase tracking-wide">
+        <Text
+          className="px-3 text-xs font-semibold uppercase tracking-wide"
+          style={{ color: colors.accent }}>
           {title}
         </Text>
       ) : null}
-      {glass ? (
-        <GlassView
-          glassEffectStyle="regular"
-          colorScheme={scheme}
-          style={{
-            borderRadius: 24,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-          }}>
-          {children}
-        </GlassView>
-      ) : (
-        <View
-          className="bg-sf-bg-2 overflow-hidden rounded-3xl"
-          style={{ borderCurve: 'continuous', boxShadow: `0 1px 3px ${colors.separator}` }}>
-          {children}
-        </View>
-      )}
+      <GlassSurface radius={24}>{children}</GlassSurface>
+    </View>
+  );
+}
+
+/** Tinted circular icon used at the start of a settings row (Paisa SettingsItemIcon). */
+export function SettingsItemIcon({
+  icon,
+  containerColor,
+  contentColor,
+}: {
+  icon: IconName;
+  containerColor?: string;
+  contentColor?: string;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      className="h-11 w-11 items-center justify-center rounded-full"
+      style={{ backgroundColor: containerColor ?? colors.primaryContainer }}>
+      <MaterialCommunityIcons
+        name={icon}
+        size={22}
+        color={contentColor ?? colors.onPrimaryContainer}
+      />
     </View>
   );
 }
@@ -69,6 +87,8 @@ export function SettingsGroup({
 export function SettingsRow({
   icon,
   iconColor,
+  iconContainerColor,
+  leading,
   title,
   subtitle,
   onPress,
@@ -79,6 +99,9 @@ export function SettingsRow({
 }: {
   icon?: IconName;
   iconColor?: string;
+  iconContainerColor?: string;
+  /** Custom leading element, used instead of `icon` (e.g. a provider avatar). */
+  leading?: React.ReactNode;
   title: string;
   subtitle?: string;
   onPress?: () => void;
@@ -88,32 +111,47 @@ export function SettingsRow({
   selected?: boolean;
 }) {
   const { colors } = useTheme();
-  const tint = danger ? colors.red : (iconColor ?? colors.text2);
-  const titleColor = danger ? 'text-sf-red' : 'text-sf-text';
+  const tint = danger ? colors.danger : (iconColor ?? colors.onPrimaryContainer);
+  const titleColor = danger ? colors.danger : colors.text;
 
   return (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
-      android_ripple={onPress ? { color: colors.gray3 } : undefined}
+      accessibilityRole={onPress ? 'button' : undefined}
+      android_ripple={onPress ? { color: colors.separator } : undefined}
       style={({ pressed }) => ({
-        backgroundColor:
-          selected
-            ? colors.selectionBg
-            : pressed && Platform.OS !== 'android'
-              ? colors.bg3
-              : 'transparent',
+        minHeight: ROW_MIN_HEIGHT,
+        backgroundColor: selected
+          ? colors.selectionBg
+          : pressed && Platform.OS !== 'android'
+            ? colors.bg3
+            : 'transparent',
       })}>
-      <View className="min-h-[56px] flex-row items-center gap-4 px-4 py-2.5">
-        {icon ? (
-          <MaterialCommunityIcons name={icon} size={24} color={selected ? colors.onSelectionBg : tint} />
+      <View
+        className="flex-row items-center gap-3 px-4 py-3"
+        style={{ minHeight: ROW_MIN_HEIGHT }}>
+        {leading ?? null}
+        {!leading && icon ? (
+          <SettingsItemIcon
+            icon={icon}
+            containerColor={
+              danger
+                ? `${colors.danger}22`
+                : iconContainerColor ?? (selected ? colors.selectionBg : colors.primaryContainer)
+            }
+            contentColor={selected ? colors.onSelectionBg : tint}
+          />
         ) : null}
-        <View className="flex-1">
-          <Text className={`${titleColor} text-base`} numberOfLines={1}>
+        <View className="flex-1 gap-0.5">
+          <Text
+            className="text-base font-semibold"
+            style={{ color: selected ? colors.onSelectionBg : titleColor }}
+            numberOfLines={2}>
             {title}
           </Text>
           {subtitle ? (
-            <Text className="text-sf-text-2 text-sm" numberOfLines={1}>
+            <Text className="text-sm" style={{ color: colors.text2 }} numberOfLines={2}>
               {subtitle}
             </Text>
           ) : null}
@@ -127,7 +165,7 @@ export function SettingsRow({
   );
 }
 
-/** Hairline separator between rows inside a group (inset to align with text). */
+/** Hairline separator between rows inside a group (inset past the circular icon). */
 export function RowSeparator() {
-  return <View className="bg-sf-separator ml-[60px] h-px" />;
+  return <View className="bg-sf-separator ml-[68px] h-px" />;
 }

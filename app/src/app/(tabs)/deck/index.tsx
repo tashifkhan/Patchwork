@@ -1,16 +1,20 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, RefreshControl, ScrollView as RNScrollView, useWindowDimensions } from 'react-native';
 
+import { ApiError } from '@/api/client';
 import type { DeckCard as DeckCardType, DeckStack } from '@/api/types';
 import { KanbanBoard, type CardMove } from '@/components/deck/kanban-board';
 import { NewBoardChip } from '@/components/deck/new-board-chip';
 import { useTheme } from '@/components/theme/context';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Fab } from '@/components/ui/fab';
 import { Icon } from '@/components/ui/icon';
+import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeckBoards, useReorderDeckCard } from '@/hooks/use-deck';
+import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import { useUiStore } from '@/stores/ui-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { ScrollView, Text, View, useCSSVariable } from '@/tw';
@@ -20,6 +24,8 @@ export default function BoardsScreen() {
   const blue = useCSSVariable('--sf-blue');
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const onTabBarScroll = useTabBarMinimizeOnScroll();
+  const contentBottom = useTabBarContentPadding(112);
 
   const boardsQuery = useDeckBoards();
   const deckWarnings = useSyncStatusStore((state) => state.deckWarnings);
@@ -135,20 +141,28 @@ export default function BoardsScreen() {
     ) : null;
 
   if (boardsQuery.isLoading) {
-    return <Centered text="Loading boards…" refreshing={refreshing} onRefresh={handleRefresh} />;
-  }
-
-  if (boardsQuery.error) {
-    const message =
-      boardsQuery.error instanceof Error ? boardsQuery.error.message : 'Could not load your boards.';
-    return <Centered text={message} iconName="alert-circle-outline" refreshing={refreshing} onRefresh={handleRefresh} />;
-  }
-
-  if (boards.length === 0) {
     return (
-      <Centered text="No boards yet." iconName="view-column-outline" refreshing={refreshing} onRefresh={handleRefresh}>
-        <NewBoardChip />
-      </Centered>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <LoadingState
+          message="Loading boards…"
+          subtitle="Syncing Deck from your servers"
+        />
+      </View>
+    );
+  }
+
+  if (boardsQuery.error || boards.length === 0) {
+    // Plain flex View (not ScrollView): iOS large-title content insets make
+    // flexGrow + justifyContent center land the empty state in the lower half.
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center' }}>
+        <BoardsEmptyState
+          error={boardsQuery.error}
+          onRetry={handleRefresh}
+          onConnect={() => router.push('/settings/account')}
+          onAdd={() => router.push('/new-board')}
+        />
+      </View>
     );
   }
 
@@ -167,9 +181,11 @@ export default function BoardsScreen() {
         className="flex-1"
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
+        scrollEventThrottle={16}
+        onScroll={onTabBarScroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         contentContainerStyle={[
-          { paddingHorizontal: 24, paddingBottom: 112 },
+          { paddingHorizontal: 24, paddingBottom: contentBottom },
           isWide ? { alignSelf: 'center', width: '100%', maxWidth: 720 } : null,
         ]}>
         <View style={{ marginHorizontal: -24 }}>{boardSelector}</View>
@@ -183,9 +199,7 @@ export default function BoardsScreen() {
           </View>
         ) : null}
         {boardQuery.isLoading ? (
-          <View className="items-center py-16">
-            <Text className="text-sf-text-2 text-sm">Loading cards…</Text>
-          </View>
+          <LoadingState message="Loading cards…" subtitle="Syncing this board" fullScreen={false} />
         ) : boardQuery.isError ? (
           <View className="items-center gap-3 py-16">
             <Text selectable className="text-sf-red text-center text-sm">
@@ -221,34 +235,69 @@ export default function BoardsScreen() {
   );
 }
 
-function Centered({
-  text,
-  iconName,
-  refreshing,
-  onRefresh,
-  children,
+function BoardsEmptyState({
+  error,
+  onRetry,
+  onConnect,
+  onAdd,
 }: {
-  text: string;
-  iconName?: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  refreshing: boolean;
-  onRefresh: () => void;
-  children?: React.ReactNode;
+  error: unknown;
+  onRetry: () => void;
+  onConnect: () => void;
+  onAdd: () => void;
 }) {
-  const { colors } = useTheme();
-  const bg = useCSSVariable('--sf-bg');
+  if (error) {
+    const message =
+      error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Could not load boards.';
+    const needsAccount =
+      error instanceof ApiError &&
+      (error.status === 503 ||
+        /no caldav accounts|not configured|no account/i.test(message));
+
+    if (needsAccount) {
+      return (
+        <EmptyState
+          icon="cloud-outline"
+          title="Connect a CalDAV account"
+          subtitle="Patchwork syncs boards from Nextcloud Deck. Add a CalDAV account to get started."
+          actions={[
+            { label: 'Connect account', onPress: onConnect, variant: 'filled' },
+            { label: 'Retry', onPress: onRetry, variant: 'tonal' },
+          ]}
+        />
+      );
+    }
+
+    return (
+      <EmptyState
+        icon="cloud-alert-outline"
+        title="Couldn't load boards"
+        subtitle={message}
+        actions={[
+          { label: 'Retry', onPress: onRetry, variant: 'filled' },
+          { label: 'Connect account', onPress: onConnect, variant: 'tonal' },
+        ]}
+      />
+    );
+  }
+
   return (
-    <RNScrollView
-      style={{ flex: 1, backgroundColor: bg as string }}
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 32 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-      <View className="items-center gap-3">
-        {iconName ? <MaterialCommunityIcons name={iconName} size={28} color={colors.accent} /> : null}
-        <Text selectable className="text-sf-text-2 text-center">
-          {text}
-        </Text>
-        {children}
-      </View>
-    </RNScrollView>
+    <EmptyState
+      icon="view-column-outline"
+      title="No boards yet"
+      subtitle={
+        Platform.OS === 'web'
+          ? 'Create a board to start organizing cards in columns.'
+          : 'Tap + to add your first board, or pull down to refresh.'
+      }
+      actions={
+        Platform.OS !== 'web'
+          ? [{ label: 'Add board', onPress: onAdd, variant: 'filled' }]
+          : undefined
+      }>
+      {Platform.OS === 'web' ? <NewBoardChip /> : null}
+    </EmptyState>
   );
 }
+
+

@@ -1,11 +1,12 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable } from 'react-native';
 
 import type { DeckCard, DeckStack } from '@/api/types';
 import { DeckCardForm, type DeckCardFormValues } from '@/components/deck/deck-card-form';
 import { MoveToTasks } from '@/components/deck/move-to-tasks';
 import { useTheme } from '@/components/theme/context';
+import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeleteDeckCard, useReorderDeckCard, useUpdateDeckCard } from '@/hooks/use-deck';
 import { ScrollView, Text, View } from '@/tw';
@@ -86,7 +87,7 @@ export default function DeckCardDetailScreen() {
   }
 
   if (boardQuery.isLoading) {
-    return <Centered text="Loading card…" />;
+    return <LoadingState message="Loading card…" subtitle="Opening from Deck" />;
   }
 
   if (!card || !stack || stackNumber == null || cardNumber == null) {
@@ -159,18 +160,11 @@ export default function DeckCardDetailScreen() {
   );
 }
 
-function MoveButton({ label, disabled, onPress, color }: { label: string; disabled: boolean; onPress: () => void; color: string }) {
+function MoveButton({ label, disabled, onPress }: { label: string; disabled: boolean; onPress: () => void; color: string }) {
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => ({ flex: 1, opacity: disabled ? 0.35 : pressed ? 0.75 : 1 })}>
-      <View className="bg-sf-bg-2 items-center rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
-        <Text className="text-center text-base font-semibold" style={{ color }}>
-          {label}
-        </Text>
-      </View>
-    </Pressable>
+    <View style={{ flex: 1 }}>
+      <Button variant="tonal" label={label} disabled={disabled} onPress={onPress} />
+    </View>
   );
 }
 

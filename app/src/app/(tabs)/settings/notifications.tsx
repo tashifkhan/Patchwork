@@ -1,8 +1,8 @@
-import { Host, Slider } from '@expo/ui';
 import { useState } from 'react';
 
 import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { cancelAllTaskReminders, ensureNotificationPermissions } from '@/lib/notifications';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -53,15 +53,13 @@ export default function NotificationsScreen() {
                   {reminderLabel}
                 </Text>
               </View>
-              <Host style={{ height: 36 }}>
-                <Slider
-                  value={defaultReminderMinutes}
-                  min={0}
-                  max={60}
-                  step={5}
-                  onValueChange={(v) => setDefaultReminderMinutes(Math.round(v))}
-                />
-              </Host>
+              <Slider
+                value={defaultReminderMinutes}
+                min={0}
+                max={60}
+                step={5}
+                onValueChange={(v) => setDefaultReminderMinutes(Math.round(v))}
+              />
             </View>
           </>
         ) : null}

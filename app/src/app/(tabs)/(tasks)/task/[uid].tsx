@@ -11,6 +11,7 @@ import { useTheme } from '@/components/theme/context';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
 import { TaskForm, type TaskFormValues } from '@/components/tasks/task-form';
 import { TaskItem } from '@/components/tasks/task-item';
+import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import {
   useCreateTask,
@@ -62,22 +63,35 @@ export default function TaskDetailScreen() {
     };
   }, []);
 
-  const task = uid ? findByUid(tasksQuery.data ?? [], decodeURIComponent(uid)) : null;
+  // expo-router already decodes path/query params; still tolerate double-encoding.
+  const decodedUid = uid
+    ? (() => {
+        try {
+          return decodeURIComponent(uid);
+        } catch {
+          return uid;
+        }
+      })()
+    : null;
+  const task = decodedUid ? findByUid(tasksQuery.data ?? [], decodedUid) : null;
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
 
   if (!task) {
+    if (tasksQuery.isLoading) {
+      return <LoadingState message="Loading task…" subtitle="Fetching from CalDAV" />;
+    }
     return (
-      <View className="bg-sf-bg flex-1 items-center justify-center px-8">
+      <View className="flex-1 items-center justify-center gap-3 px-8" style={{ backgroundColor: colors.bg }}>
         <Text className="text-sf-text-2 text-center" selectable>
-          {tasksQuery.isLoading
-            ? 'Loading…'
-            : tasksQuery.isError
-              ? tasksQuery.error instanceof Error ? tasksQuery.error.message : 'Task could not be loaded.'
-              : 'Task not found.'}
+          {tasksQuery.isError
+            ? tasksQuery.error instanceof Error
+              ? tasksQuery.error.message
+              : 'Task could not be loaded.'
+            : 'Task not found.'}
         </Text>
         {tasksQuery.isError ? (
-          <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()} className="mt-4">
+          <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()} className="mt-2">
             <Text className="text-sf-blue text-base font-semibold">Retry</Text>
           </Pressable>
         ) : null}
@@ -198,11 +212,17 @@ export default function TaskDetailScreen() {
 
   return (
     <ScrollView
-      className="bg-sf-bg flex-1"
+      className="flex-1"
+      style={{ backgroundColor: colors.bg }}
       contentInsetAdjustmentBehavior="automatic"
       keyboardDismissMode="interactive"
-      contentContainerStyle={{ paddingBottom: keyboardHeight }}>
-      <Stack.Screen options={{ title: task.list_name }} />
+      contentContainerStyle={{ paddingBottom: keyboardHeight, backgroundColor: colors.bg }}>
+      <Stack.Screen
+        options={{
+          title: task.list_name,
+          contentStyle: { backgroundColor: colors.bg },
+        }}
+      />
 
       <TaskForm
         initial={{
@@ -233,7 +253,12 @@ export default function TaskDetailScreen() {
               key={child.id}
               task={child}
               onToggle={toggleSubtask}
-              onOpen={(t) => router.push(`/task/${encodeURIComponent(t.uid)}`)}
+              onOpen={(t) =>
+                router.push({
+                  pathname: '/task/[uid]',
+                  params: { uid: t.uid },
+                })
+              }
               showChildren={false}
             />
           ))}

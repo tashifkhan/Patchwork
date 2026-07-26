@@ -15,6 +15,7 @@ import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/noti
 import { queryClient } from '@/lib/query-client';
 import { sheetScreenOptions } from '@/lib/screen-options';
 import { useSettingsStore } from '@/stores/settings-store';
+import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { Text, View } from '@/tw';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -53,19 +54,19 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen
               name="new-task"
-              options={{ ...sheetScreenOptions([0.6, 1.0], 'New Task'), headerShown: true }}
+              options={sheetScreenOptions([0.72, 1.0], 'New Task')}
             />
             <Stack.Screen
               name="new-card"
-              options={{ ...sheetScreenOptions([0.6, 1.0], 'New Card'), headerShown: true }}
+              options={sheetScreenOptions([0.72, 1.0], 'New Card')}
             />
             <Stack.Screen
               name="new-board"
-              options={{ ...sheetScreenOptions([0.4, 0.75], 'New Board'), headerShown: true }}
+              options={sheetScreenOptions([0.55, 0.85], 'New Board')}
             />
             <Stack.Screen
               name="column"
-              options={{ ...sheetScreenOptions([0.4, 0.75], 'Column'), headerShown: true }}
+              options={sheetScreenOptions([0.55, 0.85], 'Column')}
             />
           </Stack>
         </ThemeProvider>
@@ -96,8 +97,13 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 function NativeRuntimeCoordinator() {
   const tasksQuery = useTasks();
+  const initializeGitHub = useGitHubSessionStore((state) => state.initialize);
   const notificationsEnabled = useSettingsStore((state) => state.notificationsEnabled);
   const defaultReminderMinutes = useSettingsStore((state) => state.defaultReminderMinutes);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web') initializeGitHub();
+  }, [initializeGitHub]);
 
   useEffect(() => {
     if (!tasksQuery.data) return;
@@ -108,7 +114,10 @@ function NativeRuntimeCoordinator() {
     let active = true;
     let stop = () => {};
     startNotificationResponseObserver((taskUid) => {
-      router.push(`/task/${encodeURIComponent(taskUid)}`);
+      router.push({
+        pathname: '/task/[uid]',
+        params: { uid: taskUid },
+      });
     }).then((cleanup) => {
       if (active) stop = cleanup;
       else cleanup();

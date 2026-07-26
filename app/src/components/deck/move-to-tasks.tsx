@@ -5,6 +5,7 @@ import { Pressable } from 'react-native';
 
 import { ApiError } from '@/api/client';
 import { useTheme } from '@/components/theme/context';
+import { LoadingSpinner } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useCreateTask, useTaskLists, useUpdateTask } from '@/hooks/use-tasks';
 import { useDeleteDeckCard } from '@/hooks/use-deck';
@@ -117,7 +118,10 @@ export function MoveToTasks({ boardId, stackId, cardId, title, description, dued
         {open ? (
           <View className="border-sf-separator gap-3 border-t px-3 py-3">
             {listsQuery.isLoading ? (
-              <Text className="text-sf-text-2 text-sm">Loading lists…</Text>
+              <View className="flex-row items-center gap-2 py-1">
+                <LoadingSpinner size={20} />
+                <Text className="text-sf-text-2 text-sm">Loading lists…</Text>
+              </View>
             ) : lists.length === 0 ? (
               <Text className="text-sf-text-2 text-sm">No task lists available.</Text>
             ) : (

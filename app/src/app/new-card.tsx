@@ -4,6 +4,8 @@ import { Pressable } from 'react-native';
 
 import { DeckCardForm, type DeckCardFormValues } from '@/components/deck/deck-card-form';
 import { NewBoardChip } from '@/components/deck/new-board-chip';
+import { useTheme } from '@/components/theme/context';
+import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
@@ -13,12 +15,14 @@ export default function NewDeckScreen() {
   const { boardId, stackId } = useLocalSearchParams<{ boardId?: string; stackId?: string }>();
 
   return (
-    <SheetSurface>
+    <SheetSurface title="New card" subtitle="Add a card to your board">
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive">
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 32 }}>
         <Stack.Screen options={{ title: 'New Card' }} />
         <NewCardBody boardId={boardId} stackId={stackId} />
       </ScrollView>
@@ -27,6 +31,7 @@ export default function NewDeckScreen() {
 }
 
 function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string }) {
+  const { colors } = useTheme();
   const requestedBoardId = parseOptionalNumber(boardId);
   const requestedStackId = parseOptionalNumber(stackId);
   const boardsQuery = useDeckBoards();
@@ -56,18 +61,32 @@ function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string 
       });
       router.back();
     } catch (error) {
-      setAlert({ title: 'Create failed', message: error instanceof Error ? error.message : 'Could not create the card.' });
+      setAlert({
+        title: 'Create failed',
+        message: error instanceof Error ? error.message : 'Could not create the card.',
+      });
     }
   }
 
   if (boardsQuery.isLoading || (activeBoardId != null && boardQuery.isLoading)) {
-    return <Centered text="Loading Deck…" />;
+    return (
+      <View style={{ minHeight: 220, justifyContent: 'center' }}>
+        <LoadingState
+          message="Loading board…"
+          subtitle="Fetching stacks and columns"
+          fullScreen={false}
+          showBar
+        />
+      </View>
+    );
   }
 
   if (activeBoardId == null || stacks.length === 0) {
     return (
-      <View className="gap-4 px-4 py-8">
-        <Centered text={activeBoardId == null ? 'No Deck boards found.' : 'No Deck stacks available.'} />
+      <View className="gap-4 px-5 py-10">
+        <Text className="text-sf-text-2 text-center">
+          {activeBoardId == null ? 'No Deck boards found.' : 'No Deck stacks available.'}
+        </Text>
         {activeBoardId == null ? <NewBoardChip /> : null}
         <BoardAlert alert={alert} onDismiss={() => setAlert(null)} />
       </View>
@@ -77,7 +96,7 @@ function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string 
   return (
     <>
       {boards.length > 0 ? (
-        <View className="gap-2 px-4 pt-4">
+        <View className="gap-2 px-5 pt-2">
           <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Board</Text>
           <View className="flex-row flex-wrap gap-2">
             {boards.map((board) => {
@@ -88,9 +107,17 @@ function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string 
                   onPress={() => setSelectedBoardId(board.id)}
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                   <View
-                    className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
-                    style={{ borderCurve: 'continuous' }}>
-                    <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
+                    className="rounded-full px-4 py-2"
+                    style={{
+                      minHeight: 40,
+                      backgroundColor: selected ? colors.primaryContainer : colors.bg3,
+                      borderCurve: 'continuous',
+                    }}>
+                    <Text
+                      className="text-sm font-medium"
+                      style={{
+                        color: selected ? colors.onPrimaryContainer : colors.text2,
+                      }}>
                       {board.title}
                     </Text>
                   </View>
@@ -128,14 +155,6 @@ function BoardAlert({
       message={alert?.message ?? ''}
       onDismiss={onDismiss}
     />
-  );
-}
-
-function Centered({ text }: { text: string }) {
-  return (
-    <View className="items-center justify-center px-8 py-16">
-      <Text className="text-sf-text-2 text-center">{text}</Text>
-    </View>
   );
 }
 

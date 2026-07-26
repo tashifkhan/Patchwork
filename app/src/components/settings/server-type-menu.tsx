@@ -38,7 +38,9 @@ export function ServerTypeMenu({ value, onChange }: ServerTypeMenuProps) {
         }}>
         <Pressable style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
           <RNView style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 4 }}>
-            <RNText style={{ fontSize: 18, color: colors.text }}>{serverTypeLabel(value)}</RNText>
+            <RNText style={{ fontSize: 16, fontWeight: '500', color: colors.text }}>
+              {serverTypeLabel(value)}
+            </RNText>
             <MaterialCommunityIcons name="menu-down" size={22} color={colors.text2} />
           </RNView>
         </Pressable>
@@ -72,7 +74,9 @@ export function ServerTypeMenu({ value, onChange }: ServerTypeMenuProps) {
     <>
       <Pressable ref={triggerRef} onPress={open} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
         <RNView style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 4 }}>
-          <RNText style={{ fontSize: 18, color: colors.text }}>{serverTypeLabel(value)}</RNText>
+          <RNText style={{ fontSize: 16, fontWeight: '500', color: colors.text }}>
+            {serverTypeLabel(value)}
+          </RNText>
           <MaterialCommunityIcons name="menu-down" size={22} color={colors.text2} />
         </RNView>
       </Pressable>

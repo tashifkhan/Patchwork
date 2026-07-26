@@ -6,6 +6,7 @@ import { Pressable } from 'react-native';
 import { ApiError } from '@/api/client';
 import type { Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
+import { LoadingSpinner } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { useDeleteTask } from '@/hooks/use-tasks';
@@ -91,7 +92,7 @@ export function MoveToDeck({ task }: { task: Task }) {
         {open ? (
           <View className="border-sf-separator gap-3 border-t px-3 py-3">
             {boardsQuery.isLoading ? (
-              <Text className="text-sf-text-2 text-sm">Loading boards…</Text>
+              <InlineLoading label="Loading boards…" />
             ) : boards.length === 0 ? (
               <Text className="text-sf-text-2 text-sm">No Deck boards available.</Text>
             ) : (
@@ -107,7 +108,7 @@ export function MoveToDeck({ task }: { task: Task }) {
                 />
                 {activeBoardId != null ? (
                   boardQuery.isLoading ? (
-                    <Text className="text-sf-text-2 text-sm">Loading stacks…</Text>
+                    <InlineLoading label="Loading stacks…" />
                   ) : (
                     <ChipGroup
                       label="Stack"
@@ -144,6 +145,15 @@ export function MoveToDeck({ task }: { task: Task }) {
         message={errorMessage ?? ''}
         onDismiss={() => setErrorMessage(null)}
       />
+    </View>
+  );
+}
+
+function InlineLoading({ label }: { label: string }) {
+  return (
+    <View className="flex-row items-center gap-2 py-1">
+      <LoadingSpinner size={20} />
+      <Text className="text-sf-text-2 text-sm">{label}</Text>
     </View>
   );
 }

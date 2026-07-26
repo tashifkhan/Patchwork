@@ -8,6 +8,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
+import { haptics } from '@/lib/haptics';
 import { View } from '@/tw';
 
 interface DraggableColumnProps<T> {
@@ -24,13 +25,17 @@ interface DraggableColumnProps<T> {
 // row so it follows the finger; sibling rows stay put and an insertion line
 // marks the drop target. The new order is committed once, on release, so we
 // never re-layout mid-gesture (which is what makes variable heights fragile).
+//
+// Important: pan uses `activateAfterLongPress` and `manualActivation` is NOT
+// required, but we explicitly enable simultaneous handlers with native presses
+// so short taps still open detail screens on Android.
 export function DraggableColumn<T>({
   data,
   keyExtractor,
   renderItem,
   onReorder,
   indicatorColor,
-  longPressMs = 220,
+  longPressMs = 320,
 }: DraggableColumnProps<T>) {
   const heights = useRef<number[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -72,6 +77,7 @@ export function DraggableColumn<T>({
         const [moved] = next.splice(from, 1);
         const target = insertion > from ? insertion - 1 : insertion;
         next.splice(target, 0, moved);
+        haptics.success();
         onReorder(next);
         return null;
       });
@@ -89,6 +95,7 @@ export function DraggableColumn<T>({
     const next = [...data];
     const [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
+    haptics.selection();
     onReorder(next);
   }, [data, onReorder]);
 
@@ -100,7 +107,11 @@ export function DraggableColumn<T>({
           index={index}
           longPressMs={longPressMs}
           onLayout={onRowLayout}
-          onStart={(i) => setActiveIndex(i)}
+          onStart={(i) => {
+            // Pickup: the firmest feedback in the app — the row is now "held".
+            haptics.impact('heavy');
+            setActiveIndex(i);
+          }}
           onUpdate={updateTarget}
           onCommit={commit}
           onAccessibilityMove={moveAccessibly}
@@ -145,8 +156,13 @@ function Row({
   const active = useSharedValue(false);
   const lastReportedY = useSharedValue(0);
 
+  // Fail the gesture quickly on horizontal movement so list scroll/taps win;
+  // only activate after a deliberate long-press vertical drag.
   const pan = Gesture.Pan()
     .activateAfterLongPress(longPressMs)
+    .maxPointers(1)
+    .activeOffsetY([-8, 8])
+    .failOffsetX([-24, 24])
     .onStart(() => {
       active.value = true;
       dragY.value = 0;

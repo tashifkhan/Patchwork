@@ -6,7 +6,8 @@ import { Platform } from 'react-native';
 
 import { RowSeparator, SettingsGroup, SettingsRow, SettingsScreen } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
-import { getAccounts, getGeminiApiKey, getGitHubCredentials, type CalDavAccount } from '@/lib/credentials';
+import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
+import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -20,25 +21,16 @@ export default function SettingsHub() {
   const [hasGemini, setHasGemini] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
-  const githubConnected = useSettingsStore((s) => s.githubConnected);
-  const githubReposCount = useSettingsStore((s) => s.githubRepos.length);
+  const githubConnection = useGitHubSessionStore((state) => state.state);
+  const githubReposCount = useSettingsStore((s) => s.githubRepositories.length);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      Promise.all([getAccounts(), getGeminiApiKey(), getGitHubCredentials()]).then(([list, gemini, github]) => {
+      Promise.all([getAccounts(), getGeminiApiKey()]).then(([list, gemini]) => {
         if (!active) return;
         setAccounts(list);
         setHasGemini(!!gemini);
-        // Keep public-repo mode connected even without credentials
-        const { githubMode, githubRepos, setGitHubConnected } = useSettingsStore.getState();
-        if (github) {
-          setGitHubConnected(true);
-        } else if (githubMode === 'public' && githubRepos.length > 0) {
-          setGitHubConnected(true);
-        } else if (!github && githubMode === 'private') {
-          setGitHubConnected(false);
-        }
       }).catch((error) => {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Settings could not be loaded.');
       });
@@ -77,7 +69,11 @@ export default function SettingsHub() {
         <SettingsRow
           icon="palette-outline"
           title="Look and feel"
-          subtitle="Theme, accent, true black"
+          subtitle={
+            Platform.OS === 'android'
+              ? 'Theme, palettes, AMOLED, floating bar'
+              : 'Theme, palettes, AMOLED, contrast'
+          }
           showChevron
           onPress={() => router.push('/settings/appearance')}
         />
@@ -95,7 +91,15 @@ export default function SettingsHub() {
         <SettingsRow
           icon="github"
           title="GitHub Issues"
-          subtitle={githubConnected ? `${githubReposCount} repos connected` : 'Connect your account'}
+          subtitle={
+            githubConnection.status === 'connected'
+              ? `${githubReposCount} repositories selected`
+              : githubConnection.status === 'expired'
+                ? 'Connection needs attention'
+                : githubReposCount > 0
+                  ? `${githubReposCount} public repositories`
+                  : 'Connect GitHub or add a public repository'
+          }
           showChevron
           onPress={() => router.push('/settings/github')}
         />

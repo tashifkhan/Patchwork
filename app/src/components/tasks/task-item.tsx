@@ -1,10 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { memo } from 'react';
 import { Platform, Pressable } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import type { Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
+import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
 import { formatRelativeDue } from '@/lib/format';
+import { haptics } from '@/lib/haptics';
+import { DURATION, EASING } from '@/lib/motion';
 import { useFocusStore } from '@/stores/focus-store';
 import { Text, View } from '@/tw';
 import { endFocus, startFocus } from '@/widgets/focus';
@@ -34,32 +38,60 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
   const focusEnabled = Platform.OS === 'ios' && !task.completed;
 
   return (
-    <View>
-      <View className="flex-row items-start gap-3 py-2" style={{ paddingLeft: depth * 28 }}>
+    // Rows fade in/out and slide to their new position with M3 timings, so
+    // completing a task or reordering reads as movement instead of a jump.
+    <Animated.View
+      entering={FadeIn.duration(DURATION.medium1).easing(EASING.emphasizedDecelerate)}
+      exiting={FadeOut.duration(DURATION.short4).easing(EASING.emphasizedAccelerate)}
+      layout={LinearTransition.duration(DURATION.medium2).easing(EASING.emphasized)}>
+      <View
+        className="flex-row items-center gap-2"
+        style={{ paddingLeft: depth * 28, minHeight: MIN_TOUCH_TARGET }}>
         <Pressable
-          onPress={() => onToggle(task)}
+          onPress={() => {
+            // Completing lands harder than un-completing (see lib/haptics).
+            haptics.toggle(!task.completed);
+            onToggle(task);
+          }}
           accessibilityRole="checkbox"
           accessibilityLabel={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
           accessibilityState={{ checked: task.completed }}
-          hitSlop={8}
-          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
+          hitSlop={12}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.5 : 1,
+            width: MIN_TOUCH_TARGET,
+            height: MIN_TOUCH_TARGET,
+            alignItems: 'center',
+            justifyContent: 'center',
+          })}>
           <MaterialCommunityIcons
-            name={task.completed ? 'checkbox-marked' : 'checkbox-blank-outline'}
-            size={24}
+            name={task.completed ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+            size={26}
             color={task.completed ? colors.accent : colors.gray}
           />
         </Pressable>
 
         <Pressable
-          onPress={() => onOpen(task)}
+          onPress={() => {
+            haptics.tap();
+            onOpen(task);
+          }}
           accessibilityRole="button"
           accessibilityLabel={`${task.title}${due.label ? `, ${due.label}` : ''}`}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
+          android_ripple={{ color: colors.separator }}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.7 : 1,
+            flex: 1,
+            minHeight: MIN_TOUCH_TARGET,
+            justifyContent: 'center',
+            paddingVertical: 10,
+          })}>
           <View className="flex-1 gap-1.5">
             <View className="flex-row items-start justify-between gap-2">
               <Text
                 numberOfLines={2}
-                className={`flex-1 text-base ${task.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}>
+                className={`flex-1 text-base ${task.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}
+                style={{ fontWeight: task.completed ? '400' : '500' }}>
                 {task.title}
               </Text>
               {due.label ? (
@@ -104,13 +136,20 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
         {focusEnabled ? (
           <Pressable
             onPress={() => {
+              haptics.impact(isFocused ? 'light' : 'medium');
               if (isFocused) endFocus();
               else startFocus(task.uid, task.title, DEFAULT_FOCUS_SECONDS);
             }}
             hitSlop={8}
             accessibilityLabel={isFocused ? 'End focus session' : 'Start 25-minute focus session'}
             accessibilityRole="button"
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.5 : 1,
+              width: MIN_TOUCH_TARGET,
+              height: MIN_TOUCH_TARGET,
+              alignItems: 'center',
+              justifyContent: 'center',
+            })}>
             <MaterialCommunityIcons
               name={isFocused ? 'timer-off-outline' : 'timer-outline'}
               size={22}
@@ -133,7 +172,7 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
           ))}
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -150,7 +189,7 @@ function Chip({
 }) {
   return (
     <View
-      className="flex-row items-center gap-1 rounded-md px-2 py-1"
+      className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
       style={{ backgroundColor: bg, borderCurve: 'continuous' }}>
       <MaterialCommunityIcons name={icon} size={13} color={color} />
       <Text className="text-sf-text-2 text-xs">{label}</Text>

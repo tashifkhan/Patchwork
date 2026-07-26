@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable } from 'react-native';
@@ -8,6 +7,9 @@ import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
 import { MarkdownEditor } from '@/components/tasks/markdown-editor';
+import { Button } from '@/components/ui/button';
+import { SegmentedChoice } from '@/components/ui/segmented-choice';
+import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
@@ -37,7 +39,7 @@ interface TaskFormProps {
   showReminder?: boolean;
   showPriority?: boolean;
   showCalendar?: boolean;
-  /** @deprecated Live preview is always on via MarkdownEditor. Kept for call-site compat. */
+  /** @deprecated Preview is available via the Write/Preview toggle on MarkdownEditor. */
   showPreview?: boolean;
   onSubmit: (values: TaskFormValues) => void;
   onDelete?: () => void;
@@ -58,7 +60,7 @@ export function TaskForm({
   submitLabel,
   listLabel = 'List',
   showList = true,
-  notesLabel = 'Notes (Markdown)',
+  notesLabel = 'Notes',
   showTags = true,
   showReminder = true,
   showPriority = true,
@@ -69,7 +71,6 @@ export function TaskForm({
 }: TaskFormProps) {
   const { colors } = useTheme();
   const textColor = colors.text2;
-  const red = colors.red;
 
   const [title, setTitle] = useState(initial?.title ?? '');
   const [markdown, setMarkdown] = useState(initial?.markdown ?? '');
@@ -112,41 +113,41 @@ export function TaskForm({
   const selectedCalendarTitle = calendars.find((c) => c.id === calendarId)?.title ?? null;
 
   return (
-    <View className="gap-5 px-4 py-4">
-      <Field label="Title" icon="format-title">
+    <View className="gap-4 px-5 py-3">
+      {/* Title — hero field (Paisa amount/title pattern) */}
+      <SheetFieldCard>
+        <Text
+          className="text-sf-text-2"
+          style={{ fontSize: 12, fontWeight: '600', letterSpacing: 0.2, marginBottom: 6 }}>
+          TITLE
+        </Text>
         <TextInput
           value={title}
           onChangeText={setTitle}
           placeholder="What needs doing?"
           placeholderTextColor={textColor as string}
           accessibilityLabel="Task title"
-          className="text-sf-text bg-sf-bg-2 rounded-xl px-3 py-3 text-base"
-          style={{ borderCurve: 'continuous' }}
+          className="text-sf-text text-base"
+          style={{
+            minHeight: 44,
+            paddingVertical: 4,
+            fontSize: 17,
+            fontWeight: '500',
+          }}
         />
-      </Field>
+      </SheetFieldCard>
 
       {showList && lists.length > 1 ? (
         <Field label={listLabel} icon="format-list-bulleted">
           <View className="flex-row flex-wrap gap-2">
-            {lists.map((list) => {
-              const selected = list.id === listId;
-              return (
-                <Pressable
-                  key={list.id}
-                  onPress={() => setListId(list.id)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-                  <View
-                    className={`rounded-full px-3 py-1 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-2'}`}
-                    style={{ borderCurve: 'continuous' }}>
-                    <Text className={`text-sm ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
-                      {list.name}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
+            {lists.map((list) => (
+              <ToggleChip
+                key={list.id}
+                label={list.name}
+                selected={list.id === listId}
+                onPress={() => setListId(list.id)}
+              />
+            ))}
           </View>
         </Field>
       ) : null}
@@ -155,57 +156,77 @@ export function TaskForm({
         <MarkdownEditor
           value={markdown}
           onChangeText={setMarkdown}
-          placeholder="Add details…  (# heading, **bold**, - list)"
+          placeholder="Add details… (# heading, **bold**, - list)"
           placeholderTextColor={textColor as string}
+          minHeight={120}
         />
       </Field>
 
       {showTags ? (
         <Field label="Tags" icon="tag-multiple-outline">
-          <Pressable accessibilityRole="button" accessibilityLabel="Choose tags" onPress={pickTags} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-            <View
-              className="bg-sf-bg-2 flex-row items-center justify-between rounded-xl px-3 py-3"
-              style={{ borderCurve: 'continuous' }}>
-              {tags.length > 0 ? (
-                <View className="flex-1 flex-row flex-wrap gap-2">
-                  {tags.map((tag) => (
-                    <View
-                      key={tag}
-                      className="bg-sf-bg-3 flex-row items-center gap-1 rounded-full px-3 py-1"
-                      style={{ borderCurve: 'continuous' }}>
-                      <MaterialCommunityIcons name="tag-outline" size={13} color={textColor as string} />
-                      <Text className="text-sf-text-2 text-sm">{tag}</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <Text className="text-sf-text-2 text-base">Add tags</Text>
-              )}
-              <MaterialCommunityIcons name="chevron-right" size={20} color={textColor as string} />
-            </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Choose tags"
+            onPress={pickTags}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+            <SheetFieldCard>
+              <View className="flex-row items-center justify-between" style={{ minHeight: 40 }}>
+                {tags.length > 0 ? (
+                  <View className="flex-1 flex-row flex-wrap gap-2">
+                    {tags.map((tag) => (
+                      <View
+                        key={tag}
+                        className="flex-row items-center gap-1 rounded-full px-3 py-1"
+                        style={{
+                          backgroundColor: colors.bg3,
+                          borderCurve: 'continuous',
+                        }}>
+                        <MaterialCommunityIcons
+                          name="tag-outline"
+                          size={13}
+                          color={textColor as string}
+                        />
+                        <Text className="text-sf-text-2 text-sm">{tag}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text className="text-sf-text-2 text-base">Add tags</Text>
+                )}
+                <MaterialCommunityIcons name="chevron-right" size={20} color={textColor as string} />
+              </View>
+            </SheetFieldCard>
           </Pressable>
         </Field>
       ) : null}
 
-      <View className="bg-sf-bg-2 gap-3 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
+      {/* Due / Reminder card — Paisa SheetFieldCard row pattern */}
+      <SheetFieldCard>
         <DateField label="Due date" iconName="calendar" value={dueAt} onChange={setDueAt} />
         {showReminder ? (
           <>
-            <View className="bg-sf-separator h-px" />
-            <DateField label="Reminder" iconName="bell-outline" value={reminderAt} onChange={setReminderAt} />
+            <View style={{ height: 1, backgroundColor: colors.separator, marginVertical: 4 }} />
+            <DateField
+              label="Reminder"
+              iconName="bell-outline"
+              value={reminderAt}
+              onChange={setReminderAt}
+            />
           </>
         ) : null}
-      </View>
+      </SheetFieldCard>
 
       {showCalendar && hasSchedule ? (
         <Field label="Add to calendar" icon="calendar-plus">
-          <View className="bg-sf-bg-2 rounded-xl" style={{ borderCurve: 'continuous' }}>
+          <SheetFieldCard padded={false}>
             <Pressable
               onPress={() => setShowCalendarList((prev) => !prev)}
               accessibilityRole="button"
               accessibilityState={{ expanded: showCalendarList }}
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-              <View className="flex-row items-center justify-between px-3 py-3">
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+              <View
+                className="flex-row items-center justify-between px-4 py-3"
+                style={{ minHeight: 52 }}>
                 <View className="flex-row items-center gap-3">
                   <MaterialCommunityIcons name="calendar-plus" size={20} color={colors.accent} />
                   <Text className="text-sf-text text-base">
@@ -221,7 +242,7 @@ export function TaskForm({
             </Pressable>
 
             {showCalendarList ? (
-              <View className="border-sf-separator border-t">
+              <View style={{ borderTopWidth: 1, borderTopColor: colors.separator }}>
                 <CalendarRow
                   title="Don't add to calendar"
                   selected={calendarId == null}
@@ -232,7 +253,7 @@ export function TaskForm({
                   }}
                 />
                 {calendarsQuery.isLoading ? (
-                  <Text className="text-sf-text-2 px-3 py-3 text-sm">Loading calendars…</Text>
+                  <Text className="text-sf-text-2 px-4 py-3 text-sm">Loading calendars…</Text>
                 ) : null}
                 {calendars.map((calendar) => (
                   <CalendarRow
@@ -247,53 +268,70 @@ export function TaskForm({
                   />
                 ))}
                 {!calendarsQuery.isLoading && calendars.length === 0 ? (
-                  <Text className="text-sf-text-2 px-3 py-3 text-sm">
+                  <Text className="text-sf-text-2 px-4 py-3 text-sm">
                     No writable calendars found.
                   </Text>
                 ) : null}
               </View>
             ) : null}
-          </View>
+          </SheetFieldCard>
         </Field>
       ) : null}
 
       {showPriority ? (
         <Field label="Priority" icon="flag-outline">
-          <SegmentedControl
-            values={PRIORITIES.map((option) => option.label)}
-            selectedIndex={Math.max(
-              0,
-              PRIORITIES.findIndex((option) => option.value === priority)
-            )}
-            tintColor={colors.accent}
-            onChange={(event) =>
-              setPriority(PRIORITIES[event.nativeEvent.selectedSegmentIndex]?.value ?? null)
-            }
+          <SegmentedChoice
+            options={PRIORITIES}
+            value={priority}
+            onChange={setPriority}
           />
         </Field>
       ) : null}
 
-      <Pressable
-        onPress={submit}
-        disabled={!canSubmit}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !canSubmit }}
-        style={({ pressed }) => ({ opacity: !canSubmit ? 0.4 : pressed ? 0.8 : 1 })}>
-        <View
-          className="bg-sf-blue items-center rounded-xl py-3.5"
-          style={{ borderCurve: 'continuous' }}>
-          <Text className="text-sf-on-accent text-base font-semibold">{submitLabel}</Text>
-        </View>
-      </Pressable>
+      <View style={{ paddingTop: 8 }}>
+        <Button
+          label={submitLabel}
+          onPress={submit}
+          disabled={!canSubmit}
+          loading={submitting}
+          minHeight={52}
+        />
+      </View>
 
       {onDelete ? (
-        <Pressable accessibilityRole="button" onPress={onDelete} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-          <View className="flex-row items-center justify-center gap-2 py-2">
-            <MaterialCommunityIcons name="trash-can-outline" size={18} color={red as string} />
-            <Text className="text-sf-red text-base">Delete task</Text>
-          </View>
-        </Pressable>
+        <Button
+          variant="danger"
+          label="Delete"
+          icon="trash-can-outline"
+          onPress={onDelete}
+          accessibilityLabel="Delete"
+          minHeight={52}
+        />
       ) : null}
+    </View>
+  );
+}
+
+/** Paisa-style surfaceContainerLow card with extra-large corners. */
+function SheetFieldCard({
+  children,
+  padded = true,
+}: {
+  children: React.ReactNode;
+  padded?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        backgroundColor: colors.bg3,
+        borderRadius: 20,
+        borderCurve: 'continuous',
+        paddingHorizontal: padded ? 16 : 0,
+        paddingVertical: padded ? 12 : 0,
+        overflow: 'hidden',
+      }}>
+      {children}
     </View>
   );
 }
@@ -315,8 +353,8 @@ function CalendarRow({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-      <View className="flex-row items-center justify-between px-3 py-3">
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+      <View className="flex-row items-center justify-between px-4 py-3" style={{ minHeight: 48 }}>
         <View className="flex-row items-center gap-3">
           <View
             style={{
@@ -349,8 +387,17 @@ function Field({
   return (
     <View className="gap-2">
       <View className="flex-row items-center gap-1.5 px-1">
-        {icon ? <MaterialCommunityIcons name={icon} size={14} color={colors.text2} /> : null}
-        <Text className="text-sf-text-2 text-xs font-semibold uppercase">{label}</Text>
+        {icon ? <MaterialCommunityIcons name={icon} size={14} color={colors.accent} /> : null}
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: '600',
+            color: colors.accent,
+            letterSpacing: 0.3,
+            textTransform: 'uppercase',
+          }}>
+          {label}
+        </Text>
       </View>
       {children}
     </View>
