@@ -9,6 +9,8 @@
  * `useCSSVariable('--sf-*')` read gets a guaranteed-visible value.
  */
 
+import { paletteById, type ColorPalette } from '@/lib/palettes';
+
 export type SchemeName = 'light' | 'dark';
 
 export interface ThemeColors {
@@ -41,6 +43,12 @@ export interface ThemeColors {
   selectionBg: string;
   /** Content color on top of `selectionBg`. */
   onSelectionBg: string;
+  /** Alias for error/danger actions (same as red). */
+  danger: string;
+  /** Soft surface used behind circular settings icons (M3 primaryContainer). */
+  primaryContainer: string;
+  /** Content on primaryContainer. */
+  onPrimaryContainer: string;
 }
 
 // Apple system colors (resolved values, not platformColor) so they render
@@ -65,6 +73,9 @@ const APPLE_LIGHT: ThemeColors = {
   onAccent: '#FFFFFF',
   selectionBg: '#E5E5EA',
   onSelectionBg: '#007AFF',
+  danger: '#FF3B30',
+  primaryContainer: '#D6E4FF',
+  onPrimaryContainer: '#003A8C',
 };
 
 const APPLE_DARK: ThemeColors = {
@@ -87,27 +98,120 @@ const APPLE_DARK: ThemeColors = {
   onAccent: '#FFFFFF',
   selectionBg: '#3A3A3C',
   onSelectionBg: '#0A84FF',
+  danger: '#FF453A',
+  primaryContainer: '#003A8C',
+  onPrimaryContainer: '#D6E4FF',
 };
 
-export function appleColors(scheme: SchemeName, accent?: string | null): ThemeColors {
+function withAccent(base: ThemeColors, accent?: string | null): ThemeColors {
+  if (!accent) return base;
+  const dark = base.bg === APPLE_DARK.bg || base.bg === '#000000';
+  return {
+    ...base,
+    accent,
+    onSelectionBg: accent,
+    // Soft tint of the surface — mostly bg, a little accent (M3 primaryContainer).
+    primaryContainer: mixHex(base.bg, accent, dark ? 0.22 : 0.14),
+    onPrimaryContainer: dark
+      ? mixHex(accent, '#FFFFFF', 0.28)
+      : mixHex(accent, '#000000', 0.42),
+    selectionBg: mixHex(base.bg2, accent, dark ? 0.26 : 0.14),
+  };
+}
+
+export function appleColors(
+  scheme: SchemeName,
+  accent?: string | null,
+  paletteId?: string | null
+): ThemeColors {
+  const palette = paletteById(paletteId);
+  if (palette) {
+    return colorsFromPalette(palette, scheme);
+  }
   const base = scheme === 'dark' ? APPLE_DARK : APPLE_LIGHT;
-  // The selected-tab content tint follows the active accent on iOS.
-  return accent ? { ...base, accent, onSelectionBg: accent } : base;
+  return withAccent(base, accent);
+}
+
+/** Build ThemeColors from a fixed curated palette (Paisa-style). */
+export function colorsFromPalette(palette: ColorPalette, scheme: SchemeName): ThemeColors {
+  const dark = scheme === 'dark';
+  const accent = dark ? palette.primaryDark : palette.primaryLight;
+  const bg = dark ? palette.backgroundDark : palette.backgroundLight;
+  const bg2 = dark ? palette.surfaceDark : palette.surfaceLight;
+  const bg3 = dark ? palette.elevatedDark : palette.elevatedLight;
+  const text = dark ? '#E6E1E5' : '#1C1B1F';
+  const text2 = dark ? '#CAC4D0' : '#49454F';
+  // Containers stay mostly surface-colored with a light accent wash so
+  // picking Forest/Ocean/etc. tints chrome instead of flooding it solid green/blue.
+  const primaryContainer = mixHex(bg, accent, dark ? 0.22 : 0.14);
+  const selectionBg = mixHex(bg2, accent, dark ? 0.26 : 0.14);
+  return {
+    accent,
+    green: dark ? '#7FD98C' : '#2E7D32',
+    red: dark ? '#FFB4AB' : '#BA1A1A',
+    orange: dark ? '#FFB95C' : '#E8730C',
+    yellow: dark ? '#FFE066' : '#C9A200',
+    purple: dark ? '#D0BCFF' : '#6750A4',
+    gray: dark ? '#938F99' : '#79747E',
+    gray2: dark ? '#49454F' : '#CAC4D0',
+    gray3: dark ? '#2B2930' : '#E7E0EC',
+    text,
+    text2,
+    text3: dark ? '#938F99' : '#79747E',
+    bg,
+    bg2,
+    bg3,
+    separator: dark ? 'rgba(147,143,153,0.4)' : 'rgba(121,116,126,0.35)',
+    onAccent: isLightColor(accent) ? '#1C1B1F' : '#FFFFFF',
+    selectionBg,
+    onSelectionBg: accent,
+    danger: dark ? '#FFB4AB' : '#BA1A1A',
+    primaryContainer,
+    onPrimaryContainer: dark
+      ? mixHex(accent, '#FFFFFF', 0.28)
+      : mixHex(accent, '#000000', 0.42),
+  };
 }
 
 /**
- * Push the dark-mode surfaces to true black for AMOLED displays. The accent,
- * text, and semantic colors are left untouched so the dynamic palette still
- * reads correctly; only the background stack and separator collapse toward
- * #000 with a hair of separation between layers so cards stay legible.
+ * Pure-black AMOLED surfaces (mirrors Paisa `toAmoled`). Floors base surfaces
+ * to black while keeping subtle step elevation so cards stay legible.
  */
 export function pureBlackColors(c: ThemeColors): ThemeColors {
+  const bg = '#000000';
+  const bg2 = '#0D0D0D';
+  const bg3 = '#1A1A1A';
   return {
     ...c,
-    bg: '#000000',
-    bg2: '#0B0B0D',
-    bg3: '#161618',
-    separator: 'rgba(120,120,128,0.30)',
+    bg,
+    bg2,
+    bg3,
+    separator: 'rgba(120,120,128,0.28)',
+    // Re-tint containers from pure black so they don't keep a muddy palette wash.
+    primaryContainer: mixHex(bg, c.accent, 0.2),
+    selectionBg: mixHex(bg2, c.accent, 0.24),
+  };
+}
+
+/**
+ * Stronger text / outline contrast for accessibility (Paisa high-contrast mode).
+ */
+export function highContrastColors(c: ThemeColors, scheme: SchemeName): ThemeColors {
+  if (scheme === 'dark') {
+    return {
+      ...c,
+      text: '#FFFFFF',
+      text2: '#E8E0EC',
+      text3: '#D0C4D8',
+      separator: 'rgba(208,196,216,0.5)',
+    };
+  }
+  return {
+    ...c,
+    text: '#000000',
+    text2: '#2C2C2C',
+    text3: '#424242',
+    separator: 'rgba(66,66,66,0.45)',
   };
 }
 
@@ -121,6 +225,8 @@ export interface MaterialPalette {
   onPrimary: string;
   error: string;
   tertiary: string;
+  primaryContainer?: string;
+  onPrimaryContainer?: string;
   /** Wallpaper-derived tint used for the navigation-bar selected pill. */
   secondaryContainer: string;
   onSecondaryContainer: string;
@@ -159,6 +265,9 @@ export function materialColors(m: MaterialPalette, scheme: SchemeName): ThemeCol
     onAccent: m.onPrimary,
     selectionBg: m.secondaryContainer,
     onSelectionBg: m.onSecondaryContainer,
+    danger: m.error,
+    primaryContainer: m.primaryContainer ?? mixHex(m.primary, m.background, 0.18),
+    onPrimaryContainer: m.onPrimaryContainer ?? m.onSecondaryContainer,
   };
 }
 
@@ -198,4 +307,40 @@ export function themeVariables(c: ThemeColors): Record<`--${string}`, string> {
     out[`--color-${key}`] = value;
   }
   return out;
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────
+
+function parseHex(hex: string): [number, number, number] | null {
+  const raw = hex.replace('#', '').slice(0, 6);
+  if (raw.length !== 6) return null;
+  const n = Number.parseInt(raw, 16);
+  if (Number.isNaN(n)) return null;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function toHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${[clamp(r), clamp(g), clamp(b)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Mix `a` toward `b` by `amount` (0 = a, 1 = b). */
+function mixHex(a: string, b: string, amount: number): string {
+  const pa = parseHex(a);
+  const pb = parseHex(b);
+  if (!pa || !pb) return a;
+  const t = Math.max(0, Math.min(1, amount));
+  return toHex(
+    pa[0] + (pb[0] - pa[0]) * t,
+    pa[1] + (pb[1] - pa[1]) * t,
+    pa[2] + (pb[2] - pa[2]) * t
+  );
+}
+
+function isLightColor(hex: string): boolean {
+  const p = parseHex(hex);
+  if (!p) return false;
+  // Relative luminance approximation
+  const l = (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / 255;
+  return l > 0.65;
 }

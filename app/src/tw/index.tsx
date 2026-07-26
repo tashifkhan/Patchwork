@@ -40,11 +40,25 @@ export type ViewProps = React.ComponentProps<typeof RNView> & {
   className?: string;
 };
 
+/** Drop bg-sf-* tokens from className once we inject them via style (CSS vars are unreliable). */
+function classNameWithoutSemanticBg(className: string | undefined): string | undefined {
+  if (!className) return className;
+  const next = className
+    .split(/\s+/)
+    .filter((name) => name.length > 0 && !name.startsWith('bg-sf-'))
+    .join(' ');
+  return next.length > 0 ? next : undefined;
+}
+
 export const View = (props: ViewProps) => {
   const { colors } = React.useContext(ThemeContext);
   const backgroundColor = semanticBackgroundColor(props.className, colors);
   const nextProps = backgroundColor
-    ? { ...props, style: [props.style, { backgroundColor }] }
+    ? {
+        ...props,
+        className: classNameWithoutSemanticBg(props.className),
+        style: [props.style, { backgroundColor }],
+      }
     : props;
   return useCssElement(RNView, nextProps, { className: "style" });
 };
@@ -133,6 +147,7 @@ export const Text = (
   const nextProps = color ? { ...props, style: [props.style, { color }] } : props;
   return useCssElement(BaseText, nextProps, { className: "style" });
 };
+Text.displayName = "CSS(Text)";
 
 const BaseTextInput = React.forwardRef<RNTextInput, React.ComponentProps<typeof RNTextInput>>((props, ref) => {
   return <RNTextInput {...props} style={fixStyle(props.style)} ref={ref} />;
@@ -149,12 +164,20 @@ export const TextInput = (
     ...(color ? { color } : null),
     ...(backgroundColor ? { backgroundColor } : null),
   };
-  const nextProps = color || backgroundColor
-    ? { ...props, style: [props.style, semanticStyle] }
-    : props;
+  const nextProps =
+    color || backgroundColor
+      ? {
+          ...props,
+          // Avoid CSS var resolution fighting the JS theme tokens.
+          className: backgroundColor
+            ? classNameWithoutSemanticBg(props.className)
+            : props.className,
+          style: [props.style, semanticStyle],
+        }
+      : props;
   return useCssElement(BaseTextInput, nextProps, { className: "style" });
 };
-Text.displayName = "CSS(Text)";
+TextInput.displayName = "CSS(TextInput)";
 
 export const ScrollView = (
   props: React.ComponentProps<typeof RNScrollView> & {
@@ -162,8 +185,18 @@ export const ScrollView = (
     contentContainerClassName?: string;
   }
 ) => {
+  const { colors } = React.useContext(ThemeContext);
+  // Same JS color injection as View — CSS bg-sf-* vars do not resolve reliably.
+  const backgroundColor = semanticBackgroundColor(props.className, colors);
+  const nextProps = backgroundColor
+    ? {
+        ...props,
+        className: classNameWithoutSemanticBg(props.className),
+        style: [props.style, { backgroundColor }],
+      }
+    : props;
   // @ts-expect-error react-native-css generic inference is excessively deep here
-  return useCssElement(RNScrollView, props, {
+  return useCssElement(RNScrollView, nextProps, {
     className: "style",
     contentContainerClassName: "contentContainerStyle",
   });
@@ -173,7 +206,16 @@ ScrollView.displayName = "CSS(ScrollView)";
 export const Pressable = (
   props: React.ComponentProps<typeof RNPressable> & { className?: string }
 ) => {
-  return useCssElement(RNPressable, props, { className: "style" });
+  const { colors } = React.useContext(ThemeContext);
+  const backgroundColor = semanticBackgroundColor(props.className, colors);
+  const nextProps = backgroundColor
+    ? {
+        ...props,
+        className: classNameWithoutSemanticBg(props.className),
+        style: [props.style, { backgroundColor }],
+      }
+    : props;
+  return useCssElement(RNPressable, nextProps, { className: "style" });
 };
 Pressable.displayName = "CSS(Pressable)";
 
@@ -184,8 +226,17 @@ export const AnimatedScrollView = (
     contentContainerClassName?: string;
   }
 ) => {
+  const { colors } = React.useContext(ThemeContext);
+  const backgroundColor = semanticBackgroundColor(props.className, colors);
+  const nextProps = backgroundColor
+    ? {
+        ...props,
+        className: classNameWithoutSemanticBg(props.className),
+        style: [props.style, { backgroundColor }],
+      }
+    : props;
   // @ts-expect-error react-native-css generic inference is excessively deep here
-  return useCssElement(Animated.ScrollView, props, {
+  return useCssElement(Animated.ScrollView, nextProps, {
     className: "style",
     contentClassName: "contentContainerStyle",
     contentContainerClassName: "contentContainerStyle",
