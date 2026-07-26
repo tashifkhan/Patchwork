@@ -108,9 +108,9 @@ The app focuses heavily on user personalization, particularly via the settings i
 * [ ] Analytical summary dashboard.
 
 ### Third-Party Connectors (GitHub, Slack, Jira)
-* [x] GitHub settings panel with public repository mode.
-* [x] GitHub private account mode with OAuth or Personal Access Token.
-* [x] GitHub issues in task lists.
+* [x] Native GitHub App device flow with on-device SecureStore credentials.
+* [x] Validated anonymous public repositories and virtualized authenticated repository selection.
+* [x] Paginated GitHub issues, independent issue details, partial-sync warnings, and close/reopen actions.
 * [ ] Slack and Jira UI integration panels inside settings.
 * [ ] Synced list tabs.
 * [ ] Two-way update actions for all connected providers.

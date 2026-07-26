@@ -82,11 +82,11 @@ The following checklists highlight what has been completed, what is in progress,
 * [ ] Complete UI forms for managing columns/stacks and cards directly.
 
 ### 3. GitHub Issues Integration
-* [x] Fetch issues from public GitHub repositories without login.
-* [x] Support private repositories through OAuth device flow or Personal Access Token.
-* [x] Render GitHub issues in the task list.
-* [x] Support closing/reopening authenticated private issues from the app.
-* [ ] Implement backend proxy router and service wrappers for the GitHub REST API.
+* [x] Fetch and validate public GitHub repositories without login.
+* [x] Connect the native Expo app through GitHub App device flow or a fine-grained Personal Access Token.
+* [x] Store GitHub credentials locally with Expo SecureStore; GitHub traffic does not pass through the proxy.
+* [x] Paginate and render GitHub issues with partial-sync and rate-limit warnings.
+* [x] Support independently loadable issue details and permission-aware close/reopen actions.
 
 ### 4. Slack List and Reminders Integration
 * [ ] Implement backend proxy service connecting to Slack Web API and Slack Lists.
