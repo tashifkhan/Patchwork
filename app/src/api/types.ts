@@ -230,6 +230,7 @@ export interface GitHubUser {
 export interface GitHubIssue {
   id: number;
   number: number;
+  repositoryId: number | null;
   repo: string;
   title: string;
   body: string;
@@ -241,7 +242,8 @@ export interface GitHubIssue {
   html_url: string;
   completed: boolean;
   source: 'github';
-  readOnly?: boolean;
+  canWrite: boolean;
+  readOnly: boolean;
 }
 
 export interface GitHubIssueUpdate {
@@ -252,9 +254,14 @@ export interface GitHubIssueUpdate {
 }
 
 export interface GitHubRepo {
+  id: number;
   full_name: string;
   description: string | null;
   html_url: string;
   private: boolean;
+  visibility: 'public' | 'private' | 'internal';
+  archived: boolean;
+  has_issues: boolean;
+  canWriteIssues: boolean;
   owner: GitHubUser;
 }
