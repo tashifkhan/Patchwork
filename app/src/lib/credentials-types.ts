@@ -27,13 +27,5 @@ export interface CalDavAccount {
 export type NextcloudCredentials = Pick<CalDavAccount, 'baseUrl' | 'username' | 'appPassword'>;
 
 /** GitHub authentication credentials stored in secure storage. */
-export interface GitHubCredentials {
-  /** Authentication method used. */
-  method: 'oauth' | 'pat';
-  /** OAuth access token or Personal Access Token. */
-  token: string;
-  /** GitHub username (fetched after auth). */
-  login: string;
-  /** Avatar URL. */
-  avatarUrl: string;
-}
+export type GitHubCredentials =
+  import('@/features/github/types').GitHubCredentialsV2;

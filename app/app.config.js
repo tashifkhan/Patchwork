@@ -29,6 +29,7 @@ module.exports = ({ config }) => {
       'expo-background-task',
       'expo-font',
       'expo-image',
+      'expo-secure-store',
       [
         'react-native-android-widget',
         {

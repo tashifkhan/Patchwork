@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import type { AiProviderId } from './ai-models';
+import { aiCredentialId, type AiProviderId } from './ai-models';
 import type { CalDavAccount, GitHubCredentials } from './credentials-types';
 import { assertSafeAccountUrl, normalizeServiceUrl } from './secure-url';
 
@@ -14,15 +14,18 @@ export type {
 const KEYS = {
   accounts: 'patchwork.accounts',
   geminiApiKey: 'patchwork.gemini.api-key',
-  github: 'patchwork.github.credentials',
+  github: 'patchwork.github.credentials.v2',
+  legacyGithub: 'patchwork.github.credentials',
   // Legacy single-account keys (migrated on first read).
   legacyBaseUrl: 'patchwork.nextcloud.base-url',
   legacyUsername: 'patchwork.nextcloud.username',
   legacyAppPassword: 'patchwork.nextcloud.app-password',
 };
 
+// Aliased so providers sharing one upstream credential (OpenCode Zen / Go)
+// read and write the same keychain entry.
 function aiKeyName(providerId: AiProviderId) {
-  return `patchwork.ai.${providerId}.api-key`;
+  return `patchwork.ai.${aiCredentialId(providerId)}.api-key`;
 }
 
 // Keep secrets on this device only — do not include in iCloud/Android backup sync of keychain items.
@@ -173,18 +176,84 @@ export async function clearAiApiKey(providerId: AiProviderId): Promise<void> {
 
 export async function getGitHubCredentials(): Promise<GitHubCredentials | null> {
   const raw = await SecureStore.getItemAsync(KEYS.github, OPTIONS);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      return isGitHubCredentials(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return migrateLegacyGitHubCredentials();
+}
+
+export async function saveGitHubCredentials(creds: GitHubCredentials): Promise<void> {
+  if (!isGitHubCredentials(creds)) throw new Error('Invalid GitHub credentials.');
+  await SecureStore.setItemAsync(KEYS.github, JSON.stringify(creds), OPTIONS);
+}
+
+export async function clearGitHubCredentials(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(KEYS.github, OPTIONS),
+    SecureStore.deleteItemAsync(KEYS.legacyGithub, OPTIONS),
+  ]);
+}
+
+async function migrateLegacyGitHubCredentials(): Promise<GitHubCredentials | null> {
+  const raw = await SecureStore.getItemAsync(KEYS.legacyGithub, OPTIONS);
   if (!raw) return null;
+
   try {
-    return JSON.parse(raw) as GitHubCredentials;
+    const legacy = JSON.parse(raw) as {
+      method?: unknown;
+      token?: unknown;
+      login?: unknown;
+      avatarUrl?: unknown;
+    };
+    if (
+      (legacy.method !== 'oauth' && legacy.method !== 'pat') ||
+      typeof legacy.token !== 'string' ||
+      !legacy.token ||
+      typeof legacy.login !== 'string' ||
+      typeof legacy.avatarUrl !== 'string'
+    ) {
+      return null;
+    }
+
+    const migrated: GitHubCredentials = {
+      schemaVersion: 2,
+      authKind: legacy.method === 'pat' ? 'fine-grained-pat' : 'legacy-oauth',
+      accessToken: legacy.token,
+      account: {
+        id: 0,
+        login: legacy.login,
+        avatarUrl: legacy.avatarUrl,
+      },
+      validatedAt: new Date(0).toISOString(),
+    };
+    await saveGitHubCredentials(migrated);
+    await SecureStore.deleteItemAsync(KEYS.legacyGithub, OPTIONS);
+    return migrated;
   } catch {
     return null;
   }
 }
 
-export async function saveGitHubCredentials(creds: GitHubCredentials): Promise<void> {
-  await SecureStore.setItemAsync(KEYS.github, JSON.stringify(creds), OPTIONS);
-}
-
-export async function clearGitHubCredentials(): Promise<void> {
-  await SecureStore.deleteItemAsync(KEYS.github, OPTIONS);
+function isGitHubCredentials(value: unknown): value is GitHubCredentials {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<GitHubCredentials>;
+  return (
+    candidate.schemaVersion === 2 &&
+    (candidate.authKind === 'github-app' ||
+      candidate.authKind === 'fine-grained-pat' ||
+      candidate.authKind === 'legacy-oauth') &&
+    typeof candidate.accessToken === 'string' &&
+    candidate.accessToken.length > 0 &&
+    !!candidate.account &&
+    typeof candidate.account.id === 'number' &&
+    typeof candidate.account.login === 'string' &&
+    typeof candidate.account.avatarUrl === 'string' &&
+    typeof candidate.validatedAt === 'string'
+  );
 }
