@@ -17,7 +17,7 @@ const ICON = 22;
  * Material 3–style outlined circle. Uses neutral on-surface colors only —
  * never the accent tint — so it reads as chrome, not a primary action.
  */
-export function headerBackButtonLeft({
+export function HeaderBackButtonLeft({
   canGoBack,
 }: {
   canGoBack?: boolean;

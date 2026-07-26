@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import { headerBackButtonLeft } from '@/components/ui/header-back-button';
+import { HeaderBackButtonLeft } from '@/components/ui/header-back-button';
 import type { ThemeColors } from '@/lib/theme';
 
 // Shared native stack header options. Large titles everywhere; a solid (themed)
@@ -20,7 +20,7 @@ export const stackScreenOptions = {
  * back to the system default white background.
  *
  * On Android the bare toolbar navigation icon is replaced with a circular
- * Material icon button (`headerBackButtonLeft`) so every stack back control
+ * Material icon button (`HeaderBackButtonLeft`) so every stack back control
  * matches the rest of the circular chrome.
  */
 export function themedStackScreenOptions(colors: ThemeColors) {
@@ -35,7 +35,7 @@ export function themedStackScreenOptions(colors: ThemeColors) {
       ? {
           // Hide the native up-arrow so only the circular headerLeft renders.
           headerBackVisible: false as const,
-          headerLeft: headerBackButtonLeft,
+          headerLeft: HeaderBackButtonLeft,
         }
       : null),
   };

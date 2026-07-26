@@ -7,7 +7,7 @@ import type { ColorValue } from 'react-native';
  * iOS keeps the system chevron; this stub is only imported when Platform.OS is
  * not android, and should never render into a header.
  */
-export function headerBackButtonLeft(_props: {
+export function HeaderBackButtonLeft(_props: {
   canGoBack?: boolean;
   tintColor?: ColorValue;
   label?: string;
