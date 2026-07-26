@@ -53,7 +53,22 @@ export const BUILTIN_PROVIDER_IDS = [
   'openrouter',
   'nvidia',
   'opencode',
+  'opencode-go',
 ] as const;
+
+/**
+ * Providers that authenticate with the same upstream credential. The key is
+ * stored once under the target id, so pasting an OpenCode key on either screen
+ * configures both.
+ */
+export const AI_KEY_ALIASES: Record<string, string> = {
+  'opencode-go': 'opencode',
+};
+
+/** Keychain slot a provider's API key lives in. */
+export function aiCredentialId(providerId: AiProviderId): AiProviderId {
+  return AI_KEY_ALIASES[providerId] ?? providerId;
+}
 
 const BUILTIN_PROVIDER_META: Record<(typeof BUILTIN_PROVIDER_IDS)[number], Omit<AiProviderInfo, 'models'>> = {
   openai: { id: 'openai', name: 'OpenAI', kind: 'openai', env: 'OPENAI_API_KEY', docs: 'https://platform.openai.com/docs' },
@@ -62,7 +77,8 @@ const BUILTIN_PROVIDER_META: Record<(typeof BUILTIN_PROVIDER_IDS)[number], Omit<
   deepseek: { id: 'deepseek', name: 'DeepSeek', kind: 'openai-compatible', env: 'DEEPSEEK_API_KEY', defaultBaseUrl: 'https://api.deepseek.com', docs: 'https://api-docs.deepseek.com' },
   openrouter: { id: 'openrouter', name: 'OpenRouter', kind: 'openai-compatible', env: 'OPENROUTER_API_KEY', defaultBaseUrl: 'https://openrouter.ai/api/v1', docs: 'https://openrouter.ai/docs' },
   nvidia: { id: 'nvidia', name: 'NVIDIA', kind: 'openai-compatible', env: 'NVIDIA_API_KEY', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', docs: 'https://docs.api.nvidia.com' },
-  opencode: { id: 'opencode', name: 'OpenCode Zen', kind: 'openai-compatible', env: 'OPENCODE_API_KEY', defaultBaseUrl: 'https://opencode.ai/zen/v1', docs: 'https://opencode.ai' },
+  opencode: { id: 'opencode', name: 'OpenCode Zen', kind: 'openai-compatible', env: 'OPENCODE_API_KEY', defaultBaseUrl: 'https://opencode.ai/zen/v1', docs: 'https://opencode.ai/docs/zen' },
+  'opencode-go': { id: 'opencode-go', name: 'OpenCode Go', kind: 'openai-compatible', env: 'OPENCODE_API_KEY', defaultBaseUrl: 'https://opencode.ai/zen/go/v1', docs: 'https://opencode.ai/docs/zen' },
 };
 
 export const AI_PROVIDERS: AiProviderInfo[] = BUILTIN_PROVIDER_IDS.map((id) => ({ ...BUILTIN_PROVIDER_META[id], models: [] }));
