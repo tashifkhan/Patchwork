@@ -3,14 +3,14 @@ import { type ComponentProps } from 'react';
 import { Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { haptics } from '@/lib/haptics';
 import { View } from '@/tw';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 /**
  * Material 3 floating action button, pinned bottom-right above the tab bar.
- * Cross-platform (vector icon), so it stays visible on Android where SF Symbols
- * do not render.
+ * Cross-platform (vector icon). Android uses Jetpack Compose FAB via fab.android.tsx.
  */
 export function Fab({
   onPress,
@@ -25,26 +25,31 @@ export function Fab({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        haptics.impact('medium');
+        onPress();
+      }}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      hitSlop={4}
       style={({ pressed }) => ({
         position: 'absolute',
         right: 16,
-        // The tab screen's content area already ends above the native tab bar,
-        // so a standard 16dp margin sits the FAB just above it.
         bottom: 16,
+        // 56dp M3 standard FAB size with extra hit area
+        width: 56,
+        height: 56,
         opacity: pressed ? 0.92 : 1,
         transform: [{ scale: pressed ? 0.96 : 1 }],
       })}>
       <View
-        className="h-16 w-16 items-center justify-center rounded-3xl"
+        className="h-14 w-14 items-center justify-center rounded-2xl"
         style={{
-          backgroundColor: colors.accent,
+          backgroundColor: colors.primaryContainer,
           borderCurve: 'continuous',
-          boxShadow: `0 6px 18px ${colors.accent}66`,
+          boxShadow: `0 6px 18px ${colors.accent}55`,
         }}>
-        <MaterialCommunityIcons name={icon} size={30} color={colors.onAccent} />
+        <MaterialCommunityIcons name={icon} size={28} color={colors.onPrimaryContainer} />
       </View>
     </Pressable>
   );

@@ -5,6 +5,11 @@ const path = require("node:path");
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
+// Android vector drawables (`assets/symbols/*.xml`) are loaded as assets so
+// `@expo/ui/jetpack-compose` `Icon` can render real Material Symbols inside
+// Compose slots (FAB, chips, buttons) instead of RN vector-icon glyphs.
+config.resolver.assetExts = [...new Set([...config.resolver.assetExts, 'xml'])];
+
 config.server = {
   ...config.server,
   enhanceMiddleware(middleware, metroServer) {

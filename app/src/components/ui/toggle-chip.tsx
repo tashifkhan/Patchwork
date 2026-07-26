@@ -18,10 +18,17 @@ export function ToggleChip({ label, selected, onPress, disabled }: ToggleChipPro
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => ({ opacity: pressed || disabled ? 0.6 : 1 })}>
+      accessibilityRole="button"
+      accessibilityState={{ selected, disabled }}
+      hitSlop={4}
+      style={({ pressed }) => ({
+        opacity: pressed || disabled ? 0.6 : 1,
+        minHeight: 40,
+        justifyContent: 'center',
+      })}>
       <View
-        className={`rounded-full px-3.5 py-1.5 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-3'}`}
-        style={{ borderCurve: 'continuous' }}>
+        className={`rounded-full px-4 py-2 ${selected ? 'bg-sf-blue' : 'bg-sf-bg-3'}`}
+        style={{ borderCurve: 'continuous', minHeight: 40, justifyContent: 'center' }}>
         <Text className={`text-sm font-medium ${selected ? 'text-sf-on-accent' : 'text-sf-text-2'}`}>
           {label}
         </Text>
