@@ -24,4 +24,8 @@ export const queryKeys = {
   deckBoard: (boardId: number) => ['deck', 'boards', boardId] as const,
   githubIssues: ['github', 'issues'] as const,
   githubRepos: ['github', 'repos'] as const,
+  githubIssue: (repo: string, issueNumber: number) =>
+    ['github', 'issue', repo, issueNumber] as const,
+  aiCatalog: ['ai', 'catalog'] as const,
+  aiKeys: ['ai', 'keys'] as const,
 };
