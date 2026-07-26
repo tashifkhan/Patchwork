@@ -1,424 +1,457 @@
 import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Modal, Pressable } from 'react-native';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
+import { Linking, Modal, Pressable } from 'react-native';
 
-import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
+import { RowSeparator, SettingsGroup, SettingsRow, SettingsScreen } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
-import { Icon } from '@/components/ui/icon';
+import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { Switch } from '@/components/ui/switch';
-import { useGitHubRepos } from '@/hooks/use-github';
+import { useGitHubConnection } from '@/hooks/use-github-connection';
+import { selectionFromRepo, useValidatePublicGitHubRepo } from '@/hooks/use-github';
+import { normalizeGitHubRepository } from '@/features/github/repository-ref';
+import type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
 import { queryKeys } from '@/lib/query-client';
-import {
-  clearGitHubCredentials,
-  getGitHubCredentials,
-  saveGitHubCredentials,
-  type GitHubCredentials,
-} from '@/lib/credentials';
-import {
-  isOAuthAvailable,
-  pollForAccessToken,
-  requestDeviceCode,
-  validatePat,
-} from '@/lib/github-auth';
+import { isOAuthAvailable } from '@/lib/github-auth';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, TextInput, View } from '@/tw';
+
+const SCOPE_OPTIONS: { id: GitHubIssueScope; label: string; hint: string }[] = [
+  { id: 'assigned', label: 'Assigned to me', hint: 'Issues where you are an assignee' },
+  { id: 'created', label: 'Created by me', hint: 'Issues you opened' },
+  { id: 'mentioned', label: 'Mentioned', hint: 'Issues that mention you' },
+  { id: 'all', label: 'All issues', hint: 'Every issue in selected repositories' },
+];
+
+const STATE_OPTIONS: { id: GitHubIssueState; label: string }[] = [
+  { id: 'open', label: 'Open' },
+  { id: 'closed', label: 'Closed' },
+  { id: 'all', label: 'All' },
+];
 
 export default function GitHubSettingsScreen() {
   const { colors, scheme } = useTheme();
   const queryClient = useQueryClient();
-  const githubRepos = useSettingsStore((s) => s.githubRepos);
-  const githubMode = useSettingsStore((s) => s.githubMode);
-  const setGitHubConnected = useSettingsStore((s) => s.setGitHubConnected);
-  const setGitHubMode = useSettingsStore((s) => s.setGitHubMode);
-  const setGitHubRepos = useSettingsStore((s) => s.setGitHubRepos);
+  const connection = useGitHubConnection();
+  const repositories = useSettingsStore((state) => state.githubRepositories);
+  const setRepositories = useSettingsStore((state) => state.setGitHubRepositories);
+  const issueScope = useSettingsStore((state) => state.githubIssueScope);
+  const issueState = useSettingsStore((state) => state.githubIssueState);
+  const setIssueScope = useSettingsStore((state) => state.setGitHubIssueScope);
+  const setIssueState = useSettingsStore((state) => state.setGitHubIssueState);
+  const validatePublicRepo = useValidatePublicGitHubRepo();
 
-  const reposQuery = useGitHubRepos();
-
-  const [creds, setCreds] = useState<GitHubCredentials | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [method, setMethod] = useState<'oauth' | 'pat'>(isOAuthAvailable() ? 'oauth' : 'pat');
   const [publicRepoInput, setPublicRepoInput] = useState('');
+  const [showPat, setShowPat] = useState(false);
   const [patInput, setPatInput] = useState('');
-  const [patLoading, setPatLoading] = useState(false);
-  const [deviceFlowState, setDeviceFlowState] = useState<{ userCode: string; url: string } | null>(
-    null
-  );
-  const oauthAbortRef = useRef<AbortController | null>(null);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
-    getGitHubCredentials().then((loaded) => {
-      if (!mounted) return;
-      setCreds(loaded);
-      if (loaded) {
-        setGitHubMode('private');
-        setGitHubConnected(true);
-      } else if (githubMode === 'public' && githubRepos.length > 0) {
-        setGitHubConnected(true);
-      } else {
-        setGitHubConnected(false);
+  const account =
+    connection.connection.status === 'connected' ||
+    connection.connection.status === 'refreshing'
+      ? connection.connection.credentials.account
+      : connection.connection.status === 'expired'
+        ? connection.connection.account
+        : undefined;
+  const isConnected = connection.connection.status === 'connected';
+
+  const addPublicRepository = async () => {
+    try {
+      const fullName = normalizeGitHubRepository(publicRepoInput);
+      if (
+        repositories.some(
+          (repository) => repository.fullName.toLowerCase() === fullName.toLowerCase()
+        )
+      ) {
+        setPublicRepoInput('');
+        return;
       }
-      setLoading(false);
-    });
-    return () => { mounted = false; };
-  }, [githubMode, githubRepos.length, setGitHubConnected, setGitHubMode]);
-
-  const handleDisconnect = async () => {
-    await clearGitHubCredentials();
-    setGitHubConnected(false);
-    setGitHubRepos([]);
-    setCreds(null);
-    queryClient.removeQueries({ queryKey: queryKeys.githubIssues });
-    queryClient.removeQueries({ queryKey: queryKeys.githubRepos });
-  };
-
-  const handleModeChange = (nextMode: 'public' | 'private') => {
-    setGitHubMode(nextMode);
-    setGitHubConnected(nextMode === 'public' ? githubRepos.length > 0 : !!creds);
-    queryClient.removeQueries({ queryKey: queryKeys.githubIssues });
-    queryClient.removeQueries({ queryKey: queryKeys.githubRepos });
-  };
-
-  const cancelOAuth = () => {
-    oauthAbortRef.current?.abort();
-    oauthAbortRef.current = null;
-    setDeviceFlowState(null);
-  };
-
-  const handleStartOAuth = async () => {
-    const controller = new AbortController();
-    oauthAbortRef.current = controller;
-    try {
-      const response = await requestDeviceCode();
-      if (controller.signal.aborted) return;
-      setDeviceFlowState({ userCode: response.user_code, url: response.verification_uri });
-      const token = await pollForAccessToken(
-        response.device_code,
-        response.interval,
-        controller.signal,
-        response.expires_in
-      );
-      const userCreds = await validatePat(token);
-      userCreds.method = 'oauth';
-      await saveGitHubCredentials(userCreds);
-      setCreds(userCreds);
-      setGitHubMode('private');
-      setGitHubConnected(true);
-      setDeviceFlowState(null);
-    } catch (e) {
-      setDeviceFlowState(null);
-      if (controller.signal.aborted) return;
-      setAlert({ title: 'OAuth Error', message: e instanceof Error ? e.message : 'Unknown error' });
-    } finally {
-      if (oauthAbortRef.current === controller) oauthAbortRef.current = null;
-    }
-  };
-
-  const handleSavePat = async () => {
-    setPatLoading(true);
-    try {
-      const userCreds = await validatePat(patInput);
-      await saveGitHubCredentials(userCreds);
-      setCreds(userCreds);
-      setGitHubMode('private');
-      setGitHubConnected(true);
-      setPatInput('');
-    } catch (e) {
+      const repo = await validatePublicRepo.mutateAsync({ fullName });
+      setRepositories([...repositories, selectionFromRepo(repo)]);
+      setPublicRepoInput('');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.githubRepos }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues }),
+      ]);
+    } catch (error) {
       setAlert({
-        title: 'Invalid Token',
-        message: e instanceof Error ? e.message : 'Failed to validate token.',
+        title: 'Could not add repository',
+        message: error instanceof Error ? error.message : 'Please check the repository name.',
       });
-    } finally {
-      setPatLoading(false);
     }
   };
 
-  const toggleRepo = (repoFullName: string) => {
-    const next = githubRepos.includes(repoFullName)
-      ? githubRepos.filter((r) => r !== repoFullName)
-      : [...githubRepos, repoFullName];
-    setGitHubRepos(next);
-    queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
-  };
-
-  const addPublicRepo = () => {
-    const repo = publicRepoInput.trim().replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '');
-    if (!/^[^\s/]+\/[^\s/]+$/.test(repo)) {
-      setAlert({ title: 'Invalid Repository', message: 'Enter a public repository as owner/repo.' });
-      return;
+  const savePat = async () => {
+    try {
+      await connection.connectPat(patInput);
+      setPatInput('');
+      setShowPat(false);
+    } catch {
+      // The connection hook exposes the actionable message through connectionError.
     }
-    if (!githubRepos.includes(repo)) {
-      setGitHubRepos([...githubRepos, repo]);
-    }
-    setGitHubMode('public');
-    setGitHubConnected(true);
-    setPublicRepoInput('');
-    queryClient.invalidateQueries({ queryKey: queryKeys.githubRepos });
-    queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
   };
 
-  const removePublicRepo = (repoFullName: string) => {
-    const next = githubRepos.filter((repo) => repo !== repoFullName);
-    setGitHubRepos(next);
-    setGitHubConnected(next.length > 0);
-    queryClient.invalidateQueries({ queryKey: queryKeys.githubRepos });
-    queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
-  };
-
-  if (loading) {
-    return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: colors.bg }}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    );
+  if (connection.connection.status === 'initializing') {
+    return <LoadingState message="Checking GitHub…" subtitle="Reading the connection from this device" />;
   }
 
   return (
     <>
       <SettingsScreen>
-        {creds || (githubMode === 'public' && githubRepos.length > 0) ? (
-          <>
-            <SettingsGroup>
-              <View className="items-center justify-center gap-3 py-6">
-                {creds ? (
-                  <Image
-                    source={{ uri: creds.avatarUrl }}
-                    className="h-20 w-20 rounded-full"
-                    style={{ backgroundColor: colors.bg2 }}
-                  />
-                ) : (
-                  <View className="h-20 w-20 rounded-full items-center justify-center" style={{ backgroundColor: colors.bg2 }}>
-                    <MaterialCommunityIcons name="github" size={40} color={colors.text2} />
-                  </View>
-                )}
-                <View className="items-center">
-                  <Text className="text-sf-text text-lg font-semibold">
-                    {creds ? `@${creds.login}` : 'Public GitHub Issues'}
-                  </Text>
-                  <Text className="text-sf-text-2 text-sm uppercase">
-                    {creds ? `Connected via ${creds.method}` : 'No login required'}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={handleDisconnect}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, backgroundColor: colors.danger })}>
-                  <Text style={{ color: '#fff', fontWeight: '600' }}>Disconnect</Text>
-                </Pressable>
-              </View>
-            </SettingsGroup>
+        <ConnectionSummary
+          account={account}
+          status={connection.connection.status}
+          authKind={
+            isConnected ? connection.connection.credentials.authKind : undefined
+          }
+          message={
+            connection.connection.status === 'expired' ||
+            connection.connection.status === 'error'
+              ? connection.connection.message
+              : undefined
+          }
+        />
 
-            <SettingsGroup title="Repositories to Sync">
-              {githubMode === 'public' ? (
-                <View className="px-4 py-4 gap-3">
-                  <Text className="text-sf-text-2 text-sm">
-                    Add public repositories as owner/repo. Public issues are read-only unless you connect a private GitHub account.
-                  </Text>
-                  <TextInput
-                    value={publicRepoInput}
-                    onChangeText={setPublicRepoInput}
-                    placeholder="owner/repo"
-                    placeholderTextColor={colors.gray}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    className="rounded-xl px-4 py-3 text-base text-sf-text"
-                    style={{ backgroundColor: colors.bg2 }}
-                  />
-                  <Pressable
-                    disabled={!publicRepoInput.trim()}
-                    onPress={addPublicRepo}
-                    style={({ pressed }) => ({ opacity: pressed || !publicRepoInput.trim() ? 0.6 : 1, backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 8, alignItems: 'center' })}>
-                    <Text style={{ color: '#fff', fontWeight: '600' }}>Add Public Repository</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-              {reposQuery.isLoading ? (
-                <View className="p-4 items-center">
-                  <ActivityIndicator color={colors.text2} />
-                </View>
-              ) : reposQuery.data && reposQuery.data.length > 0 ? (
-                reposQuery.data.map((repo, i) => (
-                  <View key={repo.full_name}>
-                    {i > 0 && <View className="h-px bg-sf-separator ml-4" />}
-                    <Pressable
-                      onPress={githubMode === 'public' ? undefined : () => toggleRepo(repo.full_name)}
-                      style={({ pressed }) => ({
-                        opacity: pressed ? 0.7 : 1,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: 16,
-                      })}>
-                      <View className="flex-1 gap-1 pr-4">
-                        <Text className="text-sf-text text-base">{repo.full_name}</Text>
-                        {repo.description ? (
-                          <Text numberOfLines={1} className="text-sf-text-2 text-sm">
-                            {repo.description}
-                          </Text>
-                        ) : null}
-                      </View>
-                      {githubMode === 'public' ? (
-                        <Pressable onPress={() => removePublicRepo(repo.full_name)} hitSlop={8}>
-                          <Text className="text-sf-red text-sm font-medium">Remove</Text>
-                        </Pressable>
-                      ) : (
-                        <Switch value={githubRepos.includes(repo.full_name)} onValueChange={() => toggleRepo(repo.full_name)} />
-                      )}
-                    </Pressable>
-                  </View>
-                ))
+        {!isConnected ? (
+          <SettingsGroup title="Connect">
+            <View className="gap-4 px-4 py-4">
+              <Text selectable className="text-sf-text-2 text-sm">
+                Connect a GitHub App to access repositories and close or reopen issues.
+                Credentials stay encrypted on this device.
+              </Text>
+              {isOAuthAvailable() ? (
+                <Button
+                  label={
+                    connection.deviceFlow ? 'Waiting for GitHub…' : 'Connect GitHub'
+                  }
+                  icon="github"
+                  disabled={!!connection.deviceFlow}
+                  onPress={connection.beginDeviceFlow}
+                />
               ) : (
-                <View className="p-4 items-center">
-                  <Text className="text-sf-text-2 text-sm">No repositories found.</Text>
+                <View
+                  className="gap-2 rounded-xl p-4"
+                  style={{ backgroundColor: `${colors.danger}18`, borderCurve: 'continuous' }}>
+                  <Text selectable style={{ color: colors.danger, fontWeight: '600' }}>
+                    GitHub App not configured
+                  </Text>
+                  <Text selectable className="text-sf-text-2 text-sm">
+                    Add EXPO_PUBLIC_GITHUB_CLIENT_ID to the native build, or use a
+                    fine-grained token below.
+                  </Text>
                 </View>
               )}
-            </SettingsGroup>
-          </>
-        ) : (
-          <>
-            <View className="px-4 py-2 pb-4">
-              <Text className="text-sf-text-2 text-sm text-center">
-                View and manage issues assigned to you directly in your tasks list.
-              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setShowPat((visible) => !visible)}
+                style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1, minHeight: 44, justifyContent: 'center' })}>
+                <Text className="text-sf-blue text-center text-sm font-semibold">
+                  {showPat ? 'Hide advanced token setup' : 'Advanced: use a fine-grained token'}
+                </Text>
+              </Pressable>
+              {showPat ? (
+                <View className="gap-3">
+                  <Text selectable className="text-sf-text-2 text-sm">
+                    Use a fine-grained token limited to the repositories you want, with
+                    Issues read and write permission.
+                  </Text>
+                  <TextInput
+                    value={patInput}
+                    onChangeText={setPatInput}
+                    placeholder="github_pat_…"
+                    placeholderTextColor={colors.gray}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    className="text-sf-text rounded-xl px-4 py-3.5 text-base"
+                    style={{ backgroundColor: colors.bg3, minHeight: 48 }}
+                  />
+                  <Button
+                    variant="tonal"
+                    label={connection.patPending ? 'Validating…' : 'Validate and save'}
+                    loading={connection.patPending}
+                    disabled={!patInput.trim() || connection.patPending}
+                    onPress={savePat}
+                  />
+                </View>
+              ) : null}
             </View>
+          </SettingsGroup>
+        ) : null}
 
-            <SettingsGroup>
-              <View className="px-4 py-4 gap-4">
+        <SettingsGroup title={`Repositories · ${repositories.length}`}>
+          <SettingsRow
+            icon="source-repository-multiple"
+            title="Manage repositories"
+            subtitle={
+              isConnected
+                ? 'Choose from repositories accessible to this GitHub account'
+                : 'Manage public repositories available without signing in'
+            }
+            showChevron
+            onPress={() => router.push('/settings/github-repositories')}
+          />
+          {!isConnected ? (
+            <>
+              <RowSeparator />
+              <View className="gap-3 px-4 py-4">
+                <Text selectable className="text-sf-text-2 text-sm">
+                  Public repositories work without an account and remain read-only.
+                </Text>
+                <TextInput
+                  value={publicRepoInput}
+                  onChangeText={setPublicRepoInput}
+                  placeholder="owner/repository or GitHub URL"
+                  placeholderTextColor={colors.gray}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  className="text-sf-text rounded-xl px-4 py-3.5 text-base"
+                  style={{ backgroundColor: colors.bg3, minHeight: 48 }}
+                  onSubmitEditing={addPublicRepository}
+                />
+                <Button
+                  variant="tonal"
+                  label={validatePublicRepo.isPending ? 'Checking…' : 'Add public repository'}
+                  loading={validatePublicRepo.isPending}
+                  disabled={!publicRepoInput.trim() || validatePublicRepo.isPending}
+                  onPress={addPublicRepository}
+                />
+              </View>
+            </>
+          ) : null}
+        </SettingsGroup>
+
+        {repositories.length > 0 ? (
+          <>
+            {isConnected ? (
+              <SettingsGroup title="Issue scope">
+                {SCOPE_OPTIONS.map((option, index) => (
+                  <View key={option.id}>
+                    {index > 0 ? <RowSeparator /> : null}
+                    <SettingsRow
+                      icon={
+                        option.id === 'assigned'
+                          ? 'account-check-outline'
+                          : option.id === 'created'
+                            ? 'pencil-outline'
+                            : option.id === 'mentioned'
+                              ? 'at'
+                              : 'format-list-bulleted'
+                      }
+                      title={option.label}
+                      subtitle={option.hint}
+                      selected={issueScope === option.id}
+                      onPress={() => {
+                        setIssueScope(option.id);
+                        queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
+                      }}
+                      trailing={
+                        issueScope === option.id ? (
+                          <MaterialCommunityIcons name="check" size={20} color={colors.accent} />
+                        ) : null
+                      }
+                    />
+                  </View>
+                ))}
+              </SettingsGroup>
+            ) : null}
+
+            <SettingsGroup title="Issue state">
+              <View className="px-4 py-4">
                 <SegmentedControl
                   appearance={scheme}
-                  values={['Public Repos', 'Private Account']}
-                  selectedIndex={githubMode === 'public' ? 0 : 1}
+                  values={STATE_OPTIONS.map((option) => option.label)}
+                  selectedIndex={Math.max(
+                    0,
+                    STATE_OPTIONS.findIndex((option) => option.id === issueState)
+                  )}
                   tintColor={colors.accent}
-                  onChange={(event) =>
-                    handleModeChange(event.nativeEvent.selectedSegmentIndex === 0 ? 'public' : 'private')
-                  }
+                  onChange={(event) => {
+                    const next =
+                      STATE_OPTIONS[event.nativeEvent.selectedSegmentIndex]?.id ?? 'all';
+                    setIssueState(next);
+                    queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
+                  }}
                 />
-
-                {githubMode === 'public' ? (
-                  <View className="gap-4 pt-2">
-                    <Text className="text-sf-text-2 text-sm">
-                      Pull issues from public repositories without logging in. Enter repositories as owner/repo.
-                    </Text>
-                    <TextInput
-                      value={publicRepoInput}
-                      onChangeText={setPublicRepoInput}
-                      placeholder="facebook/react"
-                      placeholderTextColor={colors.gray}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      className="rounded-xl px-4 py-3 text-base text-sf-text"
-                      style={{ backgroundColor: colors.bg2 }}
-                    />
-                    <Pressable
-                      disabled={!publicRepoInput.trim()}
-                      onPress={addPublicRepo}
-                      style={({ pressed }) => ({ opacity: pressed || !publicRepoInput.trim() ? 0.6 : 1, backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 8, alignItems: 'center' })}>
-                      <Text style={{ color: '#fff', fontWeight: '600' }}>Add Repository</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <>
-                    <SegmentedControl
-                      appearance={scheme}
-                  values={['OAuth', 'Access Token']}
-                  selectedIndex={method === 'oauth' ? 0 : 1}
-                  tintColor={colors.accent}
-                  onChange={(event) =>
-                    setMethod(event.nativeEvent.selectedSegmentIndex === 0 ? 'oauth' : 'pat')
-                  }
-                />
-
-                {method === 'oauth' ? (
-                  <View className="gap-4 pt-2">
-                    {!isOAuthAvailable() ? (
-                      <View className="rounded-xl p-4 gap-2" style={{ backgroundColor: `${colors.danger}20` }}>
-                        <Text style={{ color: colors.danger, fontWeight: '600' }}>Not Configured</Text>
-                        <Text className="text-sf-text">
-                          OAuth is not configured in this build. Please set EXPO_PUBLIC_GITHUB_CLIENT_ID or use a Personal Access Token instead.
-                        </Text>
-                      </View>
-                    ) : (
-                      <Pressable
-                        onPress={handleStartOAuth}
-                        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#24292f', paddingVertical: 12, borderRadius: 8 })}>
-                        <MaterialCommunityIcons name="github" size={20} color="#fff" />
-                        <Text style={{ color: '#fff', fontWeight: '600' }}>Connect with GitHub</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                ) : (
-                  <View className="gap-4 pt-2">
-                    <Text className="text-sf-text-2 text-sm">
-                      Create a Personal Access Token (classic or fine-grained) with repo scope.
-                    </Text>
-                    <TextInput
-                      value={patInput}
-                      onChangeText={setPatInput}
-                      placeholder="ghp_..."
-                      placeholderTextColor={colors.gray}
-                      secureTextEntry
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      className="rounded-xl px-4 py-3 text-base text-sf-text"
-                      style={{ backgroundColor: colors.bg2 }}
-                    />
-                    <Pressable
-                      disabled={!patInput || patLoading}
-                      onPress={handleSavePat}
-                      style={({ pressed }) => ({ opacity: pressed || !patInput ? 0.6 : 1, backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 8, alignItems: 'center' })}>
-                      <Text style={{ color: '#fff', fontWeight: '600' }}>{patLoading ? 'Validating...' : 'Validate & Save'}</Text>
-                    </Pressable>
-                  </View>
-                )}
-                  </>
-                )}
               </View>
             </SettingsGroup>
           </>
-        )}
+        ) : null}
+
+        {isConnected || connection.connection.status === 'expired' ? (
+          <SettingsGroup>
+            {connection.connection.status === 'expired' ? (
+              <SettingsRow
+                icon="refresh"
+                title="Reconnect GitHub"
+                subtitle="Authorization expired or was revoked"
+                onPress={connection.beginDeviceFlow}
+              />
+            ) : null}
+            {connection.connection.status === 'expired' ? <RowSeparator /> : null}
+            <SettingsRow
+              icon="logout"
+              title="Disconnect account"
+              subtitle="Repository selections are kept on this device"
+              danger
+              onPress={() => setConfirmDisconnect(true)}
+            />
+          </SettingsGroup>
+        ) : null}
       </SettingsScreen>
 
-      <NativeAlert
-        visible={alert !== null}
-        title={alert?.title ?? ''}
-        message={alert?.message ?? ''}
-        onDismiss={() => setAlert(null)}
+      <DeviceFlowSheet
+        flow={connection.deviceFlow}
+        onCancel={connection.cancelDeviceFlow}
       />
 
-      {deviceFlowState && (
-        <Modal visible transparent animationType="slide">
-          <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <View
-              className="rounded-t-3xl p-6 gap-6 pb-12"
-              style={{ backgroundColor: colors.bg }}>
-              <Text className="text-sf-text text-xl font-bold text-center">Authenticate Device</Text>
-              <Text className="text-sf-text-2 text-base text-center">
-                Please enter the following code at GitHub:
-              </Text>
-              <View className="items-center justify-center p-4 rounded-xl" style={{ backgroundColor: colors.bg2 }}>
-                <Text className="text-sf-text text-3xl font-mono font-bold tracking-widest">
-                  {deviceFlowState.userCode}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => Linking.openURL(deviceFlowState.url)}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 8 })}>
-                <Icon name="arrow-up-right" size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Open GitHub</Text>
-              </Pressable>
-              <Text className="text-sf-text-3 text-center text-sm">
-                Waiting for authorization...
-              </Text>
-              <Pressable onPress={cancelOAuth} className="py-2">
-                <Text className="text-sf-blue text-center text-base font-medium">Cancel</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
-      )}
+      <NativeAlert
+        visible={alert !== null || connection.connectionError !== null}
+        title={alert?.title ?? 'GitHub connection'}
+        message={alert?.message ?? connection.connectionError ?? ''}
+        onDismiss={() => {
+          setAlert(null);
+          connection.clearConnectionError();
+        }}
+      />
+      <NativeAlert
+        visible={confirmDisconnect}
+        title="Disconnect GitHub?"
+        message="The token will be removed from this device. Your repository selections will be kept."
+        confirmLabel="Disconnect"
+        dismissLabel="Cancel"
+        onDismiss={() => setConfirmDisconnect(false)}
+        onConfirm={() => {
+          setConfirmDisconnect(false);
+          connection.disconnect().catch((error) =>
+            setAlert({
+              title: 'Could not disconnect',
+              message: error instanceof Error ? error.message : 'Please try again.',
+            })
+          );
+        }}
+      />
     </>
+  );
+}
+
+function ConnectionSummary({
+  account,
+  status,
+  authKind,
+  message,
+}: {
+  account?: { login: string; avatarUrl: string };
+  status: string;
+  authKind?: string;
+  message?: string;
+}) {
+  const { colors } = useTheme();
+  const connected = status === 'connected';
+  const title = account ? `@${account.login}` : 'GitHub Issues';
+  const subtitle = connected
+    ? authKind === 'fine-grained-pat'
+      ? 'Connected with a fine-grained token'
+      : authKind === 'legacy-oauth'
+        ? 'Legacy connection · reconnect recommended'
+        : 'Connected with GitHub App'
+    : status === 'expired'
+      ? 'Connection needs attention'
+      : status === 'error'
+        ? 'GitHub could not be checked'
+        : 'Not connected';
+
+  return (
+    <SettingsGroup>
+      <View className="items-center gap-3 px-5 py-6">
+        {account?.avatarUrl ? (
+          <Image
+            source={{ uri: account.avatarUrl }}
+            style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: colors.bg2 }}
+            contentFit="cover"
+          />
+        ) : (
+          <View
+            className="h-20 w-20 items-center justify-center rounded-full"
+            style={{ backgroundColor: colors.bg2 }}>
+            <MaterialCommunityIcons name="github" size={40} color={colors.text2} />
+          </View>
+        )}
+        <View className="items-center gap-1">
+          <Text selectable className="text-sf-text text-lg font-semibold">{title}</Text>
+          <Text selectable className="text-sf-text-2 text-center text-sm">{subtitle}</Text>
+          {message ? (
+            <Text selectable style={{ color: colors.danger, textAlign: 'center', fontSize: 13 }}>
+              {message}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </SettingsGroup>
+  );
+}
+
+function DeviceFlowSheet({
+  flow,
+  onCancel,
+}: {
+  flow: { userCode: string; verificationUrl: string; expiresAt: number } | null;
+  onCancel: () => void;
+}) {
+  const { colors } = useTheme();
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    if (!flow) return;
+    const update = () => setNow(Date.now());
+    const kickoff = setTimeout(update, 0);
+    const timer = setInterval(update, 1000);
+    return () => {
+      clearTimeout(kickoff);
+      clearInterval(timer);
+    };
+  }, [flow]);
+
+  const remaining = useMemo(
+    () => (flow ? Math.max(0, Math.ceil((flow.expiresAt - now) / 1000)) : 0),
+    [flow, now]
+  );
+
+  return (
+    <Modal visible={!!flow} transparent animationType="slide" onRequestClose={onCancel}>
+      <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <View
+          className="gap-5 rounded-t-3xl px-6 pb-12 pt-6"
+          style={{ backgroundColor: colors.bg, borderCurve: 'continuous' }}>
+          <Text className="text-sf-text text-center text-xl font-bold">Authorize Patchwork</Text>
+          <Text selectable className="text-sf-text-2 text-center text-sm">
+            Enter this one-time code on GitHub. Patchwork will continue automatically.
+          </Text>
+          <View className="items-center rounded-2xl p-5" style={{ backgroundColor: colors.bg2 }}>
+            <Text selectable className="text-sf-text font-mono text-3xl font-bold tracking-widest">
+              {flow?.userCode ?? ''}
+            </Text>
+          </View>
+          <Button
+            label="Open GitHub"
+            icon="open-in-new"
+            onPress={() => flow && Linking.openURL(flow.verificationUrl)}
+          />
+          <Text
+            selectable
+            className="text-sf-text-3 text-center text-sm"
+            style={{ fontVariant: ['tabular-nums'] }}>
+            Waiting for authorization · {Math.floor(remaining / 60)}:
+            {String(remaining % 60).padStart(2, '0')}
+          </Text>
+          <Button variant="text" label="Cancel" onPress={onCancel} />
+        </View>
+      </View>
+    </Modal>
   );
 }
