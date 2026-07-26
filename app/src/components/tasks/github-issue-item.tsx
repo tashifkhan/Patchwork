@@ -1,10 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { memo } from 'react';
-import { Linking, Pressable } from 'react-native';
+import { Pressable } from 'react-native';
 
 import type { GitHubIssue } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
+import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
 import { Text, View } from '@/tw';
 
 interface GitHubIssueItemProps {
@@ -16,11 +18,22 @@ function GitHubIssueItemComponent({ issue, onToggle }: GitHubIssueItemProps) {
   const { colors } = useTheme();
   const canToggle = !issue.readOnly;
 
+  function openDetail() {
+    router.push({
+      pathname: '/github-issue/[id]',
+      params: {
+        id: String(issue.id),
+        repo: issue.repo,
+        number: String(issue.number),
+      },
+    });
+  }
+
   return (
-    <View className="flex-row items-start gap-3 py-2">
+    <View className="flex-row items-center gap-2" style={{ minHeight: MIN_TOUCH_TARGET }}>
       <Pressable
         onPress={canToggle ? () => onToggle(issue) : undefined}
-        hitSlop={8}
+        hitSlop={12}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: issue.completed, disabled: !canToggle }}
         accessibilityLabel={
@@ -30,29 +43,44 @@ function GitHubIssueItemComponent({ issue, onToggle }: GitHubIssueItemProps) {
               ? 'Reopen issue'
               : 'Close issue'
         }
-        style={({ pressed }) => ({ opacity: pressed && canToggle ? 0.5 : 1, paddingTop: 1 })}>
+        style={({ pressed }) => ({
+          opacity: pressed && canToggle ? 0.5 : 1,
+          width: MIN_TOUCH_TARGET,
+          height: MIN_TOUCH_TARGET,
+          alignItems: 'center',
+          justifyContent: 'center',
+        })}>
         <MaterialCommunityIcons
           name={
             issue.readOnly
               ? 'github'
               : issue.completed
-                ? 'checkbox-marked'
-                : 'checkbox-blank-outline'
+                ? 'checkbox-marked-circle'
+                : 'checkbox-blank-circle-outline'
           }
-          size={24}
+          size={26}
           color={issue.completed ? colors.accent : colors.gray}
         />
       </Pressable>
 
       <Pressable
-        onPress={() => openGitHubUrl(issue.html_url)}
-        accessibilityRole="link"
-        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, flex: 1 })}>
+        onPress={openDetail}
+        accessibilityRole="button"
+        accessibilityLabel={`${issue.title}, issue ${issue.number}`}
+        android_ripple={{ color: colors.separator }}
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.7 : 1,
+          flex: 1,
+          minHeight: MIN_TOUCH_TARGET,
+          justifyContent: 'center',
+          paddingVertical: 10,
+        })}>
         <View className="flex-1 gap-1.5">
           <View className="flex-row items-start justify-between gap-2">
             <Text
               numberOfLines={2}
-              className={`flex-1 text-base ${issue.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}>
+              className={`flex-1 text-base ${issue.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}
+              style={{ fontWeight: issue.completed ? '400' : '500' }}>
               {issue.title}
             </Text>
             <Text className="text-sf-text-3 text-xs">#{issue.number}</Text>
@@ -66,7 +94,7 @@ function GitHubIssueItemComponent({ issue, onToggle }: GitHubIssueItemProps) {
             {issue.assignees.slice(0, 3).map((assignee) => (
               <View
                 key={assignee.login}
-                className="flex-row items-center gap-1 rounded-md px-2 py-1"
+                className="flex-row items-center gap-1 rounded-full px-2 py-1"
                 style={{ backgroundColor: colors.bg2, borderCurve: 'continuous' }}>
                 <Image
                   source={{ uri: assignee.avatar_url }}
@@ -85,11 +113,18 @@ function GitHubIssueItemComponent({ issue, onToggle }: GitHubIssueItemProps) {
       </Pressable>
 
       <Pressable
-        onPress={() => openGitHubUrl(issue.html_url)}
+        onPress={openDetail}
         hitSlop={8}
-        accessibilityLabel="Open on GitHub"
-        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingTop: 1 })}>
-        <MaterialCommunityIcons name="open-in-new" size={18} color={colors.text2} />
+        accessibilityLabel="Open issue details"
+        accessibilityRole="button"
+        style={({ pressed }) => ({
+          opacity: pressed ? 0.5 : 1,
+          width: MIN_TOUCH_TARGET,
+          height: MIN_TOUCH_TARGET,
+          alignItems: 'center',
+          justifyContent: 'center',
+        })}>
+        <MaterialCommunityIcons name="chevron-right" size={22} color={colors.text2} />
       </Pressable>
     </View>
   );
@@ -108,7 +143,7 @@ function Chip({
 }) {
   return (
     <View
-      className="flex-row items-center gap-1 rounded-md px-2 py-1"
+      className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
       style={{ backgroundColor: bg, borderCurve: 'continuous' }}>
       <MaterialCommunityIcons name={icon} size={13} color={color} />
       <Text className="text-sf-text-2 text-xs">{label}</Text>
@@ -122,7 +157,7 @@ function LabelChip({ name, color }: { name: string; color: string }) {
 
   return (
     <View
-      className="flex-row items-center rounded-md px-2 py-1"
+      className="flex-row items-center rounded-full px-2.5 py-1"
       style={{ backgroundColor: `${hex}30`, borderCurve: 'continuous' }}>
       <View
         style={{
@@ -139,8 +174,3 @@ function LabelChip({ name, color }: { name: string; color: string }) {
 }
 
 export const GitHubIssueItem = memo(GitHubIssueItemComponent);
-
-async function openGitHubUrl(url: string) {
-  if (!url.startsWith('https://github.com/')) return;
-  if (await Linking.canOpenURL(url)) await Linking.openURL(url);
-}
