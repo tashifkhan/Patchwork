@@ -1,10 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Pressable } from 'react-native';
 
 import { ApiError } from '@/api/client';
 import { useTheme } from '@/components/theme/context';
+import {
+  CreateDestinationControl,
+  type CreateDestination,
+} from '@/components/tasks/create-destination-control';
 import { TaskForm, type TaskFormValues } from '@/components/tasks/task-form';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
@@ -12,21 +16,48 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { addTaskToCalendar } from '@/lib/calendar';
-import { collectAllTags } from '@/lib/tags';
+import { collectAllTags, normalizeTags } from '@/lib/tags';
+import { setCreateHandoff, takeCreateHandoff } from '@/stores/create-handoff';
+import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
+
+const ADJUSTS_KEYBOARD_INSETS = process.env.EXPO_OS === 'ios';
 
 export default function NewTaskScreen() {
   const { colors } = useTheme();
   const listsQuery = useTaskLists();
   const tasksQuery = useTasks();
   const createTask = useCreateTask();
+  const selectedListId = useUiStore((state) => state.selectedListId);
+  const selectedTag = useUiStore((state) => state.selectedTag);
+  // Claimed once, on first render, from a Task <-> GitHub issue switch.
+  const [handoff] = useState(takeCreateHandoff);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdWithWarnings, setCreatedWithWarnings] = useState(false);
-  const [subtaskDrafts, setSubtaskDrafts] = useState<string[]>([]);
-  const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [warningTaskUid, setWarningTaskUid] = useState<string | null>(null);
+  const [subtaskDrafts, setSubtaskDrafts] = useState<string[]>(
+    handoff?.task?.subtasks ?? []
+  );
+  const [subtaskDraft, setSubtaskDraft] = useState(handoff?.task?.subtaskDraft ?? '');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const draftRef = useRef<Partial<TaskFormValues>>({
+    title: handoff?.title ?? '',
+    markdown: handoff?.body ?? '',
+    list_id: handoff?.task?.list_id,
+    tags: handoff?.task?.tags,
+    due_at: handoff?.task?.due_at,
+    reminder_at: handoff?.task?.reminder_at,
+    priority: handoff?.task?.priority,
+    calendar_id: handoff?.task?.calendar_id,
+  });
 
+  // iOS gets exact insets from the ScrollView's own frame, which matters
+  // inside a form sheet: the raw keyboard height is measured against the whole
+  // screen and over-pads a sheet that only covers part of it.
   useEffect(() => {
+    if (ADJUSTS_KEYBOARD_INSETS) return;
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
       setKeyboardHeight(e.endCoordinates.height);
     });
@@ -39,6 +70,49 @@ export default function NewTaskScreen() {
 
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
+  const contextualListId =
+    handoff?.task?.list_id && lists.some((list) => list.id === handoff.task?.list_id)
+      ? handoff.task.list_id
+      : selectedListId && lists.some((list) => list.id === selectedListId)
+        ? selectedListId
+        : lists[0]?.id;
+  const contextualTags = normalizeTags(
+    handoff?.task?.tags ?? (selectedTag ? [selectedTag] : [])
+  );
+  const initialForm: Partial<TaskFormValues> = {
+    title: handoff?.title,
+    markdown: handoff?.body,
+    list_id: contextualListId,
+    tags: contextualTags,
+    due_at: handoff?.task?.due_at,
+    reminder_at: handoff?.task?.reminder_at,
+    priority: handoff?.task?.priority,
+    calendar_id: handoff?.task?.calendar_id,
+  };
+
+  function changeDestination(destination: CreateDestination) {
+    if (destination === 'github-issue') {
+      Keyboard.dismiss();
+      const draft = draftRef.current;
+      // `replace` tears this form down, so carry both shared text and every
+      // task-only field for a lossless switch back.
+      setCreateHandoff({
+        title: draft.title ?? '',
+        body: draft.markdown ?? '',
+        task: {
+          list_id: draft.list_id ?? contextualListId ?? '',
+          tags: normalizeTags(draft.tags ?? contextualTags),
+          due_at: draft.due_at ?? null,
+          reminder_at: draft.reminder_at ?? null,
+          priority: draft.priority ?? null,
+          calendar_id: draft.calendar_id ?? null,
+          subtasks: subtaskDrafts,
+          subtaskDraft,
+        },
+      });
+      router.replace('/new-github-issue');
+    }
+  }
 
   function addDraft() {
     const value = subtaskDraft.trim();
@@ -52,6 +126,21 @@ export default function NewTaskScreen() {
   }
 
   async function handleSubmit(values: TaskFormValues) {
+    // Mutation state updates on the next render and does not cover calendar
+    // mirroring. A synchronous ref closes both double-tap windows.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+
+    // A subtask typed but never committed with the return key used to be
+    // dropped on the floor when the user went straight for Create.
+    const pending = subtaskDraft.trim();
+    const subtasks = pending ? [...subtaskDrafts, pending] : subtaskDrafts;
+    if (pending) {
+      setSubtaskDrafts(subtasks);
+      setSubtaskDraft('');
+    }
+
     try {
       const created = await createTask.mutateAsync({
         list_id: values.list_id,
@@ -62,38 +151,58 @@ export default function NewTaskScreen() {
         reminder_at: values.reminder_at,
         priority: values.priority,
       });
-      const followUps = await Promise.allSettled([
-        ...(values.calendar_id
-          ? [
-              addTaskToCalendar({
-                calendarId: values.calendar_id,
-                title: created.title,
-                notes: created.markdown,
-                dueAt: created.due_at,
-                reminderAt: created.reminder_at,
-              }),
-            ]
-          : []),
-        ...subtaskDrafts.map((title) =>
-          createTask.mutateAsync({
+
+      let calendarFailed = false;
+      if (values.calendar_id) {
+        try {
+          await addTaskToCalendar({
+            calendarId: values.calendar_id,
+            title: created.title,
+            notes: created.markdown,
+            dueAt: created.due_at,
+            reminderAt: created.reminder_at,
+          });
+        } catch {
+          calendarFailed = true;
+        }
+      }
+
+      // Sequential, with an explicit sort order, so the list the user typed
+      // comes back in the order they typed it.
+      const failedSubtasks: string[] = [];
+      for (const [index, title] of subtasks.entries()) {
+        try {
+          await createTask.mutateAsync({
             list_id: created.list_id,
             title,
             parent_uid: created.uid,
-          })
-        ),
-      ]);
-      const failedCount = followUps.filter((result) => result.status === 'rejected').length;
-      if (failedCount > 0) {
-        setCreatedWithWarnings(true);
-        setErrorMessage(
-          `The task was created, but ${failedCount} follow-up ${failedCount === 1 ? 'item' : 'items'} could not be added. You can retry those from the task detail screen.`
+            sort_order: index,
+          });
+        } catch {
+          failedSubtasks.push(title);
+        }
+      }
+
+      const problems: string[] = [];
+      if (calendarFailed) problems.push('it could not be added to your calendar');
+      if (failedSubtasks.length > 0) {
+        problems.push(
+          `subtasks not created: ${failedSubtasks.map((title) => `“${title}”`).join(', ')}`
         );
+      }
+      if (problems.length > 0) {
+        setCreatedWithWarnings(true);
+        setWarningTaskUid(created.uid);
+        setErrorMessage(`The task was created, but ${problems.join(' and ')}.`);
         return;
       }
       router.back();
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not create the task.';
       setErrorMessage(cleanErrorMessage(message));
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   }
 
@@ -103,13 +212,16 @@ export default function NewTaskScreen() {
         title="New task"
         subtitle="Add something to your lists"
         skipPartiallyExpanded={false}>
-        <View style={{ flex: 1, justifyContent: 'center' }}>
-          <LoadingState
-            message="Loading lists…"
-            subtitle="Fetching your CalDAV task lists"
-            fullScreen={false}
-            showBar
-          />
+        <View style={{ flex: 1 }}>
+          <CreateDestinationControl value="task" onChange={changeDestination} />
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <LoadingState
+              message="Loading lists…"
+              subtitle="Fetching your CalDAV task lists"
+              fullScreen={false}
+              showBar
+            />
+          </View>
         </View>
       </SheetSurface>
     );
@@ -120,49 +232,63 @@ export default function NewTaskScreen() {
       <SheetSurface
         title="New task"
         subtitle="Connect an account first">
-        <ScrollView
-          style={{ backgroundColor: 'transparent' }}
-          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingBottom: 24 }}>
-          <EmptyState
-            icon={listsQuery.isError ? 'cloud-off-outline' : 'cloud-outline'}
-            title={listsQuery.isError ? 'Could not load lists' : 'No task lists yet'}
-            subtitle={
-              listsQuery.isError
-                ? 'Check your connection or account settings, then try again.'
-                : 'Connect a CalDAV account to create your first task.'
-            }
-            // On a load failure retrying is the primary action; otherwise
-            // connecting an account is (matches the tasks/deck empty states).
-            actions={[
-              ...(listsQuery.isError
-                ? [{ label: 'Retry', onPress: () => listsQuery.refetch(), variant: 'filled' as const }]
-                : []),
-              {
-                label: 'Connect account',
-                onPress: () => router.push('/settings/account'),
-                variant: listsQuery.isError ? ('tonal' as const) : ('filled' as const),
-              },
-            ]}
-          />
-        </ScrollView>
+        <View style={{ flex: 1 }}>
+          <CreateDestinationControl value="task" onChange={changeDestination} />
+          <ScrollView
+            style={{ backgroundColor: 'transparent' }}
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingBottom: 24 }}>
+            <EmptyState
+              icon={listsQuery.isError ? 'cloud-off-outline' : 'cloud-outline'}
+              title={listsQuery.isError ? 'Could not load lists' : 'No task lists yet'}
+              subtitle={
+                listsQuery.isError
+                  ? 'Check your connection or account settings, then try again.'
+                  : 'Connect a CalDAV account to create your first task.'
+              }
+              // On a load failure retrying is the primary action; otherwise
+              // connecting an account is (matches the tasks/deck empty states).
+              actions={[
+                ...(listsQuery.isError
+                  ? [{ label: 'Retry', onPress: () => listsQuery.refetch(), variant: 'filled' as const }]
+                  : []),
+                {
+                  label: 'Connect account',
+                  onPress: () => router.push('/settings/account'),
+                  variant: listsQuery.isError ? ('tonal' as const) : ('filled' as const),
+                },
+              ]}
+            />
+          </ScrollView>
+        </View>
       </SheetSurface>
     );
   }
 
   return (
     <SheetSurface title="New task" subtitle="What needs doing?">
+      <CreateDestinationControl value="task" onChange={changeDestination} />
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={ADJUSTS_KEYBOARD_INSETS}
         contentContainerStyle={{ paddingBottom: keyboardHeight + 28 }}>
         <TaskForm
           lists={lists}
           availableTags={availableTags}
-          submitting={createTask.isPending}
-          submitLabel={createTask.isPending ? 'Creating…' : 'Create Task'}
+          availableTagsLoading={tasksQuery.isLoading && tasksQuery.data == null}
+          availableTagsError={tasksQuery.isError && tasksQuery.data == null}
+          onRetryTags={() => {
+            void tasksQuery.refetch();
+          }}
+          initial={initialForm}
+          submitting={isSubmitting}
+          submitLabel={isSubmitting ? 'Creating…' : 'Create Task'}
+          onDraftChange={(draft) => {
+            draftRef.current = draft;
+          }}
           onSubmit={handleSubmit}
         />
 
@@ -227,11 +353,22 @@ export default function NewTaskScreen() {
 
         <NativeAlert
           visible={errorMessage != null}
-          title="Create failed"
+          title={createdWithWarnings ? 'Task created' : 'Create failed'}
           message={errorMessage ?? ''}
           onDismiss={() => {
             setErrorMessage(null);
-            if (createdWithWarnings) router.back();
+            if (createdWithWarnings) {
+              const uid = warningTaskUid;
+              setCreatedWithWarnings(false);
+              setWarningTaskUid(null);
+              router.back();
+              if (uid) {
+                router.push({
+                  pathname: '/task/[uid]',
+                  params: { uid },
+                });
+              }
+            }
           }}
         />
       </ScrollView>

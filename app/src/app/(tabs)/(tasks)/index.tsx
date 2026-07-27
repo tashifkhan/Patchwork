@@ -373,9 +373,29 @@ export default function TasksScreen() {
 
             {githubEnabled ? (
               <View className="mt-8">
-                <View className="mb-2 flex-row items-center gap-2">
-                  <MaterialCommunityIcons name="github" size={24} color={colors.text} />
-                  <Text className="text-sf-text text-lg font-bold">GitHub Issues</Text>
+                <View className="mb-2 flex-row items-center justify-between gap-3">
+                  <View className="flex-row items-center gap-2">
+                    <MaterialCommunityIcons name="github" size={24} color={colors.text} />
+                    <Text className="text-sf-text text-lg font-bold">GitHub Issues</Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Create GitHub issue"
+                    onPress={() => router.push('/new-github-issue')}
+                    style={({ pressed }) => ({
+                      opacity: pressed ? 0.65 : 1,
+                      minHeight: 44,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                    })}>
+                    <MaterialCommunityIcons
+                      name="plus-circle-outline"
+                      size={19}
+                      color={colors.accent}
+                    />
+                    <Text className="text-sf-blue text-sm font-semibold">New issue</Text>
+                  </Pressable>
                 </View>
 
                 {githubQuery.data?.warnings.map((warning) => (
