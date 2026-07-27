@@ -56,6 +56,10 @@ export default function RootLayout() {
               name="new-task"
               options={sheetScreenOptions([0.72, 1.0], 'New Task')}
             />
+            <Stack.Screen
+              name="new-github-issue"
+              options={sheetScreenOptions([0.72, 1.0], 'New GitHub Issue')}
+            />
             {/*
               Root-level so it can be presented over the `new-task` sheet. While
               it lived in `(tabs)/(tasks)` the push targeted a navigator sitting
