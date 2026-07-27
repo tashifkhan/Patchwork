@@ -56,6 +56,12 @@ export default function RootLayout() {
               name="new-task"
               options={sheetScreenOptions([0.72, 1.0], 'New Task')}
             />
+            {/*
+              Root-level so it can be presented over the `new-task` sheet. While
+              it lived in `(tabs)/(tasks)` the push targeted a navigator sitting
+              below the sheet, which made the picker unreachable while creating.
+            */}
+            <Stack.Screen name="tags" options={sheetScreenOptions([0.72, 1.0], 'Tags')} />
             <Stack.Screen
               name="new-card"
               options={sheetScreenOptions([0.72, 1.0], 'New Card')}

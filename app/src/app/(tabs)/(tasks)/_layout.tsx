@@ -14,7 +14,6 @@ export default function TasksLayout() {
         name="github-issue/[id]"
         options={{ title: 'GitHub Issue', headerLargeTitle: false }}
       />
-      <Stack.Screen name="tags" options={{ title: 'Tags', headerLargeTitle: false }} />
     </Stack>
   );
 }
