@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
+  buildGitHubIssueCreatePayload,
   buildGitHubIssueQuery,
   fetchGitHubIssues,
   validatePublicGitHubRepo,
@@ -69,6 +70,23 @@ describe('GitHub credential expiry', () => {
 });
 
 describe('GitHub REST integration', () => {
+  test('normalizes new issue fields before sending them to GitHub', () => {
+    expect(
+      buildGitHubIssueCreatePayload({
+        title: '  Fix task sync  ',
+        body: '  Reproduction steps  ',
+        assignees: [' octocat ', '', 'octocat'],
+      })
+    ).toEqual({
+      title: 'Fix task sync',
+      body: 'Reproduction steps',
+      assignees: ['octocat'],
+    });
+    expect(() => buildGitHubIssueCreatePayload({ title: '   ' })).toThrow(
+      'Add a title'
+    );
+  });
+
   test('uses the authenticated login for repository issue scopes', () => {
     const cases = [
       ['assigned', 'assignee'],
@@ -115,6 +133,7 @@ describe('GitHub REST integration', () => {
     const repository = await validatePublicGitHubRepo('openai/openai-node');
     expect(repository.id).toBe(42);
     expect(repository.full_name).toBe('openai/openai-node');
+    expect(repository.canCreateIssues).toBe(false);
     expect(repository.canWriteIssues).toBe(false);
   });
 

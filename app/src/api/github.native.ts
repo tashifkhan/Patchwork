@@ -1,4 +1,9 @@
-import type { GitHubIssue, GitHubIssueUpdate, GitHubRepo } from './types';
+import type {
+  GitHubIssue,
+  GitHubIssueCreate,
+  GitHubIssueUpdate,
+  GitHubRepo,
+} from './types';
 import { GitHubError, asGitHubError } from '@/features/github/errors';
 import { parseGitHubNextLink } from '@/features/github/pagination';
 import type {
@@ -123,6 +128,7 @@ interface GitHubApiRepo {
     maintain?: boolean;
     push?: boolean;
     triage?: boolean;
+    pull?: boolean;
   };
 }
 
@@ -396,6 +402,45 @@ export async function updateGitHubIssue(
   return mapIssue(response.data, { id: response.data.repository?.id ?? null, fullName: repo }, true);
 }
 
+export async function createGitHubIssue(
+  repository: GitHubRepositorySelection,
+  input: GitHubIssueCreate,
+  signal?: AbortSignal
+): Promise<GitHubIssue> {
+  const client = await getClient(true);
+  const response = await client.request<GitHubApiIssue>(
+    'POST',
+    `/repos/${repositoryPath(repository.fullName)}/issues`,
+    { body: buildGitHubIssueCreatePayload(input), signal }
+  );
+  return mapIssue(
+    response.data,
+    repository,
+    repository.canWriteIssues === true
+  );
+}
+
+export function buildGitHubIssueCreatePayload(input: GitHubIssueCreate) {
+  const title = input.title.trim();
+  if (!title) {
+    throw new GitHubError('validation', 'Add a title before creating the GitHub issue.');
+  }
+
+  const body = input.body?.trim();
+  const assignees = [
+    ...new Set(
+      (input.assignees ?? [])
+        .map((assignee) => assignee.trim())
+        .filter(Boolean)
+    ),
+  ];
+  return {
+    title,
+    ...(body ? { body } : {}),
+    ...(assignees.length > 0 ? { assignees } : {}),
+  };
+}
+
 export function closeGitHubIssue(repo: string, issueNumber: number): Promise<GitHubIssue> {
   return updateGitHubIssue(repo, issueNumber, { state: 'closed' });
 }
@@ -477,6 +522,17 @@ function mapRepo(raw: GitHubApiRepo, authenticated: boolean): GitHubRepo {
       raw.permissions?.push ||
       raw.permissions?.triage
     );
+  const canCreateIssues =
+    authenticated &&
+    raw.has_issues !== false &&
+    raw.archived !== true &&
+    !!(
+      raw.permissions?.pull ||
+      raw.permissions?.triage ||
+      raw.permissions?.push ||
+      raw.permissions?.maintain ||
+      raw.permissions?.admin
+    );
   return {
     id: raw.id,
     full_name: raw.full_name,
@@ -486,6 +542,7 @@ function mapRepo(raw: GitHubApiRepo, authenticated: boolean): GitHubRepo {
     visibility: raw.visibility ?? (raw.private ? 'private' : 'public'),
     archived: raw.archived === true,
     has_issues: raw.has_issues !== false,
+    canCreateIssues,
     canWriteIssues,
     owner: { login: raw.owner.login, avatar_url: raw.owner.avatar_url },
   };

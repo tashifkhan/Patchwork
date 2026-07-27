@@ -2,6 +2,7 @@ export {
   fetchGitHubIssues,
   fetchGitHubRepos,
   fetchSingleGitHubIssue,
+  createGitHubIssue,
   validatePublicGitHubRepo,
   updateGitHubIssue,
   closeGitHubIssue,

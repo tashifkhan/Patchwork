@@ -253,6 +253,12 @@ export interface GitHubIssueUpdate {
   labels?: string[];
 }
 
+export interface GitHubIssueCreate {
+  title: string;
+  body?: string;
+  assignees?: string[];
+}
+
 export interface GitHubRepo {
   id: number;
   full_name: string;
@@ -262,6 +268,7 @@ export interface GitHubRepo {
   visibility: 'public' | 'private' | 'internal';
   archived: boolean;
   has_issues: boolean;
+  canCreateIssues: boolean;
   canWriteIssues: boolean;
   owner: GitHubUser;
 }
