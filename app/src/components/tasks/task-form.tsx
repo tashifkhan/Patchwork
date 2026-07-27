@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable } from 'react-native';
 
 import type { TaskList } from '@/api/types';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
+import { normalizeTags } from '@/lib/tags';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
 
@@ -30,6 +31,9 @@ interface TaskFormProps {
   initial?: Partial<TaskFormValues>;
   lists: TaskList[];
   availableTags?: string[];
+  availableTagsLoading?: boolean;
+  availableTagsError?: boolean;
+  onRetryTags?: () => void;
   submitting?: boolean;
   submitLabel: string;
   listLabel?: string;
@@ -41,6 +45,8 @@ interface TaskFormProps {
   showCalendar?: boolean;
   /** @deprecated Preview is available via the Write/Preview toggle on MarkdownEditor. */
   showPreview?: boolean;
+  /** Reports the complete draft as it changes, so a screen can hand it off elsewhere. */
+  onDraftChange?: (draft: TaskFormValues) => void;
   onSubmit: (values: TaskFormValues) => void;
   onDelete?: () => void;
 }
@@ -52,10 +58,25 @@ const PRIORITIES: { label: string; value: number | null }[] = [
   { label: 'High', value: 1 },
 ];
 
+/**
+ * Snaps an arbitrary CalDAV PRIORITY (0–9, per RFC 5545) onto the bucket this
+ * control offers. Without it a task another client saved as e.g. `PRIORITY:3`
+ * matched no segment and silently displayed as "None".
+ */
+function toPriorityBucket(priority: number | null | undefined): number | null {
+  if (priority == null || priority === 0) return null;
+  if (priority <= 4) return 1;
+  if (priority === 5) return 5;
+  return 9;
+}
+
 export function TaskForm({
   initial,
   lists,
   availableTags = [],
+  availableTagsLoading = false,
+  availableTagsError = false,
+  onRetryTags,
   submitting,
   submitLabel,
   listLabel = 'List',
@@ -66,6 +87,7 @@ export function TaskForm({
   showPriority = true,
   showCalendar = true,
   showPreview: _showPreview = true,
+  onDraftChange,
   onSubmit,
   onDelete,
 }: TaskFormProps) {
@@ -78,21 +100,84 @@ export function TaskForm({
   const [tags, setTags] = useState<string[]>(initial?.tags ?? []);
   const [dueAt, setDueAt] = useState<string | null>(initial?.due_at ?? null);
   const [reminderAt, setReminderAt] = useState<string | null>(initial?.reminder_at ?? null);
-  const [priority, setPriority] = useState<number | null>(initial?.priority ?? null);
+  const [priority, setPriority] = useState<number | null>(toPriorityBucket(initial?.priority));
   const [calendarId, setCalendarId] = useState<string | null>(initial?.calendar_id ?? null);
   const [showCalendarList, setShowCalendarList] = useState(false);
+  const draftRef = useRef<TaskFormValues>({
+    title: initial?.title ?? '',
+    markdown: initial?.markdown ?? '',
+    list_id: initial?.list_id ?? lists[0]?.id ?? '',
+    tags: initial?.tags ?? [],
+    due_at: initial?.due_at ?? null,
+    reminder_at: initial?.reminder_at ?? null,
+    priority: toPriorityBucket(initial?.priority),
+    calendar_id: initial?.calendar_id ?? null,
+  });
 
   const openTagPicker = useTagPickerStore((s) => s.open);
 
   const hasSchedule = Boolean(dueAt || reminderAt);
-  const calendarsQuery = useDeviceCalendars(showCalendar && hasSchedule);
+  // Listing calendars requests OS permission. Wait until the user explicitly
+  // expands the selector rather than prompting as soon as they set a due date.
+  const calendarsQuery = useDeviceCalendars(showCalendar && hasSchedule && showCalendarList);
   const calendars = calendarsQuery.data ?? [];
 
   const canSubmit = title.trim().length > 0 && listId.length > 0 && !submitting;
 
+  function reportDraft(patch: Partial<TaskFormValues>) {
+    draftRef.current = { ...draftRef.current, ...patch };
+    onDraftChange?.(draftRef.current);
+  }
+
+  function changeTitle(value: string) {
+    setTitle(value);
+    reportDraft({ title: value });
+  }
+
+  function changeMarkdown(value: string) {
+    setMarkdown(value);
+    reportDraft({ markdown: value });
+  }
+
+  function changeList(value: string) {
+    setListId(value);
+    reportDraft({ list_id: value });
+  }
+
+  function changeTags(value: string[]) {
+    const normalized = normalizeTags(value);
+    setTags(normalized);
+    reportDraft({ tags: normalized });
+  }
+
+  function changeDueAt(value: string | null) {
+    setDueAt(value);
+    reportDraft({ due_at: value });
+  }
+
+  function changeReminderAt(value: string | null) {
+    setReminderAt(value);
+    reportDraft({ reminder_at: value });
+  }
+
+  function changePriority(value: number | null) {
+    setPriority(value);
+    reportDraft({ priority: value });
+  }
+
+  function changeCalendar(value: string | null) {
+    setCalendarId(value);
+    reportDraft({ calendar_id: value });
+  }
+
   function pickTags() {
-    const pool = [...new Set([...availableTags, ...tags])].sort();
-    openTagPicker(pool, tags, setTags);
+    if (availableTagsLoading) return;
+    if (availableTagsError) {
+      onRetryTags?.();
+      return;
+    }
+    const pool = normalizeTags([...availableTags, ...tags]).sort((a, b) => a.localeCompare(b));
+    openTagPicker(pool, tags, changeTags);
     router.push('/tags');
   }
 
@@ -102,7 +187,7 @@ export function TaskForm({
       title: title.trim(),
       markdown: markdown.trim(),
       list_id: listId,
-      tags,
+      tags: normalizeTags(tags),
       due_at: dueAt,
       reminder_at: reminderAt,
       priority,
@@ -111,6 +196,8 @@ export function TaskForm({
   }
 
   const selectedCalendarTitle = calendars.find((c) => c.id === calendarId)?.title ?? null;
+  const accountIds = new Set(lists.map((list) => list.account_id).filter(Boolean));
+  const showAccountNames = accountIds.size > 1;
 
   return (
     <View className="gap-4 px-5 py-3">
@@ -123,7 +210,7 @@ export function TaskForm({
         </Text>
         <TextInput
           value={title}
-          onChangeText={setTitle}
+          onChangeText={changeTitle}
           placeholder="What needs doing?"
           placeholderTextColor={textColor as string}
           accessibilityLabel="Task title"
@@ -143,9 +230,13 @@ export function TaskForm({
             {lists.map((list) => (
               <ToggleChip
                 key={list.id}
-                label={list.name}
+                label={
+                  showAccountNames && list.account_name
+                    ? `${list.name} · ${list.account_name}`
+                    : list.name
+                }
                 selected={list.id === listId}
-                onPress={() => setListId(list.id)}
+                onPress={() => changeList(list.id)}
               />
             ))}
           </View>
@@ -155,7 +246,7 @@ export function TaskForm({
       <Field label={notesLabel} icon="text-long">
         <MarkdownEditor
           value={markdown}
-          onChangeText={setMarkdown}
+          onChangeText={changeMarkdown}
           placeholder="Add details… (# heading, **bold**, - list)"
           placeholderTextColor={textColor as string}
           minHeight={120}
@@ -167,8 +258,12 @@ export function TaskForm({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Choose tags"
+            accessibilityState={{ disabled: availableTagsLoading }}
+            disabled={availableTagsLoading}
             onPress={pickTags}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+            style={({ pressed }) => ({
+              opacity: availableTagsLoading ? 0.6 : pressed ? 0.7 : 1,
+            })}>
             <SheetFieldCard>
               <View className="flex-row items-center justify-between" style={{ minHeight: 40 }}>
                 {tags.length > 0 ? (
@@ -191,9 +286,19 @@ export function TaskForm({
                     ))}
                   </View>
                 ) : (
-                  <Text className="text-sf-text-2 text-base">Add tags</Text>
+                  <Text className="text-sf-text-2 text-base">
+                    {availableTagsLoading
+                      ? 'Loading tags…'
+                      : availableTagsError
+                        ? 'Could not load tags — tap to retry'
+                        : 'Add tags'}
+                  </Text>
                 )}
-                <MaterialCommunityIcons name="chevron-right" size={20} color={textColor as string} />
+                <MaterialCommunityIcons
+                  name={availableTagsError ? 'refresh' : 'chevron-right'}
+                  size={20}
+                  color={textColor as string}
+                />
               </View>
             </SheetFieldCard>
           </Pressable>
@@ -202,7 +307,7 @@ export function TaskForm({
 
       {/* Due / Reminder card — Paisa SheetFieldCard row pattern */}
       <SheetFieldCard>
-        <DateField label="Due date" iconName="calendar" value={dueAt} onChange={setDueAt} />
+        <DateField label="Due date" iconName="calendar" value={dueAt} onChange={changeDueAt} />
         {showReminder ? (
           <>
             <View style={{ height: 1, backgroundColor: colors.separator, marginVertical: 4 }} />
@@ -210,7 +315,7 @@ export function TaskForm({
               label="Reminder"
               iconName="bell-outline"
               value={reminderAt}
-              onChange={setReminderAt}
+              onChange={changeReminderAt}
             />
           </>
         ) : null}
@@ -248,7 +353,7 @@ export function TaskForm({
                   selected={calendarId == null}
                   color={null}
                   onPress={() => {
-                    setCalendarId(null);
+                    changeCalendar(null);
                     setShowCalendarList(false);
                   }}
                 />
@@ -262,7 +367,7 @@ export function TaskForm({
                     color={calendar.color}
                     selected={calendar.id === calendarId}
                     onPress={() => {
-                      setCalendarId(calendar.id);
+                      changeCalendar(calendar.id);
                       setShowCalendarList(false);
                     }}
                   />
@@ -283,7 +388,7 @@ export function TaskForm({
           <SegmentedChoice
             options={PRIORITIES}
             value={priority}
-            onChange={setPriority}
+            onChange={changePriority}
           />
         </Field>
       ) : null}
