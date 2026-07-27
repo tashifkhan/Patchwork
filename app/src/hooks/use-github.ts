@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   closeGitHubIssue,
+  createGitHubIssue,
   fetchGitHubIssues,
   fetchGitHubRepos,
   fetchSingleGitHubIssue,
@@ -9,7 +10,12 @@ import {
   updateGitHubIssue,
   validatePublicGitHubRepo,
 } from '@/api/github';
-import type { GitHubIssue, GitHubIssueUpdate, GitHubRepo } from '@/api/types';
+import type {
+  GitHubIssue,
+  GitHubIssueCreate,
+  GitHubIssueUpdate,
+  GitHubRepo,
+} from '@/api/types';
 import { GitHubError } from '@/features/github/errors';
 import type { GitHubIssuesResult, GitHubRepositorySelection } from '@/features/github/types';
 import { queryKeys } from '@/lib/query-client';
@@ -190,6 +196,28 @@ export function useToggleGitHubIssue() {
     onSettled: (_data, _error, issue) => {
       client.invalidateQueries({ queryKey: queryKeys.githubIssues });
       client.invalidateQueries({ queryKey: queryKeys.githubIssue(issue.repo, issue.number) });
+    },
+  });
+}
+
+export function useCreateGitHubIssue() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationKey: ['github', 'issue', 'create'],
+    mutationFn: ({
+      repository,
+      issue,
+    }: {
+      repository: GitHubRepositorySelection;
+      issue: GitHubIssueCreate;
+    }) => createGitHubIssue(repository, issue),
+    onError: handleGitHubSessionError,
+    onSuccess: (created) => {
+      client.setQueryData(
+        [...queryKeys.githubIssue(created.repo, created.number), true],
+        created
+      );
+      client.invalidateQueries({ queryKey: queryKeys.githubIssues });
     },
   });
 }
