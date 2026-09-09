@@ -59,8 +59,14 @@ export function ThemeShell({
 
   // Keep any remaining CSS light-dark()/@media resolution aligned with the
   // effective scheme too (e.g. native form sheets, scrollbar styling).
+  // react-native-web's Appearance does not implement setColorScheme; calling
+  // it throws and would unmount the tree (including the splash overlay).
   useEffect(() => {
-    rnColorScheme.set(scheme);
+    try {
+      rnColorScheme.set(scheme);
+    } catch {
+      // Web: CSS variables from VariableContextProvider still apply.
+    }
     SystemUI.setBackgroundColorAsync(colors.bg).catch(() => {});
   }, [colors.bg, scheme]);
 
