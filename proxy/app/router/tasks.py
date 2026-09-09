@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
-from app.model.task import Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate
+from app.model.task import Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate
 from app.router.dependencies import TaskServiceDep
 
 router = APIRouter(prefix="/api", tags=["tasks"])
@@ -16,6 +16,18 @@ async def create_task_list(
     task_list: TaskListCreate, service: TaskServiceDep
 ) -> TaskList:
     return await service.create_task_calendar(task_list)
+
+
+@router.patch("/task-lists/{list_id}", response_model=TaskList)
+async def update_task_list(
+    list_id: str, payload: TaskListUpdate, service: TaskServiceDep
+) -> TaskList:
+    return await service.rename_task_calendar(list_id, payload)
+
+
+@router.delete("/task-lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task_list(list_id: str, service: TaskServiceDep) -> None:
+    await service.delete_task_calendar(list_id)
 
 
 @router.get("/tasks", response_model=list[Task])

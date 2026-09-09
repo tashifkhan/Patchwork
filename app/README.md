@@ -89,16 +89,17 @@ The app focuses heavily on user personalization, particularly via the settings i
 * [x] Subtask nesting (collapsible tree view utilizing RELATED-TO fields).
 * [x] Priority adjustments and due dates setting.
 * [x] Tag-based filtering chips.
-* [ ] Stale cache/conflict resolution notification in UI.
-* [ ] Local push notifications trigger.
+* [x] Rename or delete a task list from the app.
+* [x] Stale cache/conflict resolution notification in UI.
+* [x] Local push notifications trigger.
 
 ### Kanban Deck Integration
 * [x] Display board lists.
 * [x] Horizontal scrolling column structure on Desktop.
 * [x] Vertical card list rendering with assignees, labels, and descriptions.
 * [x] Card detail overlay showing card properties.
-* [ ] Drag-and-drop card movement UI.
-* [ ] Form-based column creation and deletion in UI.
+* [x] Drag-and-drop card movement UI.
+* [x] Form-based column creation and deletion in UI.
 
 ### AI Import
 * [x] Draft planning input (turn general sentences into structured checkoff task drafts).

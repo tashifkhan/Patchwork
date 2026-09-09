@@ -5,12 +5,14 @@ import * as SplashScreen from 'expo-splash-screen';
 import { router, type ErrorBoundaryProps } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
 import { useTasks } from '@/hooks/use-tasks';
+import { DURATION } from '@/lib/motion';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient } from '@/lib/query-client';
 import { sheetScreenOptions } from '@/lib/screen-options';
@@ -19,18 +21,43 @@ import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { Text, View } from '@/tw';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+// The in-app `AnimatedSplash` paints the same frame underneath, so the native
+// splash can cross-fade out instead of popping.
+SplashScreen.setOptions({ duration: DURATION.medium1, fade: true });
+
+/**
+ * How long to wait on persisted settings before starting without them.
+ *
+ * `preventAutoHideAsync` means nothing dismisses the splash but us, so a
+ * rehydration that never settles — a wedged AsyncStorage, a native module that
+ * failed to link — would otherwise leave the app frozen on the splash with no
+ * error and no way forward. Starting on defaults is a far better failure than
+ * that; if the read lands later, zustand updates state and the UI re-themes.
+ *
+ * The real read is single-digit milliseconds, so this only ever trips on a
+ * genuine fault.
+ */
+const HYDRATION_TIMEOUT = 4000;
 
 export default function RootLayout() {
   const hydrated = useSettingsStore((state) => state.hydrated);
+  const [hydrationTimedOut, setHydrationTimedOut] = useState(false);
+  const ready = hydrated || hydrationTimedOut;
 
   useEffect(() => {
-    if (hydrated) SplashScreen.hideAsync().catch(() => {});
+    if (hydrated) return;
+    const timer = setTimeout(() => setHydrationTimedOut(true), HYDRATION_TIMEOUT);
+    return () => clearTimeout(timer);
   }, [hydrated]);
+
+  useEffect(() => {
+    if (ready) SplashScreen.hideAsync().catch(() => {});
+  }, [ready]);
 
   useEffect(() => {
     let active = true;
     let stopObserver = () => {};
-    if (Constants.appOwnership !== 'expo') {
+    if (process.env.EXPO_OS !== 'web' && Constants.appOwnership !== 'expo') {
       Promise.all([import('@/widgets/background'), import('@/widgets/observer')])
         .then(([background, observer]) => {
           if (!active) return;
@@ -78,7 +105,12 @@ export default function RootLayout() {
               name="column"
               options={sheetScreenOptions([0.55, 0.85], 'Column')}
             />
+            <Stack.Screen
+              name="edit-list"
+              options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
+            />
           </Stack>
+          <AnimatedSplash ready={ready} />
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
@@ -86,6 +118,12 @@ export default function RootLayout() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  // `RootLayout` never mounted if we are here, so nothing else will take the
+  // native splash down — without this the crash is invisible behind it.
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>

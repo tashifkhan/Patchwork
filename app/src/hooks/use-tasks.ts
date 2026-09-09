@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { createTask, createTaskList, deleteTask, fetchTaskLists, fetchTasks, updateTask } from '@/api/tasks';
+import {
+  createTask,
+  createTaskList,
+  deleteTask,
+  deleteTaskList,
+  fetchTaskLists,
+  fetchTasks,
+  updateTask,
+  updateTaskList,
+} from '@/api/tasks';
 import type { Task, TaskCreate, TaskListCreate, TaskUpdate } from '@/api/types';
 import { queryKeys } from '@/lib/query-client';
 
@@ -18,6 +27,29 @@ export function useCreateTaskList() {
     mutationFn: (payload: TaskListCreate) => createTaskList(payload),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: queryKeys.taskLists });
+    },
+  });
+}
+
+export function useUpdateTaskList() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ listId, name }: { listId: string; name: string }) =>
+      updateTaskList(listId, { name }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: queryKeys.taskLists });
+      client.invalidateQueries({ queryKey: queryKeys.tasks });
+    },
+  });
+}
+
+export function useDeleteTaskList() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (listId: string) => deleteTaskList(listId),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: queryKeys.taskLists });
+      client.invalidateQueries({ queryKey: queryKeys.tasks });
     },
   });
 }

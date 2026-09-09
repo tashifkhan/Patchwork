@@ -14,6 +14,10 @@ class TaskListCreate(BaseModel):
     name: str = Field(min_length=1)
 
 
+class TaskListUpdate(BaseModel):
+    name: str = Field(min_length=1)
+
+
 class Task(BaseModel):
     id: str
     uid: str

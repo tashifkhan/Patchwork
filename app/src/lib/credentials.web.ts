@@ -1,9 +1,14 @@
-// Web stub. On web the app talks to the proxy (see api/*.ts), so there are no
-// on-device CalDAV accounts; these keep the import surface consistent.
+// Web stub. On web the app talks to the proxy (see api/*.ts), which holds the
+// CalDAV and AI credentials server-side, so there is nothing to store in the
+// browser. These exist to mirror `credentials.native.ts` export for export:
+// Metro picks this file on web, and any symbol missing here is `undefined` at
+// runtime on web while still type-checking against the native module.
 
 import type { CalDavAccount } from './credentials-types';
+import type { AiProviderId } from './ai-models';
 
 export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
+export type { GitHubCredentials } from './credentials-types';
 
 export async function getAccounts(): Promise<CalDavAccount[]> {
   return [];
@@ -29,7 +34,13 @@ export async function saveGeminiApiKey(_apiKey: string): Promise<void> {}
 
 export async function clearGeminiApiKey(): Promise<void> {}
 
-export type { GitHubCredentials } from './credentials-types';
+export async function getAiApiKey(_providerId: AiProviderId): Promise<string | null> {
+  return null;
+}
+
+export async function saveAiApiKey(_providerId: AiProviderId, _apiKey: string): Promise<void> {}
+
+export async function clearAiApiKey(_providerId: AiProviderId): Promise<void> {}
 
 export async function getGitHubCredentials(): Promise<import('./credentials-types').GitHubCredentials | null> {
   return null;

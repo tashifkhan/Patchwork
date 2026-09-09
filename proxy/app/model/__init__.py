@@ -7,7 +7,7 @@ from app.model.ai import (
 )
 from app.model.deck import DeckBoard
 from app.model.health import HealthResponse
-from app.model.task import Task, TaskCreate, TaskList, TaskUpdate
+from app.model.task import Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate
 
 __all__ = [
     "AiGeneratedSubtask",
@@ -20,5 +20,7 @@ __all__ = [
     "Task",
     "TaskCreate",
     "TaskList",
+    "TaskListCreate",
+    "TaskListUpdate",
     "TaskUpdate",
 ]

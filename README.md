@@ -67,9 +67,10 @@ The following checklists highlight what has been completed, what is in progress,
 * [x] Parse hierarchical structures (parent and child subtasks via RELATED-TO mapping).
 * [x] Support task creation on CalDAV server.
 * [x] Secure local credential management on mobile devices.
-* [ ] Implement task updates (PATCH requests) with ETag collision handling.
-* [ ] Implement task deletion (DELETE requests).
-* [ ] Implement local push notification sync on mobile clients.
+* [x] Rename or delete a task list (calendar).
+* [x] Implement task updates with `If-Match` ETag collision handling.
+* [x] Implement task deletion (DELETE requests).
+* [x] Implement local push notification sync on mobile clients.
 
 ### 2. Nextcloud Deck (Kanban) Support
 * [x] Access Nextcloud Deck board lists via REST API.
@@ -78,8 +79,8 @@ The following checklists highlight what has been completed, what is in progress,
 * [x] Support stack and card updating, deletion, and reordering.
 * [x] Filter out Deck-synced CalDAV calendars from normal todo lists (using "Deck:" displayname filtering).
 * [x] Render boards horizontally on desktop and vertically on mobile.
-* [ ] Implement fully interactive drag-and-drop column card reordering UI in Expo app.
-* [ ] Complete UI forms for managing columns/stacks and cards directly.
+* [x] Implement fully interactive drag-and-drop column card reordering UI in Expo app.
+* [x] Complete UI forms for managing columns/stacks and cards directly.
 
 ### 3. GitHub Issues Integration
 * [x] Fetch and validate public GitHub repositories without login.

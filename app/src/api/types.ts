@@ -20,6 +20,10 @@ export interface TaskListCreate {
   account_id?: string;
 }
 
+export interface TaskListUpdate {
+  name: string;
+}
+
 export interface Task {
   id: string;
   uid: string;

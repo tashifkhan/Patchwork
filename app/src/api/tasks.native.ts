@@ -1,5 +1,5 @@
 import { ApiError } from './client';
-import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from './types';
+import type { Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate } from './types';
 import { base64Encode } from '@/lib/base64';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 import { assertUrlSameOrigin, originOf } from '@/lib/secure-url';
@@ -77,6 +77,16 @@ export async function createTaskList(payload: TaskListCreate) {
     );
   }
   return client.createTaskCalendar(payload);
+}
+
+export async function updateTaskList(listId: string, payload: TaskListUpdate) {
+  const { client, target } = await resolveListTarget(listId);
+  return client.renameTaskCalendar(target, payload.name);
+}
+
+export async function deleteTaskList(listId: string) {
+  const { client, target } = await resolveListTarget(listId);
+  await client.deleteTaskCalendar(target);
 }
 
 export async function createTask(payload: TaskCreate) {
@@ -288,6 +298,30 @@ class CalDavClient {
       account_id: this.account.id,
       account_name: this.account.displayName,
     };
+  }
+
+  async renameTaskCalendar(list: TaskList, name: string): Promise<TaskList> {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new ApiError(400, 'List name cannot be empty.');
+    }
+    await this.request('PROPPATCH', this.absoluteUrl(collectionHref(list.href)), {
+      body: `
+        <d:propertyupdate xmlns:d="${DAV_NS}">
+          <d:set>
+            <d:prop>
+              <d:displayname>${escapeXml(trimmed)}</d:displayname>
+            </d:prop>
+          </d:set>
+        </d:propertyupdate>
+      `.trim(),
+      headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+    });
+    return { ...list, name: trimmed };
+  }
+
+  async deleteTaskCalendar(list: TaskList): Promise<void> {
+    await this.request('DELETE', this.absoluteUrl(collectionHref(list.href)));
   }
 
   async listCalendarTasks(calendar: TaskList): Promise<Task[]> {
@@ -873,6 +907,10 @@ function davErrorMessage(value: string) {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function collectionHref(href: string) {
+  return `${href.replace(/\/+$/, '')}/`;
 }
 
 function slugify(value: string) {

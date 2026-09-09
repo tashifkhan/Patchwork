@@ -231,6 +231,14 @@ export default function TasksScreen() {
               selectedListId={selectedListId}
               onSelect={setSelectedListId}
               onCreate={() => setCreateListOpen(true)}
+              onEdit={() => {
+                const list = lists.find((item) => item.id === selectedListId);
+                if (!list) return;
+                router.push({
+                  pathname: '/edit-list',
+                  params: { listId: list.id, name: list.name },
+                });
+              }}
             />
           ),
           headerRight: () => (
