@@ -78,6 +78,10 @@ export default function RootLayout() {
               name="column"
               options={sheetScreenOptions([0.55, 0.85], 'Column')}
             />
+            <Stack.Screen
+              name="edit-list"
+              options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
+            />
           </Stack>
         </ThemeProvider>
       </QueryClientProvider>

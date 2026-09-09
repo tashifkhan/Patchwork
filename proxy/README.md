@@ -39,6 +39,8 @@ The proxy serves two main technical requirements:
 * GET /health: Simple readiness check.
 * GET /api/task-lists: Lists all active task lists (excluding lists labeled with "Deck:").
 * POST /api/task-lists: Creates a new CalDAV task calendar.
+* PATCH /api/task-lists/{list_id}: Renames a task list (CalDAV displayname).
+* DELETE /api/task-lists/{list_id}: Deletes a task list and its tasks.
 * GET /api/tasks: Returns all task items mapped into hierarchical tree collections (child subtasks are nested inside parent task children arrays).
 * POST /api/tasks: Instantiates a new VTODO card on the target calendar list.
 * PATCH /api/tasks/{task_id}: (Status: 501 Not Implemented) Planned pathway for editing tasks and resolving concurrency collisions via ETag headers.

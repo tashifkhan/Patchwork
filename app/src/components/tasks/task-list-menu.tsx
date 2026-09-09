@@ -9,6 +9,7 @@ import { useTheme } from '@/components/theme/context';
 
 const ALL_ID = '__all__';
 const NEW_ID = '__new__';
+const EDIT_ID = '__edit__';
 
 const MENU_WIDTH = 260;
 const ITEM_HEIGHT = 48;
@@ -24,14 +25,16 @@ interface TaskListMenuProps {
   selectedListId: string | null;
   onSelect: (listId: string | null) => void;
   onCreate: () => void;
+  onEdit?: () => void;
 }
 
 /**
  * Header title dropdown for switching the visible task list. Mirrors
  * `ServerTypeMenu` — native UIMenu on iOS, anchored Material 3 menu on
- * Android/web — with an extra "New list…" action at the bottom.
+ * Android/web — with "New list…" and, when a specific list is selected,
+ * "Edit list…" at the bottom.
  */
-export function TaskListMenu({ lists, selectedListId, onSelect, onCreate }: TaskListMenuProps) {
+export function TaskListMenu({ lists, selectedListId, onSelect, onCreate, onEdit }: TaskListMenuProps) {
   const { colors } = useTheme();
   const { height: screenH, width: screenW } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -40,6 +43,7 @@ export function TaskListMenu({ lists, selectedListId, onSelect, onCreate }: Task
 
   const selected = lists.find((l) => l.id === selectedListId) ?? null;
   const title = selected ? selected.name : 'All Tasks';
+  const canEdit = Boolean(onEdit && selected);
 
   if (Platform.OS === 'ios') {
     return (
@@ -60,10 +64,20 @@ export function TaskListMenu({ lists, selectedListId, onSelect, onCreate }: Task
             title: 'New list…',
             image: 'plus',
           },
+          ...(canEdit
+            ? [
+                {
+                  id: EDIT_ID,
+                  title: 'Edit list…',
+                  image: 'pencil',
+                },
+              ]
+            : []),
         ]}
         onPressAction={({ nativeEvent }) => {
           const id = nativeEvent.event;
           if (id === NEW_ID) onCreate();
+          else if (id === EDIT_ID) onEdit?.();
           else if (id === ALL_ID) onSelect(null);
           else onSelect(id);
         }}>
@@ -78,7 +92,7 @@ export function TaskListMenu({ lists, selectedListId, onSelect, onCreate }: Task
     });
   }
 
-  const itemCount = lists.length + 2; // All + lists + New
+  const itemCount = lists.length + 2 + (canEdit ? 1 : 0); // All + lists + New + Edit
   const topLimit = insets.top + 8;
   const bottomLimit = screenH - insets.bottom - 8;
   const spaceBelow = anchor ? bottomLimit - (anchor.y + anchor.h) - GAP : 0;
@@ -161,6 +175,27 @@ export function TaskListMenu({ lists, selectedListId, onSelect, onCreate }: Task
                   <RNText style={{ fontSize: 16, color: colors.accent, fontWeight: '600' }}>New list…</RNText>
                 </RNView>
               </Pressable>
+              {canEdit ? (
+                <Pressable
+                  onPress={() => {
+                    setAnchor(null);
+                    onEdit?.();
+                  }}
+                  android_ripple={{ color: colors.gray3 }}
+                  style={({ pressed }) => ({ backgroundColor: pressed ? colors.bg2 : 'transparent' })}>
+                  <RNView
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      paddingHorizontal: 16,
+                      height: ITEM_HEIGHT,
+                    }}>
+                    <MaterialCommunityIcons name="pencil-outline" size={20} color={colors.accent} />
+                    <RNText style={{ fontSize: 16, color: colors.accent, fontWeight: '600' }}>Edit list…</RNText>
+                  </RNView>
+                </Pressable>
+              ) : null}
             </ScrollView>
           </RNView>
         </Pressable>

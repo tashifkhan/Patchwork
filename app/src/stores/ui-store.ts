@@ -22,6 +22,8 @@ export const useUiStore = create<UiState>((set) => ({
     set({ selectedListId });
     if (selectedListId) {
       AsyncStorage.setItem(LAST_LIST_STORAGE_KEY, selectedListId).catch(() => {});
+    } else {
+      AsyncStorage.removeItem(LAST_LIST_STORAGE_KEY).catch(() => {});
     }
   },
   setSelectedTag: (selectedTag) => set({ selectedTag }),

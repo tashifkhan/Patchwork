@@ -4,7 +4,7 @@ from xml.etree import ElementTree as ET
 from fastapi import HTTPException, status
 
 from app.clients.caldav_client import CalDavClient
-from app.model.task import Task, TaskCreate, TaskList, TaskListCreate
+from app.model.task import Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate
 from app.services.caldav_codec import (
     attach_children,
     is_deck_calendar,
@@ -124,6 +124,42 @@ class TaskService:
             headers={"Content-Type": "application/xml; charset=utf-8"},
         )
         return TaskList(id=slug, href=href, name=task_list.name, is_deck=False)
+
+    async def rename_task_calendar(self, list_id: str, payload: TaskListUpdate) -> TaskList:
+        target = await self._calendar_by_id(list_id)
+        href = f"{target.href.rstrip('/')}/"
+        body = textwrap.dedent(
+            f"""
+            <d:propertyupdate xmlns:d="DAV:">
+              <d:set>
+                <d:prop>
+                  <d:displayname>{_escape_xml(payload.name)}</d:displayname>
+                </d:prop>
+              </d:set>
+            </d:propertyupdate>
+            """
+        ).strip()
+        await self.client.request(
+            "PROPPATCH",
+            self.client.absolute_url(href),
+            content=body,
+            headers={"Content-Type": "application/xml; charset=utf-8"},
+        )
+        return target.model_copy(update={"name": payload.name})
+
+    async def delete_task_calendar(self, list_id: str) -> None:
+        target = await self._calendar_by_id(list_id)
+        href = f"{target.href.rstrip('/')}/"
+        await self.client.request("DELETE", self.client.absolute_url(href))
+
+    async def _calendar_by_id(self, list_id: str) -> TaskList:
+        calendars = await self.list_task_calendars()
+        target = next((calendar for calendar in calendars if calendar.id == list_id), None)
+        if target is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Task list not found"
+            )
+        return target
 
     async def _list_calendar_tasks(self, calendar: TaskList) -> list[Task]:
         body = textwrap.dedent(
