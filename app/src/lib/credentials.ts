@@ -1,49 +1,12 @@
-// Default/web stub. On web the app talks to the proxy (see api/*.ts), so there
-// are no on-device CalDAV accounts; these keep the import surface consistent.
-
-import type { CalDavAccount } from './credentials-types';
-import type { AiProviderId } from './ai-models';
-
-export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
-
-export async function getAccounts(): Promise<CalDavAccount[]> {
-  return [];
-}
-
-export async function getAccount(_id: string): Promise<CalDavAccount | null> {
-  return null;
-}
-
-export async function saveAccount(
-  input: Omit<CalDavAccount, 'id'> & { id?: string }
-): Promise<CalDavAccount> {
-  return { id: input.id ?? 'web', ...input } as CalDavAccount;
-}
-
-export async function deleteAccount(_id: string): Promise<void> {}
-
-export async function getGeminiApiKey(): Promise<string | null> {
-  return null;
-}
-
-export async function saveGeminiApiKey(_apiKey: string): Promise<void> {}
-
-export async function clearGeminiApiKey(): Promise<void> {}
-
-export async function getAiApiKey(_providerId: AiProviderId): Promise<string | null> {
-  return null;
-}
-
-export async function saveAiApiKey(_providerId: AiProviderId, _apiKey: string): Promise<void> {}
-
-export async function clearAiApiKey(_providerId: AiProviderId): Promise<void> {}
-
-export type { GitHubCredentials } from './credentials-types';
-
-export async function getGitHubCredentials(): Promise<import('./credentials-types').GitHubCredentials | null> {
-  return null;
-}
-
-export async function saveGitHubCredentials(_creds: import('./credentials-types').GitHubCredentials): Promise<void> {}
-
-export async function clearGitHubCredentials(): Promise<void> {}
+// Default resolution target for `@/lib/credentials`.
+//
+// Metro never loads this file — it picks `.native.ts` on iOS/Android and
+// `.web.ts` on web. It exists for TypeScript (which does not understand Metro's
+// platform extensions) and for plain-Node consumers such as `bun test`, so it
+// re-exports the web stub rather than the native module: the stub is inert and
+// pulls in no react-native/expo-secure-store graph.
+//
+// Because TypeScript type-checks every call site against this stub, a symbol
+// added to `credentials.native.ts` but not to `credentials.web.ts` now fails to
+// compile instead of becoming a silent `undefined` at runtime on web.
+export * from './credentials.web';

@@ -1,6 +1,2 @@
-import { api } from './client';
-import type { HealthResponse } from './types';
-
-export function fetchHealth() {
-  return api.get<HealthResponse>('/health');
-}
+// Metro picks `.native.ts` / `.web.ts`; see the note in `@/lib/credentials`.
+export * from './health.web';
