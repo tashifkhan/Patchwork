@@ -12,10 +12,11 @@ const SIZE = 40;
 const ICON = 22;
 
 /**
- * Circular Android header back button — used as `headerLeft` on every stack
- * screen that can go back. Replaces the bare toolbar navigation icon with a
- * Material 3–style outlined circle. Uses neutral on-surface colors only —
- * never the accent tint — so it reads as chrome, not a primary action.
+ * Android header back button: an M3 *filled tonal* icon button (40dp,
+ * `surfaceContainerHigh` fill, no outline ring) used as `headerLeft` on every
+ * stack screen that can go back. Corners tighten while pressed, the M3
+ * Expressive shape-morph cue. Neutral on-surface ink, never the accent, so it
+ * reads as chrome rather than a primary action.
  */
 export function HeaderBackButtonLeft({
   canGoBack,
@@ -31,10 +32,6 @@ export function HeaderBackButtonLeft({
 
   if (!canGoBack) return null;
 
-  // M3 onSurface / outline — ignore headerTintColor (accent) on purpose.
-  const iconColor = colors.text;
-  const ringColor = colors.separator;
-
   return (
     <Pressable
       onPress={() => {
@@ -43,27 +40,20 @@ export function HeaderBackButtonLeft({
       }}
       accessibilityRole="button"
       accessibilityLabel="Go back"
-      hitSlop={4}
-      android_ripple={{ color: colors.separator, borderless: true, radius: SIZE / 2 + 4 }}
-      style={{
+      hitSlop={6}
+      android_ripple={{ color: colors.separator, borderless: false }}
+      style={({ pressed }) => ({
         width: SIZE,
         height: SIZE,
-        // Gap between the circular back control and the header title.
         marginRight: 12,
+        borderRadius: pressed ? 12 : SIZE / 2,
+        overflow: 'hidden',
         alignItems: 'center',
         justifyContent: 'center',
-      }}>
-      <View
-        style={{
-          width: SIZE,
-          height: SIZE,
-          borderRadius: SIZE / 2,
-          borderWidth: 1.5,
-          borderColor: ringColor,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-        <MaterialCommunityIcons name="arrow-left" size={ICON} color={iconColor} />
+        backgroundColor: colors.bg3,
+      })}>
+      <View pointerEvents="none">
+        <MaterialCommunityIcons name="arrow-left" size={ICON} color={colors.text} />
       </View>
     </Pressable>
   );

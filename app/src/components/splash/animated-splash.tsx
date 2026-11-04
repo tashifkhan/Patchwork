@@ -67,7 +67,18 @@ const DARK_ICON = require('@/assets/images/splash-icon-dark.png');
  * those disagree the 250ms native cross-fade covers the change, which is why
  * `SplashScreen.setOptions({ fade: true })` is not optional.
  */
-export function AnimatedSplash({ ready }: { ready: boolean }) {
+export function AnimatedSplash({
+  ready,
+  onLayout,
+}: {
+  ready: boolean;
+  /**
+   * Fires once the overlay has been laid out full-screen. The root layout
+   * waits for this before hiding the native splash so there is never a frame
+   * where neither the native splash nor this overlay is covering the app.
+   */
+  onLayout?: () => void;
+}) {
   const scheme = useEffectiveScheme();
   const [done, setDone] = useState(false);
   const progress = useSharedValue(0);
@@ -77,23 +88,32 @@ export function AnimatedSplash({ ready }: { ready: boolean }) {
     if (!ready || done) return;
     // Let the native splash finish cross-fading into this overlay before the
     // mark moves, otherwise the pop plays underneath a view that is still there.
-    iconScale.value = withDelay(
-      NATIVE_FADE,
-      withSequence(timing(1.08, DURATION.medium1), spring(1, 'spatial'))
+    // M3 Expressive: a quick spring "breath" on the mark, then it sinks back
+    // as the overlay lifts so the reveal reads as one motion.
+    iconScale.set(
+      withDelay(
+        NATIVE_FADE,
+        withSequence(
+          spring(1.12, 'spatial'),
+          withDelay(DURATION.short2, timing(0.86, DURATION.medium4, EASING.emphasizedAccelerate))
+        )
+      )
     );
-    progress.value = withDelay(
-      EXIT_DELAY,
-      withTiming(
-        1,
-        {
-          duration: DURATION.medium4,
-          easing: EASING.emphasizedAccelerate,
-          reduceMotion: ReduceMotion.System,
-        },
-        (finished) => {
-          'worklet';
-          if (finished) scheduleOnRN(setDone, true);
-        }
+    progress.set(
+      withDelay(
+        EXIT_DELAY,
+        withTiming(
+          1,
+          {
+            duration: DURATION.medium4,
+            easing: EASING.emphasizedAccelerate,
+            reduceMotion: ReduceMotion.System,
+          },
+          (finished) => {
+            'worklet';
+            if (finished) scheduleOnRN(setDone, true);
+          }
+        )
       )
     );
 
@@ -121,6 +141,7 @@ export function AnimatedSplash({ ready }: { ready: boolean }) {
       pointerEvents="auto"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
+      onLayout={onLayout}
       style={[
         styles.overlay,
         { backgroundColor: SPLASH_BACKGROUND[scheme] },
@@ -139,7 +160,15 @@ export function AnimatedSplash({ ready }: { ready: boolean }) {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    // Spelled out on purpose: React Native 0.88 removed
+    // `StyleSheet.absoluteFillObject`, and spreading the resulting `undefined`
+    // silently turned this overlay into a 180dp in-flow block that pushed the
+    // whole app up and sat underneath the tab bar until it unmounted.
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
