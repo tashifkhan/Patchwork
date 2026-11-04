@@ -261,6 +261,8 @@ export interface GitHubIssueCreate {
   title: string;
   body?: string;
   assignees?: string[];
+  /** Label names; GitHub creates any that don't exist yet when you can push. */
+  labels?: string[];
 }
 
 export interface GitHubRepo {
