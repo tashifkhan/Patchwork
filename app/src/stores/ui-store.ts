@@ -8,6 +8,12 @@ interface UiState {
   selectedListId: string | null;
   selectedTag: string | null;
   selectedBoardId: number | null;
+  /**
+   * One-shot request from Search: the Tasks screen opens this task in place
+   * (Things-style card) the next time it renders, then clears it.
+   */
+  openTaskUid: string | null;
+  requestOpenTask: (uid: string | null) => void;
   setSelectedListId: (listId: string | null) => void;
   setSelectedTag: (tag: string | null) => void;
   setSelectedBoardId: (boardId: number | null) => void;
@@ -18,6 +24,8 @@ export const useUiStore = create<UiState>((set) => ({
   selectedListId: null,
   selectedTag: null,
   selectedBoardId: null,
+  openTaskUid: null,
+  requestOpenTask: (openTaskUid) => set({ openTaskUid }),
   setSelectedListId: (selectedListId) => {
     set({ selectedListId });
     if (selectedListId) {

@@ -1,5 +1,6 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { memo } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
@@ -23,7 +24,7 @@ export const TagChipList = memo(function TagChipList({
   const chips = tags.map((tag) => {
     const selected = selectedTag === tag;
     return (
-      <Chip
+      <FilterChip
         key={tag}
         label={tag}
         selected={selected}
@@ -40,62 +41,151 @@ export const TagChipList = memo(function TagChipList({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerClassName="gap-2 px-1">
+      contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
       {chips}
     </ScrollView>
   );
 });
 
 /**
- * Material 3 filter chip: 32dp container, `primaryContainer` when selected
- * (a solid accent fill reads as a *button*, not a filter), and an outline when
- * not. `hitSlop` lifts the effective touch target to the 48dp minimum without
- * inflating the visual chip.
+ * Material 3 filter chip: 32dp tall with 8dp corners. Unselected it is an
+ * outlined chip with a leading tag glyph; selected it fills with the tonal
+ * selection color and the glyph becomes a check, as the spec asks. Corners
+ * tighten while pressed, the M3 Expressive shape-morph cue.
  */
-function Chip({
+export function FilterChip({
+  label,
+  selected,
+  onPress,
+  icon = 'tag-outline',
+  count,
+}: {
+  label: string;
+  selected: boolean;
+  onPress?: () => void;
+  icon?: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  count?: number;
+}) {
+  const { colors } = useTheme();
+  const ink = selected ? colors.onSelectionBg : colors.text2;
+
+  return (
+    <Pressable
+      onPress={
+        onPress
+          ? () => {
+              haptics.selection();
+              onPress();
+            }
+          : undefined
+      }
+      disabled={!onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`Filter by ${label}`}
+      hitSlop={8}
+      android_ripple={{ color: colors.separator }}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        height: 32,
+        paddingLeft: 8,
+        paddingRight: 12,
+        borderRadius: pressed ? 16 : 8,
+        borderCurve: 'continuous',
+        overflow: 'hidden',
+        backgroundColor: selected ? colors.selectionBg : 'transparent',
+        borderWidth: selected ? 0 : 1,
+        borderColor: colors.gray2,
+        opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
+      })}>
+      <MaterialCommunityIcons name={selected ? 'check' : icon} size={18} color={ink} />
+      <Text style={{ fontSize: 14, fontWeight: '500', color: selected ? ink : colors.text }}>
+        {label}
+      </Text>
+      {count != null ? (
+        <Text style={{ fontSize: 12, color: ink, fontVariant: ['tabular-nums'] }}>{count}</Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * Things-style tag filter row ("All · Important · Errand"): the active
+ * filter sits in a tonal pill, the rest are plain text. Lighter than a row of
+ * outlined chips, so it reads as a filter for the page rather than buttons.
+ */
+export function TagFilterTabs({
+  tags,
+  selectedTag,
+  onSelect,
+}: {
+  tags: string[];
+  selectedTag: string | null;
+  onSelect: (tag: string | null) => void;
+}) {
+  if (tags.length === 0) return null;
+  const items: { key: string; label: string; value: string | null }[] = [
+    { key: '__all__', label: 'All', value: null },
+    ...tags.map((tag) => ({ key: tag, label: tag, value: tag })),
+  ];
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 4, paddingRight: 8 }}>
+      {items.map((item) => (
+        <TabPill
+          key={item.key}
+          label={item.label}
+          selected={selectedTag === item.value}
+          onPress={() => onSelect(item.value)}
+        />
+      ))}
+    </ScrollView>
+  );
+}
+
+function TabPill({
   label,
   selected,
   onPress,
 }: {
   label: string;
   selected: boolean;
-  onPress?: () => void;
+  onPress: () => void;
 }) {
   const { colors } = useTheme();
-
-  const body = (
-    <View
-      className="justify-center rounded-full px-3"
-      style={{
-        minHeight: 32,
-        borderCurve: 'continuous',
-        backgroundColor: selected ? colors.primaryContainer : colors.bg2,
-        borderWidth: selected ? 0 : StyleSheet.hairlineWidth,
-        borderColor: colors.separator,
-      }}>
-      <Text
-        className="text-sm font-medium"
-        style={{ color: selected ? colors.onPrimaryContainer : colors.text2 }}>
-        {label}
-      </Text>
-    </View>
-  );
-
-  if (!onPress) return body;
-
   return (
     <Pressable
       onPress={() => {
         haptics.selection();
         onPress();
       }}
-      accessibilityRole="button"
+      accessibilityRole="tab"
       accessibilityState={{ selected }}
-      accessibilityLabel={`Filter by tag ${label}`}
-      hitSlop={8}
-      android_ripple={{ color: colors.separator, borderless: true }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-      {body}
+      accessibilityLabel={label === 'All' ? 'Show all tags' : `Filter by ${label}`}
+      hitSlop={6}
+      android_ripple={{ color: colors.separator }}
+      style={({ pressed }) => ({
+        height: 34,
+        paddingHorizontal: 14,
+        justifyContent: 'center',
+        borderRadius: 17,
+        borderCurve: 'continuous',
+        overflow: 'hidden',
+        backgroundColor: selected ? colors.selectionBg : 'transparent',
+        opacity: pressed && Platform.OS === 'ios' ? 0.6 : 1,
+      })}>
+      <Text
+        style={{
+          fontSize: 15,
+          fontWeight: selected ? '600' : '500',
+          color: selected ? colors.onSelectionBg : colors.text2,
+        }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }

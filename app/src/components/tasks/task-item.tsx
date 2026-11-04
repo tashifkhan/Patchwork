@@ -5,10 +5,11 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 
 import type { Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
+import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
-import { formatRelativeDue } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
+import { describeWhen } from '@/lib/when';
 import { useFocusStore } from '@/stores/focus-store';
 import { Text, View } from '@/tw';
 import { endFocus, startFocus } from '@/widgets/focus';
@@ -20,56 +21,55 @@ interface TaskItemProps {
   onToggle: (task: Task) => void;
   onOpen: (task: Task) => void;
   depth?: number;
-  /** Render nested children inline (list view). Off in the detail subtask list. */
+  /** Render nested children as rows. The Things-style list shows them in the card instead. */
   showChildren?: boolean;
+  /** Show which list the task lives in (useful when viewing all lists). */
+  showList?: boolean;
+  /** Fade the row back while another to-do is open in place. */
+  dimmed?: boolean;
 }
 
-function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = true }: TaskItemProps) {
+/**
+ * Things-style row: checkbox, title, then small glyphs for whatever extra the
+ * to-do carries (notes, tags, checklist). Dates and the list name sit on a
+ * quiet second line only when they exist.
+ */
+function TaskItemComponent({
+  task,
+  onToggle,
+  onOpen,
+  depth = 0,
+  showChildren = false,
+  showList = true,
+  dimmed = false,
+}: TaskItemProps) {
   const { colors } = useTheme();
-  const due = formatRelativeDue(task.due_at);
-  const excerpt = task.markdown
-    .replace(/[`*_>#\[\]()!-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const when = describeWhen(task.due_at);
+  const hasNotes = task.markdown.trim().length > 0;
   const childCount = task.children.length;
-  const showList = !task.parent_uid && Boolean(task.list_name);
+  const doneChildren = task.children.filter((c) => c.completed).length;
+  const listLabel = showList && !task.parent_uid ? task.list_name : '';
   const focusUid = useFocusStore((s) => s.taskUid);
   const isFocused = focusUid === task.uid;
   const focusEnabled = Platform.OS === 'ios' && !task.completed;
+  const showMeta = Boolean(when || listLabel);
 
   return (
-    // Rows fade in/out and slide to their new position with M3 timings, so
-    // completing a task or reordering reads as movement instead of a jump.
     <Animated.View
       entering={FadeIn.duration(DURATION.medium1).easing(EASING.emphasizedDecelerate)}
       exiting={FadeOut.duration(DURATION.short4).easing(EASING.emphasizedAccelerate)}
       layout={LinearTransition.duration(DURATION.medium2).easing(EASING.emphasized)}>
+      {/* Dimming lives on an inner view: the layout animation owns the outer opacity. */}
       <View
-        className="flex-row items-center gap-2"
-        style={{ paddingLeft: depth * 28, minHeight: MIN_TOUCH_TARGET }}>
-        <Pressable
-          onPress={() => {
-            // Completing lands harder than un-completing (see lib/haptics).
-            haptics.toggle(!task.completed);
-            onToggle(task);
-          }}
-          accessibilityRole="checkbox"
-          accessibilityLabel={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
-          accessibilityState={{ checked: task.completed }}
-          hitSlop={12}
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.5 : 1,
-            width: MIN_TOUCH_TARGET,
-            height: MIN_TOUCH_TARGET,
-            alignItems: 'center',
-            justifyContent: 'center',
-          })}>
-          <MaterialCommunityIcons
-            name={task.completed ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
-            size={26}
-            color={task.completed ? colors.accent : colors.gray}
+        className="flex-row items-center"
+        style={{ paddingLeft: depth * 28, minHeight: 48, opacity: dimmed ? 0.38 : 1 }}>
+        <View style={{ marginLeft: -11 }}>
+          <TaskCheckbox
+            checked={task.completed}
+            onToggle={() => onToggle(task)}
+            label={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
           />
-        </Pressable>
+        </View>
 
         <Pressable
           onPress={() => {
@@ -77,60 +77,71 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
             onOpen(task);
           }}
           accessibilityRole="button"
-          accessibilityLabel={`${task.title}${due.label ? `, ${due.label}` : ''}`}
+          accessibilityHint="Opens the to-do in place"
+          accessibilityLabel={`${task.title}${when ? `, due ${when.label}` : ''}`}
           android_ripple={{ color: colors.separator }}
           style={({ pressed }) => ({
-            opacity: pressed ? 0.7 : 1,
+            opacity: pressed && Platform.OS === 'ios' ? 0.6 : 1,
             flex: 1,
             minHeight: MIN_TOUCH_TARGET,
             justifyContent: 'center',
-            paddingVertical: 10,
+            paddingVertical: showMeta ? 7 : 10,
+            paddingRight: 4,
           })}>
-          <View className="flex-1 gap-1.5">
-            <View className="flex-row items-start justify-between gap-2">
-              <Text
-                numberOfLines={2}
-                className={`flex-1 text-base ${task.completed ? 'text-sf-text-3 line-through' : 'text-sf-text'}`}
-                style={{ fontWeight: task.completed ? '400' : '500' }}>
-                {task.title}
-              </Text>
-              {due.label ? (
-                <Text className={`text-xs ${due.overdue && !task.completed ? 'text-sf-orange' : 'text-sf-text-2'}`}>
-                  {due.label}
-                </Text>
-              ) : null}
-            </View>
-
-            {excerpt ? (
-              <Text numberOfLines={2} className="text-sf-text-2 text-sm" selectable={false}>
-                {excerpt}
-              </Text>
+          <View className="flex-row items-center gap-1.5">
+            <Text
+              numberOfLines={2}
+              style={{
+                flexShrink: 1,
+                fontSize: 17,
+                color: task.completed ? colors.text3 : colors.text,
+                textDecorationLine: task.completed ? 'line-through' : 'none',
+              }}>
+              {task.title}
+            </Text>
+            {hasNotes ? (
+              <MaterialCommunityIcons name="file-document-outline" size={15} color={colors.text3} />
             ) : null}
-
-            {(showList || task.tags.length > 0 || childCount > 0) ? (
-              <View className="flex-row flex-wrap items-center gap-1.5 pt-0.5">
-                {childCount > 0 ? (
-                  <Chip
-                    icon="format-list-checks"
-                    label={`${childCount} subtask${childCount > 1 ? 's' : ''}`}
-                    color={colors.text2}
-                    bg={colors.bg2}
-                  />
-                ) : null}
-                {showList ? (
-                  <Chip
-                    icon="format-list-bulleted"
-                    label={task.list_name}
-                    color={colors.text2}
-                    bg={colors.bg2}
-                  />
-                ) : null}
-                {task.tags.map((tag) => (
-                  <Chip key={tag} icon="tag-outline" label={tag} color={colors.text2} bg={colors.bg2} />
-                ))}
+            {task.tags.length > 0 ? (
+              <MaterialCommunityIcons name="tag-outline" size={15} color={colors.text3} />
+            ) : null}
+            {childCount > 0 ? (
+              <View className="flex-row items-center gap-0.5">
+                <MaterialCommunityIcons name="format-list-checks" size={15} color={colors.text3} />
+                <Text style={{ fontSize: 12, color: colors.text3 }}>
+                  {doneChildren}/{childCount}
+                </Text>
               </View>
             ) : null}
           </View>
+
+          {showMeta ? (
+            <View className="flex-row items-center gap-2" style={{ marginTop: 2 }}>
+              {when ? (
+                <View className="flex-row items-center gap-1">
+                  <MaterialCommunityIcons
+                    name={when.isToday ? 'star' : 'flag-variant'}
+                    size={13}
+                    color={
+                      when.isToday ? '#F5C400' : when.overdue && !task.completed ? colors.red : colors.text2
+                    }
+                  />
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: when.overdue && !task.completed ? colors.red : colors.text2,
+                    }}>
+                    {when.hint && !when.overdue ? `${when.label} · ${when.hint}` : when.label}
+                  </Text>
+                </View>
+              ) : null}
+              {listLabel ? (
+                <Text numberOfLines={1} style={{ fontSize: 13, color: colors.text3, flexShrink: 1 }}>
+                  {listLabel}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </Pressable>
 
         {focusEnabled ? (
@@ -153,7 +164,7 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
             <MaterialCommunityIcons
               name={isFocused ? 'timer-off-outline' : 'timer-outline'}
               size={22}
-              color={isFocused ? colors.accent : colors.text2}
+              color={isFocused ? colors.accent : colors.text3}
             />
           </Pressable>
         ) : null}
@@ -168,32 +179,12 @@ function TaskItemComponent({ task, onToggle, onOpen, depth = 0, showChildren = t
               onToggle={onToggle}
               onOpen={onOpen}
               depth={depth + 1}
+              showChildren
             />
           ))}
         </View>
       ) : null}
     </Animated.View>
-  );
-}
-
-function Chip({
-  icon,
-  label,
-  color,
-  bg,
-}: {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  label: string;
-  color: string;
-  bg: string;
-}) {
-  return (
-    <View
-      className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
-      style={{ backgroundColor: bg, borderCurve: 'continuous' }}>
-      <MaterialCommunityIcons name={icon} size={13} color={color} />
-      <Text className="text-sf-text-2 text-xs">{label}</Text>
-    </View>
   );
 }
 

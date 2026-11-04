@@ -15,7 +15,11 @@ import { Text, View } from '@/tw';
 // Demotes a CalDAV task down into a Deck card: creates the card on the chosen
 // board/stack, then deletes the original task. Subtasks travel along as
 // description bullets since Deck cards have no native child cards.
-export function MoveToDeck({ task }: { task: Task }) {
+/**
+ * `inline` renders it as a bare property row (no section label or card), for
+ * the Things-style detail page's Details group.
+ */
+export function MoveToDeck({ task, inline = false }: { task: Task; inline?: boolean }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const [boardId, setBoardId] = useState<number | null>(null);
@@ -66,17 +70,25 @@ export function MoveToDeck({ task }: { task: Task }) {
   }
 
   return (
-    <View className="gap-2 px-4 pb-4">
-      <View className="flex-row items-center gap-1.5 px-1">
-        <MaterialCommunityIcons name="rectangle-outline" size={14} color={colors.text2} />
-        <Text className="text-sf-text-2 text-xs font-semibold uppercase">Demote to Deck</Text>
-      </View>
+    <View className={inline ? '' : 'gap-2 px-4 pb-4'}>
+      {inline ? null : (
+        <View className="flex-row items-center gap-1.5 px-1">
+          <MaterialCommunityIcons name="rectangle-outline" size={14} color={colors.text2} />
+          <Text className="text-sf-text-2 text-xs font-semibold uppercase">Demote to Deck</Text>
+        </View>
+      )}
 
-      <View className="bg-sf-bg-2 rounded-xl" style={{ borderCurve: 'continuous' }}>
+      <View
+        className={inline ? '' : 'bg-sf-bg-2 rounded-xl'}
+        style={{ borderCurve: 'continuous' }}>
         <Pressable
           onPress={() => setOpen((prev) => !prev)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-          <View className="flex-row items-center justify-between px-3 py-3">
+          <View
+            className={`flex-row items-center justify-between ${inline ? '' : 'px-3'}`}
+            style={{ minHeight: inline ? 56 : undefined, paddingVertical: inline ? 0 : 12 }}>
             <View className="flex-row items-center gap-3">
               <MaterialCommunityIcons name="arrow-down-bold-box-outline" size={20} color={colors.accent} />
               <Text className="text-sf-text text-base">Demote to a Deck card</Text>
@@ -90,7 +102,8 @@ export function MoveToDeck({ task }: { task: Task }) {
         </Pressable>
 
         {open ? (
-          <View className="border-sf-separator gap-3 border-t px-3 py-3">
+          <View
+            className={`gap-3 py-3 ${inline ? 'pl-8' : 'border-sf-separator border-t px-3'}`}>
             {boardsQuery.isLoading ? (
               <InlineLoading label="Loading boards…" />
             ) : boards.length === 0 ? (

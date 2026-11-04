@@ -1,25 +1,50 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Link, Stack, router } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, RefreshControl } from 'react-native';
+import { Stack, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BackHandler,
+  Keyboard,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  type ScrollView as RNScrollView,
+} from 'react-native';
 
 import { ApiError } from '@/api/client';
 import type { GitHubIssue, Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { CreateTaskListForm } from '@/components/tasks/create-task-list-form';
 import { DraggableColumn } from '@/components/tasks/draggable-column';
-import { TagChipList } from '@/components/tasks/tag-chip-list';
+import { ListPicker } from '@/components/tasks/list-picker';
+import { GitHubSection } from '@/components/tasks/github-section';
+import { Section } from '@/components/tasks/task-section';
+import { TaskActionBar } from '@/components/tasks/task-action-bar';
+import {
+  TaskCard,
+  type TaskCardHandle,
+  type TaskCardResult,
+} from '@/components/tasks/task-card';
+import { TagFilterTabs } from '@/components/tasks/tag-chip-list';
 import { TaskItem } from '@/components/tasks/task-item';
-import { TaskListMenu } from '@/components/tasks/task-list-menu';
+import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Fab } from '@/components/ui/fab';
-import { Icon } from '@/components/ui/icon';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { haptics } from '@/lib/haptics';
-import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import {
+  useTabBarContentPadding,
+  useTabBarFabOffset,
+  useTabBarMinimizeOnScroll,
+} from '@/lib/tab-bar';
+import { cancelTaskReminder } from '@/lib/notifications';
+import { setCreateHandoff } from '@/stores/create-handoff';
+import {
+  useCreateTask,
+  useDeleteTask,
   useReorderTasks,
   useCreateTaskList,
   useTasks,
@@ -28,19 +53,19 @@ import {
   type ReorderEntry,
 } from '@/hooks/use-tasks';
 import { useGitHubIssues, useToggleGitHubIssue } from '@/hooks/use-github';
-import { GitHubIssueItem } from '@/components/tasks/github-issue-item';
 import {
   BUCKET_LABELS,
   BUCKET_ORDER,
   bucketOf,
   byManualOrder,
+  flattenTasks,
   type BucketKey,
 } from '@/lib/task-buckets';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
-import { ScrollView, Text, View, useCSSVariable } from '@/tw';
+import { ScrollView, Text, View } from '@/tw';
 
 function collectTags(tasks: Task[]): string[] {
   const set = new Set<string>();
@@ -64,7 +89,6 @@ function isMissingCalDavAccountError(error: unknown) {
 
 export default function TasksScreen() {
   const { colors } = useTheme();
-  const blue = useCSSVariable('--sf-blue');
   const onTabBarScroll = useTabBarMinimizeOnScroll();
   const contentBottom = useTabBarContentPadding(96);
   const tasksQuery = useTasks();
@@ -72,6 +96,9 @@ export default function TasksScreen() {
   const updateTask = useUpdateTask();
   const createList = useCreateTaskList();
   const reorderTasks = useReorderTasks();
+  const createTask = useCreateTask();
+  const deleteTask = useDeleteTask();
+  const fabBottom = useTabBarFabOffset();
   const taskWarnings = useSyncStatusStore((state) => state.taskWarnings);
 
   const selectedListId = useUiStore((s) => s.selectedListId);
@@ -82,21 +109,66 @@ export default function TasksScreen() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ overdue: false, completed: true, github_open: false, github_closed: true });
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
   const [createListOpen, setCreateListOpen] = useState(false);
+  /** Task id open in place as a card, `'new'` for the inline new to-do, or null. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
+  const [moveListId, setMoveListId] = useState<string | null>(null);
+  const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const insets = useSafeAreaInsets();
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const cardRef = useRef<TaskCardHandle>(null);
+  const scrollRef = useRef<RNScrollView>(null);
+  const scrollY = useRef(0);
 
   const lists = useMemo(
     () => (listsQuery.data ?? []).filter((list) => !list.is_deck),
     [listsQuery.data]
   );
   const allTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
+  const selectedList = lists.find((l) => l.id === selectedListId) ?? null;
+  const listCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of allTasks) {
+      if (task.completed) continue;
+      counts[task.list_id] = (counts[task.list_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [allTasks]);
+  const openTotal = useMemo(() => allTasks.filter((t) => !t.completed).length, [allTasks]);
+  const visibleOpen = selectedListId ? (listCounts[selectedListId] ?? 0) : openTotal;
   const allTags = useMemo(() => collectTags(allTasks), [allTasks]);
 
   const githubQuery = useGitHubIssues();
   const toggleGitHubIssue = useToggleGitHubIssue();
   const githubConnection = useGitHubSessionStore((state) => state.state);
+  const githubRepositories = useSettingsStore((s) => s.githubRepositories);
+  const githubEnabled = githubRepositories.length > 0;
+  /** A followed GitHub repository acts as a list: its id is `gh:<owner/repo>`. */
+  const repoFilter = selectedListId?.startsWith('gh:') ? selectedListId.slice(3) : null;
+  const allIssues = useMemo(() => githubQuery.data?.issues ?? [], [githubQuery.data?.issues]);
+  const repoIssueCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const issue of allIssues) {
+      if (issue.completed) continue;
+      counts[issue.repo.toLowerCase()] = (counts[issue.repo.toLowerCase()] ?? 0) + 1;
+    }
+    return counts;
+  }, [allIssues]);
+  const repoLabels = useMemo(() => {
+    if (!repoFilter) return [];
+    const set = new Set<string>();
+    for (const issue of allIssues) {
+      if (issue.repo.toLowerCase() !== repoFilter.toLowerCase()) continue;
+      issue.labels.forEach((label) => set.add(label.name));
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [allIssues, repoFilter]);
 
   const visibleTasks = useMemo(
     () =>
       allTasks.filter((task) => {
+        if (selectedListId?.startsWith('gh:')) return false;
         if (selectedListId && task.list_id !== selectedListId) return false;
         if (selectedTag && !task.tags.includes(selectedTag)) return false;
         return true;
@@ -150,14 +222,177 @@ export default function TasksScreen() {
     [toggleGitHubIssue]
   );
 
-  const handleOpen = useCallback((task: Task) => {
-    // Use object form so expo-router encodes params correctly and the detail
-    // screen always receives a decoded uid (fixes "tap shows nothing").
-    router.push({
-      pathname: '/task/[uid]',
-      params: { uid: task.uid },
+  /** Save and fold the open card, if any. Returns true when one was open. */
+  const closeCard = useCallback(() => {
+    if (expandedId == null) return false;
+    Keyboard.dismiss();
+    if (cardRef.current) cardRef.current.commit();
+    else setExpandedId(null);
+    return true;
+  }, [expandedId]);
+
+  // Things behavior: tapping a to-do opens it in place. Tapping another row
+  // while one is open just closes the open one first.
+  const handleOpen = useCallback(
+    (task: Task) => {
+      if (closeCard()) return;
+      setExpandedId(task.id);
+    },
+    [closeCard]
+  );
+
+  const openNewCard = useCallback(() => {
+    if (expandedId === 'new') return;
+    if (repoFilter) {
+      // An issue needs a repository and has no CalDAV fields, so it gets the
+      // full add dialog, already pointed at this repo.
+      haptics.impact('medium');
+      router.push({ pathname: '/new-task', params: { repo: repoFilter } });
+      return;
+    }
+    closeCard();
+    haptics.impact('medium');
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    // Let the previous card's close commit land before mounting the new one.
+    requestAnimationFrame(() => setExpandedId('new'));
+  }, [closeCard, expandedId, repoFilter]);
+
+  const handleAddChild = useCallback(
+    (parent: Task, title: string) => {
+      createTask
+        .mutateAsync({ list_id: parent.list_id, title, parent_uid: parent.uid })
+        .catch((error) =>
+          setAlert({
+            title: 'Could not add checklist item',
+            message: error instanceof ApiError ? error.message : 'Please try again.',
+          })
+        );
+    },
+    [createTask]
+  );
+
+  const handleCardClose = useCallback(
+    async (result: TaskCardResult) => {
+      setExpandedId(null);
+      setMovePickerOpen(false);
+      if (result.kind === 'update') {
+        updateTask
+          .mutateAsync({
+            taskId: result.task.id,
+            accountId: result.task.account_id,
+            patch: result.patch,
+          })
+          .catch((error) =>
+            setAlert({
+              title: 'Could not save to-do',
+              message: error instanceof ApiError ? error.message : 'Please try again.',
+            })
+          );
+      } else if (result.kind === 'create') {
+        try {
+          const created = await createTask.mutateAsync(result.payload);
+          haptics.success();
+          for (const item of result.checklist) {
+            await createTask.mutateAsync({
+              list_id: created.list_id,
+              title: item,
+              parent_uid: created.uid,
+            });
+          }
+        } catch (error) {
+          setAlert({
+            title: 'Could not create to-do',
+            message: error instanceof ApiError ? error.message : 'Please try again.',
+          });
+        }
+      }
+    },
+    [createTask, updateTask]
+  );
+
+  /** Scroll just enough that an opened card clears the header and the action bar. */
+  const revealCard = useCallback(
+    (top: number, bottom: number) => {
+      // Measure the list itself: the tab bar sits below it, and the action bar
+      // floats `fabBottom` above the list's bottom edge.
+      scrollRef.current?.measureInWindow((_x, listTop, _w, listHeight) => {
+        const visibleTop = listTop + 8;
+        const visibleBottom = listTop + listHeight - fabBottom - 60 - 16;
+        let delta = 0;
+        if (bottom > visibleBottom) delta = bottom - visibleBottom;
+        // Never push the top of the card off-screen to show its bottom.
+        if (top - delta < visibleTop) delta = top - visibleTop;
+        if (Math.abs(delta) < 4) return;
+        scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current + delta), animated: true });
+      });
+    },
+    [fabBottom]
+  );
+
+  // Search hands over a task to open in place (Things Quick Find behavior).
+  const openTaskUid = useUiStore((s) => s.openTaskUid);
+  const requestOpenTask = useUiStore((s) => s.requestOpenTask);
+  useEffect(() => {
+    if (!openTaskUid || allTasks.length === 0) return;
+    // A frame's delay lets the tab switch settle before the card springs open.
+    const frame = requestAnimationFrame(() => {
+      requestOpenTask(null);
+      const found = flattenTasks(allTasks).find((t) => t.uid === openTaskUid);
+      if (!found) return;
+      // Subtasks open their parent; filters clear so the row is on screen.
+      const target = found.parent_uid
+        ? (allTasks.find((t) => t.uid === found.parent_uid) ?? found)
+        : found;
+      if (
+        (selectedListId && target.list_id !== selectedListId) ||
+        (selectedTag && !target.tags.includes(selectedTag))
+      ) {
+        setSelectedListId(null);
+        setSelectedTag(null);
+      }
+      if (target.completed) setCollapsed((prev) => ({ ...prev, completed: false }));
+      setExpandedId(target.id);
     });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    allTasks,
+    openTaskUid,
+    requestOpenTask,
+    selectedListId,
+    selectedTag,
+    setSelectedListId,
+    setSelectedTag,
+  ]);
+
+  /** Move the inline new to-do into the full add dialog, keeping what was typed. */
+  const openFullEditor = useCallback(() => {
+    const draft = cardRef.current?.draft();
+    cardRef.current?.discard();
+    if (draft) {
+      setCreateHandoff({
+        title: draft.title,
+        body: draft.notes,
+        task: {
+          list_id: draft.listId,
+          tags: draft.tags,
+          due_at: draft.due,
+          reminder_at: null,
+          priority: null,
+          calendar_id: null,
+          subtasks: draft.checklist,
+          subtaskDraft: '',
+        },
+      });
+    }
+    router.push('/new-task');
   }, []);
+
+  // Android back folds the open card instead of leaving the screen.
+  useEffect(() => {
+    if (expandedId == null) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => closeCard());
+    return () => sub.remove();
+  }, [closeCard, expandedId]);
 
   const handleCreateList = useCallback(async (name: string) => {
     try {
@@ -204,11 +439,18 @@ export default function TasksScreen() {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  const githubRepositories = useSettingsStore((s) => s.githubRepositories);
-  const githubEnabled = githubRepositories.length > 0;
+  // Issues follow the same list and tag filters as to-dos: a CalDAV list hides
+  // them, a repo list shows only its own, and a tag matches label names.
   const githubIssues = useMemo(
-    () => githubQuery.data?.issues ?? [],
-    [githubQuery.data?.issues]
+    () =>
+      selectedList
+        ? []
+        : allIssues.filter((issue) => {
+            if (repoFilter && issue.repo.toLowerCase() !== repoFilter.toLowerCase()) return false;
+            if (selectedTag && !issue.labels.some((l) => l.name === selectedTag)) return false;
+            return true;
+          }),
+    [allIssues, repoFilter, selectedList, selectedTag]
   );
   const isLoading = tasksQuery.isLoading;
   const isFetching = tasksQuery.isFetching || (githubEnabled && githubQuery.isFetching);
@@ -216,71 +458,93 @@ export default function TasksScreen() {
   const showCenteredState = isEmpty && !githubEnabled && !isLoading;
   const needsCalDavAccount = isMissingCalDavAccountError(tasksQuery.error);
 
-  const githubOpen = useMemo(() => githubIssues.filter((i) => !i.completed), [githubIssues]);
-  const githubClosed = useMemo(() => githubIssues.filter((i) => i.completed), [githubIssues]);
+  const repoOpen = repoFilter ? (repoIssueCounts[repoFilter.toLowerCase()] ?? 0) : 0;
+  const heroTitle = repoFilter
+    ? (repoFilter.split('/')[1] ?? repoFilter)
+    : (selectedList?.name ?? 'All Tasks');
+  const heroSubtitle = repoFilter
+    ? `${repoOpen} open issue${repoOpen === 1 ? '' : 's'} · ${repoFilter.split('/')[0]}`
+    : `${visibleOpen} open${selectedList?.account_name ? ` · ${selectedList.account_name}` : ''}`;
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerLargeTitle: false,
-          headerTitleAlign: 'left',
-          headerTitle: () => (
-            <TaskListMenu
-              lists={lists.map((l) => ({ id: l.id, name: l.name }))}
-              selectedListId={selectedListId}
-              onSelect={setSelectedListId}
-              onCreate={() => setCreateListOpen(true)}
-              onEdit={() => {
-                const list = lists.find((item) => item.id === selectedListId);
-                if (!list) return;
-                router.push({
-                  pathname: '/edit-list',
-                  params: { listId: list.id, name: list.name },
-                });
-              }}
-            />
-          ),
-          headerRight: () => (
-            <Link href="/new-task" asChild>
-              <Pressable hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
-                <Icon name="plus" size={22} color={blue as string} />
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
+      {/* Things-style: the list name is the page title, so no nav header. */}
+      <Stack.Screen options={{ headerShown: false }} />
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
+        keyboardShouldPersistTaps="handled"
         scrollEventThrottle={16}
-        onScroll={onTabBarScroll}
+        onScroll={(event) => {
+          scrollY.current = event.nativeEvent.contentOffset.y;
+          onTabBarScroll(event);
+        }}
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: 16,
-          paddingBottom: contentBottom,
+          // Room for the floating action bar so the last card can scroll clear of it.
+          paddingBottom: contentBottom + (expandedId ? 140 : 0),
         }}
         refreshControl={
           <RefreshControl
-            refreshing={isFetching && !isLoading}
+            // No nav header any more, so start the spinner below the status bar.
+            progressViewOffset={Platform.OS === 'android' ? insets.top + 12 : undefined}
+            colors={[colors.accent]}
+            progressBackgroundColor={colors.bg3}
+            // Only a pull shows the spinner; background syncs use the quiet bar.
+            refreshing={pulling}
             onRefresh={() => {
               haptics.impact('light');
-              tasksQuery.refetch();
-              if (githubEnabled) githubQuery.refetch();
+              setPulling(true);
+              Promise.allSettled([
+                tasksQuery.refetch(),
+                githubEnabled ? githubQuery.refetch() : Promise.resolve(),
+              ]).finally(() => setPulling(false));
             }}
           />
         }>
-        {isFetching && !isLoading ? (
-          <View className="mb-1 pt-1">
-            <LoadingBar />
-          </View>
+        {/* Tapping empty space around an open card saves and closes it. */}
+        <Pressable
+          onPress={closeCard}
+          disabled={expandedId == null}
+          accessible={false}
+          style={{ flexGrow: 1 }}>
+        <View
+          pointerEvents={expandedId ? 'none' : 'auto'}
+          style={{
+            paddingTop: Platform.OS === 'android' ? insets.top + 16 : 8,
+            paddingBottom: 4,
+            gap: 12,
+            opacity: expandedId ? 0.38 : 1,
+          }}>
+          <ListHero
+            title={heroTitle}
+            subtitle={heroSubtitle}
+            onPress={() => setListSwitcherOpen(true)}
+          />
+          {/* Background refresh: under the title, clear of the status bar and cutout. */}
+          {isFetching && !isLoading && !pulling ? <LoadingBar style={{ marginTop: -4 }} /> : null}
+          <TagFilterTabs
+            tags={repoFilter ? repoLabels : allTags}
+            selectedTag={selectedTag}
+            onSelect={setSelectedTag}
+          />
+        </View>
+        {expandedId === 'new' ? (
+          <TaskCard
+            ref={cardRef}
+            task={null}
+            lists={lists}
+            defaultListId={selectedListId ?? lists[0]?.id ?? ''}
+            defaultTags={selectedTag ? [selectedTag] : []}
+            availableTags={allTags}
+            onClose={handleCardClose}
+            onOpenAi={openFullEditor}
+          />
         ) : null}
-        {allTags.length > 0 ? (
-          <View className="gap-3 py-2">
-            <TagChipList tags={allTags} selectedTag={selectedTag} onSelect={setSelectedTag} />
-          </View>
-        ) : null}
+
 
         {needsCalDavAccount && !showCenteredState ? (
           <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
@@ -329,11 +593,13 @@ export default function TasksScreen() {
         {isLoading ? (
           // Full M3 loading first (visible on AMOLED); skeleton is for soft reloads only.
           allTasks.length === 0 ? (
-            <LoadingState
-              message="Loading tasks…"
-              subtitle="Syncing CalDAV and your lists"
-              fullScreen={false}
-            />
+            <View className="flex-1 justify-center">
+              <LoadingState
+                message="Loading tasks…"
+                subtitle="Syncing CalDAV and your lists"
+                fullScreen={false}
+              />
+            </View>
           ) : (
             <TaskListSkeleton />
           )
@@ -354,15 +620,37 @@ export default function TasksScreen() {
                 title={BUCKET_LABELS[key]}
                 count={buckets[key].length}
                 collapsed={!!collapsed[key]}
-                onToggle={() => toggleSection(key)}>
+                onToggle={() => (closeCard() ? undefined : toggleSection(key))}>
                 <DraggableColumn
                   data={buckets[key]}
                   keyExtractor={(task) => task.id}
                   onReorder={handleReorder}
                   indicatorColor={colors.accent}
-                  renderItem={(task) => (
-                    <TaskItem task={task} onToggle={handleToggle} onOpen={handleOpen} />
-                  )}
+                  dragEnabled={expandedId == null}
+                  renderItem={(task) =>
+                    task.id === expandedId ? (
+                      <TaskCard
+                        ref={cardRef}
+                        task={task}
+                        lists={lists}
+                        defaultListId={task.list_id}
+                        availableTags={allTags}
+                        onClose={handleCardClose}
+                        onToggleComplete={handleToggle}
+                        onToggleChild={handleToggle}
+                        onAddChild={handleAddChild}
+                        onPlaced={revealCard}
+                      />
+                    ) : (
+                      <TaskItem
+                        task={task}
+                        onToggle={handleToggle}
+                        onOpen={handleOpen}
+                        showList={!selectedListId}
+                        dimmed={expandedId != null}
+                      />
+                    )
+                  }
                 />
               </Section>
             ))}
@@ -372,124 +660,135 @@ export default function TasksScreen() {
                 title="Completed"
                 count={completed.length}
                 collapsed={!!collapsed.completed}
-                onToggle={() => toggleSection('completed')}>
-                {completed.map((task) => (
-                  <TaskItem key={task.id} task={task} onToggle={handleToggle} onOpen={handleOpen} />
-                ))}
+                onToggle={() => (closeCard() ? undefined : toggleSection('completed'))}>
+                {completed.map((task) =>
+                  task.id === expandedId ? (
+                    <TaskCard
+                      key={task.id}
+                      ref={cardRef}
+                      task={task}
+                      lists={lists}
+                      defaultListId={task.list_id}
+                      availableTags={allTags}
+                      onClose={handleCardClose}
+                      onToggleComplete={handleToggle}
+                      onToggleChild={handleToggle}
+                      onAddChild={handleAddChild}
+                      onPlaced={revealCard}
+                    />
+                  ) : (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      onToggle={handleToggle}
+                      onOpen={handleOpen}
+                      showList={!selectedListId}
+                      dimmed={expandedId != null}
+                    />
+                  )
+                )}
               </Section>
             ) : null}
 
-            {githubEnabled ? (
-              <View className="mt-8">
-                <View className="mb-2 flex-row items-center justify-between gap-3">
-                  <View className="flex-row items-center gap-2">
-                    <MaterialCommunityIcons name="github" size={24} color={colors.text} />
-                    <Text className="text-sf-text text-lg font-bold">GitHub Issues</Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Create GitHub issue"
-                    onPress={() => router.push('/new-github-issue')}
-                    style={({ pressed }) => ({
-                      opacity: pressed ? 0.65 : 1,
-                      minHeight: 44,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 5,
-                    })}>
-                    <MaterialCommunityIcons
-                      name="plus-circle-outline"
-                      size={19}
-                      color={colors.accent}
-                    />
-                    <Text className="text-sf-blue text-sm font-semibold">New issue</Text>
-                  </Pressable>
-                </View>
-
-                {githubQuery.data?.warnings.map((warning) => (
-                  <View
-                    key={`${warning.repository}:${warning.code}`}
-                    className="bg-sf-bg-2 mb-2 flex-row items-start gap-2 rounded-xl px-3 py-3"
-                    style={{ borderCurve: 'continuous' }}>
-                    <MaterialCommunityIcons name="alert-outline" size={18} color={colors.orange} />
-                    <Text selectable className="text-sf-text-2 flex-1 text-xs">
-                      {warning.repository}: {warning.message}
-                    </Text>
-                  </View>
-                ))}
-
-                {githubQuery.isLoading ? (
-                  <LoadingState
-                    message="Loading GitHub issues…"
-                    subtitle="Syncing selected repositories"
-                    fullScreen={false}
-                  />
-                ) : githubConnection.status === 'expired' ? (
-                  <View className="bg-sf-bg-2 gap-2 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
-                    <Text className="text-sf-text text-sm font-semibold">GitHub needs to reconnect</Text>
-                    <Text selectable className="text-sf-text-2 text-xs">
-                      {githubConnection.message}
-                    </Text>
-                    <Pressable onPress={() => router.push('/settings/github')}>
-                      <Text className="text-sf-blue text-sm font-semibold">Open GitHub settings</Text>
-                    </Pressable>
-                  </View>
-                ) : githubQuery.isError ? (
-                  <View className="bg-sf-bg-2 gap-2 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
-                    <Text className="text-sf-text text-sm">Could not load GitHub issues</Text>
-                    <Text selectable className="text-sf-text-2 text-xs">
-                      {githubQuery.error instanceof Error
-                        ? githubQuery.error.message
-                        : 'Unknown error'}
-                    </Text>
-                    <Pressable
-                      onPress={() => githubQuery.refetch()}
-                      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-                      <Text className="text-sf-blue text-sm font-medium">Retry</Text>
-                    </Pressable>
-                  </View>
-                ) : githubQuery.data && githubIssues.length === 0 ? (
-                  <View className="bg-sf-bg-2 gap-1 rounded-xl px-3 py-3" style={{ borderCurve: 'continuous' }}>
-                    <Text className="text-sf-text text-sm">No issues found</Text>
-                    <Text className="text-sf-text-2 text-xs">
-                      No issues match the selected repositories, scope, and state.
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    {githubOpen.length > 0 ? (
-                      <Section
-                        title="Open"
-                        count={githubOpen.length}
-                        collapsed={!!collapsed.github_open}
-                        onToggle={() => toggleSection('github_open')}>
-                        {githubOpen.map((issue) => (
-                          <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
-                        ))}
-                      </Section>
-                    ) : null}
-
-                    {githubClosed.length > 0 ? (
-                      <Section
-                        title="Closed"
-                        count={githubClosed.length}
-                        collapsed={!!collapsed.github_closed}
-                        onToggle={() => toggleSection('github_closed')}>
-                        {githubClosed.map((issue) => (
-                          <GitHubIssueItem key={issue.id} issue={issue} onToggle={handleGitHubToggle} />
-                        ))}
-                      </Section>
-                    ) : null}
-                  </>
-                )}
-              </View>
+            {githubEnabled && !selectedList ? (
+              <GitHubSection
+                issues={githubIssues}
+                repoMode={repoFilter != null}
+                loading={githubQuery.isLoading}
+                error={githubQuery.isError ? githubQuery.error : null}
+                warnings={githubQuery.data?.warnings ?? []}
+                connection={githubConnection}
+                collapsed={collapsed}
+                dimmed={expandedId != null}
+                onToggleSection={(key) => (closeCard() ? undefined : toggleSection(key))}
+                onToggleIssue={handleGitHubToggle}
+                onRetry={() => githubQuery.refetch()}
+              />
             ) : null}
           </>
         )}
+        </Pressable>
       </ScrollView>
-      {process.env.EXPO_OS === 'android' ? (
-        <Fab onPress={() => router.push('/new-task')} accessibilityLabel="Add task" />
+      {process.env.EXPO_OS !== 'web' && expandedId == null ? (
+        <Fab onPress={openNewCard} accessibilityLabel="New to-do" />
       ) : null}
+      <ListSwitcherSheet
+        visible={listSwitcherOpen}
+        lists={lists}
+        repos={githubConnection.status === 'connected' ? githubRepositories : []}
+        repoCounts={repoIssueCounts}
+        counts={listCounts}
+        totalCount={openTotal}
+        selectedListId={selectedListId}
+        onSelect={setSelectedListId}
+        onCreate={() => setCreateListOpen(true)}
+        onEdit={() => {
+          if (!selectedList) return;
+          router.push({
+            pathname: '/edit-list',
+            params: { listId: selectedList.id, name: selectedList.name },
+          });
+        }}
+        onClose={() => setListSwitcherOpen(false)}
+      />
+      {expandedId != null ? (
+        <TaskActionBar
+          bottom={fabBottom}
+          deleteLabel={expandedId === 'new' ? 'Discard' : 'Delete'}
+          onMove={() => {
+            setMoveListId(cardRef.current?.listId() ?? null);
+            setMovePickerOpen(true);
+          }}
+          onDelete={() => {
+            if (expandedId === 'new') {
+              cardRef.current?.discard();
+              return;
+            }
+            const task = visibleTasks.find((t) => t.id === expandedId);
+            if (task) setDeleteTarget(task);
+          }}
+          onDetails={() => {
+            if (expandedId === 'new') {
+              openFullEditor();
+              return;
+            }
+            const task = visibleTasks.find((t) => t.id === expandedId);
+            cardRef.current?.commit();
+            if (task) router.push({ pathname: '/task/[uid]', params: { uid: task.uid } });
+          }}
+        />
+      ) : null}
+      <ListPicker
+        visible={movePickerOpen}
+        lists={lists}
+        selectedId={moveListId}
+        onSelect={(list) => {
+          cardRef.current?.setListId(list.id);
+          setMovePickerOpen(false);
+        }}
+        onClose={() => setMovePickerOpen(false)}
+      />
+      <NativeAlert
+        visible={deleteTarget != null}
+        title="Delete to-do"
+        message={deleteTarget ? `Delete "${deleteTarget.title}"?` : ''}
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          const task = deleteTarget;
+          setDeleteTarget(null);
+          if (!task) return;
+          cardRef.current?.discard();
+          haptics.warning();
+          deleteTask
+            .mutateAsync({ taskId: task.id, accountId: task.account_id, etag: task.etag })
+            .then(() => cancelTaskReminder(task.uid))
+            .catch(() =>
+              setAlert({ title: 'Delete failed', message: 'Could not delete the to-do.' })
+            );
+        }}
+      />
       <NativeAlert
         visible={alert != null}
         title={alert?.title ?? ''}
@@ -515,45 +814,6 @@ export default function TasksScreen() {
         </Pressable>
       </Modal>
     </>
-  );
-}
-
-function Section({
-  title,
-  count,
-  collapsed,
-  onToggle,
-  children,
-}: {
-  title: string;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View className="pt-4">
-      <Pressable
-        onPress={onToggle}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: !collapsed }}
-        accessibilityLabel={`${title}, ${count} items`}
-        hitSlop={8}
-        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44, justifyContent: 'center' })}>
-        <View className="flex-row items-center justify-between py-2">
-          <Text className="text-sf-text-2 text-sm font-semibold uppercase">
-            {title} · {count}
-          </Text>
-          <MaterialCommunityIcons
-            name={collapsed ? 'chevron-down' : 'chevron-up'}
-            size={20}
-            color={colors.text2}
-          />
-        </View>
-      </Pressable>
-      {collapsed ? null : <View className="pt-1">{children}</View>}
-    </View>
   );
 }
 
