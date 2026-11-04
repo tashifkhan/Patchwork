@@ -33,6 +33,9 @@ export interface AiCustomProvider {
   modelIds?: string[];
 }
 
+/** How hard a reasoning model should think. Unset uses the provider default. */
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
 export interface AiModelSelection {
   providerId: AiProviderId;
   modelId: string;
@@ -40,6 +43,7 @@ export interface AiModelSelection {
   input?: string[];
   output?: string[];
   reasoning?: boolean;
+  reasoningEffort?: ReasoningEffort;
 }
 
 const MODELS_DEV_CACHE_KEY = 'patchwork.ai.models-dev-cache';

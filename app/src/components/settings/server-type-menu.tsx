@@ -4,6 +4,7 @@ import { Modal, Pressable, View as RNView, Text as RNText, ScrollView, useWindow
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MenuView } from '@expo/ui/community/menu';
+import { SymbolView } from 'expo-symbols';
 
 import { useTheme } from '@/components/theme/context';
 
@@ -37,11 +38,17 @@ export function ServerTypeMenu({ value, onChange }: ServerTypeMenuProps) {
           onChange(nativeEvent.event as any);
         }}>
         <Pressable style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-          <RNView style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 4 }}>
-            <RNText style={{ fontSize: 16, fontWeight: '500', color: colors.text }}>
+          {/* iOS menu picker trigger: current value + up/down chevrons. */}
+          <RNView style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4 }}>
+            <RNText style={{ fontSize: 17, letterSpacing: -0.43, color: colors.text2 }}>
               {serverTypeLabel(value)}
             </RNText>
-            <MaterialCommunityIcons name="menu-down" size={22} color={colors.text2} />
+            <SymbolView
+              name="chevron.up.chevron.down"
+              size={13}
+              weight="semibold"
+              tintColor={colors.text2}
+            />
           </RNView>
         </Pressable>
       </MenuView>

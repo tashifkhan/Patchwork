@@ -1,9 +1,14 @@
 import { useState } from 'react';
 
-import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
+import {
+  RowSeparator,
+  SettingsCell,
+  SettingsGroup,
+  SettingsScreen,
+  SettingsToggleRow,
+} from '@/components/settings/settings-list';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { cancelAllTaskReminders, ensureNotificationPermissions } from '@/lib/notifications';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
@@ -32,19 +37,19 @@ export default function NotificationsScreen() {
 
   return (
     <SettingsScreen>
-      <SettingsGroup>
-        <View className="flex-row items-center justify-between gap-3 px-4 py-3.5">
-          <View className="flex-1">
-            <Text className="text-sf-text text-base">Task reminders</Text>
-            <Text className="text-sf-text-2 mt-0.5 text-xs">Get notified before tasks are due</Text>
-          </View>
-          <Switch value={notificationsEnabled} onValueChange={toggle} />
-        </View>
+      <SettingsGroup footer="Reminders use the lead time unless a task sets its own.">
+        <SettingsToggleRow
+          icon="bell-outline"
+          title="Task reminders"
+          subtitle="Get notified before tasks are due"
+          value={notificationsEnabled}
+          onValueChange={toggle}
+        />
 
         {notificationsEnabled ? (
           <>
-            <View className="bg-sf-separator ml-4 h-px" />
-            <View className="gap-1.5 px-4 py-4">
+            <RowSeparator />
+            <SettingsCell gap={6}>
               <View className="flex-row items-center justify-between">
                 <Text className="text-sf-text text-base">Default lead time</Text>
                 <Text
@@ -60,7 +65,7 @@ export default function NotificationsScreen() {
                 step={5}
                 onValueChange={(v) => setDefaultReminderMinutes(Math.round(v))}
               />
-            </View>
+            </SettingsCell>
           </>
         ) : null}
       </SettingsGroup>

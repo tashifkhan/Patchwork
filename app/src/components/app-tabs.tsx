@@ -2,17 +2,16 @@ import { Tabs } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { Platform } from 'react-native';
 
-import { IosFloatingTabBar } from '@/components/ios-floating-tab-bar';
+import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
 import { useFloatingTabBar } from '@/lib/tab-bar';
 
-const FLOATING_SCREENS = ['(tasks)', 'deck', 'ai', 'settings', 'search'] as const;
+const FLOATING_SCREENS = ['(tasks)', 'deck', 'settings', 'search'] as const;
 
 const NATIVE_TABS = [
   { name: '(tasks)', label: 'Tasks', sf: 'checklist', md: 'checklist' },
   { name: 'deck', label: 'Boards', sf: 'rectangle.split.3x1', md: 'view_column' },
-  { name: 'ai', label: 'AI', sf: 'sparkles', md: 'auto_awesome' },
   { name: 'settings', label: 'Settings', sf: 'gear', md: 'settings' },
   { name: 'search', label: 'Search', sf: 'magnifyingglass', md: 'search', role: 'search' },
 ] as const;
@@ -73,7 +72,7 @@ function MaterialNativeTabs() {
 }
 
 /**
- * JS Tabs + custom iOS 26–style floating chrome (capsule + separate search).
+ * JS Tabs + custom Google Photos–style floating chrome (capsule + separate search).
  * NativeTabs cannot render this layout on Android.
  */
 function FloatingTabs() {
@@ -81,7 +80,13 @@ function FloatingTabs() {
 
   return (
     <Tabs
-      tabBar={(props) => <IosFloatingTabBar state={props.state} navigation={props.navigation} />}
+      tabBar={(props) => (
+        <FloatingTabBar
+          state={props.state}
+          emitter={props.emitter}
+          navigateToTab={props.navigateToTab}
+        />
+      )}
       screenOptions={{
         headerShown: false,
         // Hide the default bar shell — we render absolute floating chrome.

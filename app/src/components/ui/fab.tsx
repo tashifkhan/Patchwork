@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { type ComponentProps } from 'react';
-import { Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
@@ -22,6 +23,10 @@ export function Fab({
   accessibilityLabel?: string;
 }) {
   const { colors } = useTheme();
+  // iOS native tabs float over the scene; the bottom safe-area inset includes
+  // the tab bar there, so sit above it rather than underneath.
+  const insets = useSafeAreaInsets();
+  const bottom = Platform.OS === 'ios' ? insets.bottom + 16 : 16;
 
   return (
     <Pressable
@@ -35,7 +40,7 @@ export function Fab({
       style={({ pressed }) => ({
         position: 'absolute',
         right: 16,
-        bottom: 16,
+        bottom,
         // 56dp M3 standard FAB size with extra hit area
         width: 56,
         height: 56,

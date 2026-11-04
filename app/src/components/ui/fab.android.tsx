@@ -50,8 +50,12 @@ export function Fab({
 
   return (
     <RNView
+      // The Compose FAB exposes an unlabeled clickable node of its own, so this
+      // wrapper is made the accessible element that carries the label.
+      accessible
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      onAccessibilityTap={handlePress}
       style={{
         position: 'absolute',
         right: 16,

@@ -1,22 +1,36 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MenuView } from '@expo/ui/community/menu';
 import { useRouter } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
+import { Fragment } from 'react';
 import { Platform, Pressable } from 'react-native';
 
 import { AiProviderIcon } from '@/components/settings/ai-provider-icon';
 import {
   RowSeparator,
+  SETTINGS_IOS,
+  SettingsDivider,
   SettingsGroup,
   SettingsRow,
   SettingsScreen,
 } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner } from '@/components/ui/loading';
+import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useAiCatalog, useAiKeys } from '@/hooks/use-ai';
 import { useTaskLists } from '@/hooks/use-tasks';
-import { modelBadges, modelById } from '@/lib/ai-models';
+import { modelBadges, modelById, type ReasoningEffort } from '@/lib/ai-models';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
+
+/** Thinking budget for reasoning models; Auto leaves the provider default. */
+const REASONING_OPTIONS: { label: string; value: ReasoningEffort | null }[] = [
+  { label: 'Auto', value: null },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+];
 
 export default function AiScreen() {
   const router = useRouter();
@@ -43,6 +57,14 @@ export default function AiScreen() {
     );
   }
 
+  function setReasoningEffort(index: number, effort: ReasoningEffort | null) {
+    setAiModelSelections(
+      aiModelSelections.map((s, i) =>
+        i === index ? { ...s, reasoningEffort: effort ?? undefined } : s
+      )
+    );
+  }
+
   function moveSelection(index: number, direction: -1 | 1) {
     const target = index + direction;
     if (target < 0 || target >= aiModelSelections.length) return;
@@ -54,21 +76,17 @@ export default function AiScreen() {
   return (
     <SettingsScreen>
       {/* Catalog status */}
-      <SettingsGroup>
-        <View className="gap-3 px-4 py-4">
-          <View className="flex-row items-center gap-3">
-            <View
-              className="h-11 w-11 items-center justify-center rounded-full"
-              style={{ backgroundColor: colors.primaryContainer }}>
-              <MaterialCommunityIcons name="brain" size={22} color={colors.onPrimaryContainer} />
-            </View>
-            <View className="flex-1 gap-0.5">
-              <Text className="text-sf-text text-base font-semibold">Model catalog</Text>
-              <Text className="text-sf-text-2 text-sm" numberOfLines={1}>
-                {totalModels.toLocaleString()} models · {sourceLabel(source)}
-                {fetchedAt ? ` · ${relativeTime(fetchedAt)}` : ''}
-              </Text>
-            </View>
+      <SettingsGroup
+        footer={
+          error
+            ? `${error}. Showing ${source === 'cache' ? 'the cached catalog' : 'built-in defaults'}. Refresh to retry.`
+            : undefined
+        }>
+        <SettingsRow
+          icon="brain"
+          title="Model catalog"
+          subtitle={`${totalModels.toLocaleString()} models · ${sourceLabel(source)}${fetchedAt ? ` · ${relativeTime(fetchedAt)}` : ''}`}
+          trailing={
             <Pressable
               onPress={refresh}
               disabled={loading}
@@ -76,55 +94,76 @@ export default function AiScreen() {
               accessibilityRole="button"
               accessibilityLabel="Refresh model catalog"
               style={({ pressed }) => ({
-                minWidth: 44,
-                minHeight: 44,
+                minWidth: 36,
+                minHeight: 36,
                 alignItems: 'center',
                 justifyContent: 'center',
                 opacity: pressed || loading ? 0.5 : 1,
               })}>
               {loading ? (
                 <LoadingSpinner size={22} />
+              ) : SETTINGS_IOS ? (
+                <SymbolView name="arrow.clockwise" size={18} weight="medium" tintColor={colors.accent} />
               ) : (
                 <MaterialCommunityIcons name="refresh" size={22} color={colors.accent} />
               )}
             </Pressable>
-          </View>
-
-          {error ? (
-            <View
-              className="flex-row items-start gap-2 rounded-2xl px-3 py-2.5"
-              style={{ backgroundColor: `${colors.orange}1A`, borderCurve: 'continuous' }}>
-              <MaterialCommunityIcons
-                name="alert-circle-outline"
-                size={18}
-                color={colors.orange}
-                style={{ marginTop: 1 }}
-              />
-              <Text className="text-sf-text-2 flex-1 text-sm">
-                {error}. Showing {source === 'cache' ? 'the cached catalog' : 'built-in defaults'} —
-                pull refresh to retry.
-              </Text>
-            </View>
-          ) : null}
-        </View>
+          }
+        />
       </SettingsGroup>
 
       {/* Fallback chain */}
-      <SettingsGroup title="Fallback chain">
+      <SettingsGroup
+        title="Fallback chain"
+        footer={
+          aiModelSelections.length > 0
+            ? 'Models are tried top-to-bottom. Image prompts skip text-only models.'
+            : undefined
+        }>
         {aiModelSelections.length === 0 ? (
-          <View className="gap-1 px-4 py-4">
-            <Text className="text-sf-text text-base font-semibold">No models selected</Text>
-            <Text className="text-sf-text-2 text-sm">
-              Open a provider below, save its API key, then pick the models to try. Requests run
-              top-to-bottom until one succeeds.
-            </Text>
-          </View>
+          <SettingsRow
+            title="No models selected"
+            subtitle="Open a provider below, save its API key, then pick the models to try. Requests run top-to-bottom until one succeeds."
+          />
         ) : (
           aiModelSelections.map((selection, index) => {
             const provider = providers.find((item) => item.id === selection.providerId);
             const model = modelById(selection, providers);
             const badges = modelBadges(model ?? selection);
             const name = model?.name ?? selection.modelName ?? selection.modelId;
+            const reasoning = Boolean((model ?? selection).reasoning);
+            if (SETTINGS_IOS) {
+              // iOS: a plain row with its rank tile; reorder, thinking budget and
+              // removal live in the native menu behind the ellipsis.
+              const effort = selection.reasoningEffort ?? null;
+              return (
+                <Fragment key={`${selection.providerId}:${selection.modelId}:${index}`}>
+                  {index > 0 ? <RowSeparator /> : null}
+                  <SettingsRow
+                    leading={<RankTile n={index + 1} />}
+                    title={name}
+                    subtitle={[
+                      provider?.name ?? selection.providerId,
+                      reasoning ? `Thinking: ${effortLabel(effort)}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    trailing={
+                      <ChainMenu
+                        name={name}
+                        reasoning={reasoning}
+                        effort={effort}
+                        first={index === 0}
+                        last={index === aiModelSelections.length - 1}
+                        onEffort={(value) => setReasoningEffort(index, value)}
+                        onMove={(direction) => moveSelection(index, direction)}
+                        onRemove={() => removeSelection(selection.providerId, selection.modelId)}
+                      />
+                    }
+                  />
+                </Fragment>
+              );
+            }
             return (
               <View key={`${selection.providerId}:${selection.modelId}:${index}`}>
                 {index > 0 ? <RowSeparator /> : null}
@@ -166,17 +205,21 @@ export default function AiScreen() {
                     onPress={() => removeSelection(selection.providerId, selection.modelId)}
                   />
                 </View>
+                {(model ?? selection).reasoning ? (
+                  <View className="gap-2 px-4 pb-3" style={{ paddingLeft: 56 }}>
+                    <Text className="text-sf-text-2 text-sm">Thinking</Text>
+                    <SegmentedChoice
+                      options={REASONING_OPTIONS}
+                      value={selection.reasoningEffort ?? null}
+                      onChange={(effort) => setReasoningEffort(index, effort)}
+                    />
+                  </View>
+                ) : null}
               </View>
             );
           })
         )}
       </SettingsGroup>
-
-      {aiModelSelections.length > 0 ? (
-        <Text className="text-sf-text-3 -mt-3 px-4 text-sm">
-          Models are tried top-to-bottom. Image prompts skip text-only models.
-        </Text>
-      ) : null}
 
       {/* Providers */}
       {!isWeb ? (
@@ -206,6 +249,8 @@ export default function AiScreen() {
                       providerId={provider.id}
                       custom={provider.custom}
                       configured={configured}
+                      // Match the 30pt SF tiles so titles and dividers line up.
+                      size={Platform.OS === 'ios' ? 30 : undefined}
                     />
                   }
                   title={provider.name}
@@ -218,7 +263,8 @@ export default function AiScreen() {
                   }
                   showChevron
                   trailing={
-                    selectedCount > 0 ? (
+                    // iOS spells the count out in the subtitle; no badge pill.
+                    selectedCount > 0 && !SETTINGS_IOS ? (
                       <View
                         className="items-center justify-center rounded-full px-2.5 py-0.5"
                         style={{ backgroundColor: colors.selectionBg, minWidth: 26 }}>
@@ -249,23 +295,41 @@ export default function AiScreen() {
 
       {/* Default list */}
       {lists.length > 0 ? (
-        <SettingsGroup title="Default import list">
-          <View className="gap-3 px-4 py-4">
-            <Text className="text-sf-text-2 text-sm">
-              Where AI-generated tasks land unless you pick another list at import time.
-            </Text>
-            <View className="flex-row flex-wrap items-center gap-2">
-              {lists.map((list) => (
-                <ToggleChip
-                  key={list.id}
-                  label={list.name}
+        SETTINGS_IOS ? (
+          // iOS: a checkmark list, like any single choice in Settings.
+          <SettingsGroup
+            title="Default import list"
+            footer="Where AI-generated tasks land unless you pick another list at import time.">
+            {lists.map((list, index) => (
+              <Fragment key={list.id}>
+                {index > 0 ? <SettingsDivider /> : null}
+                <SettingsRow
+                  title={list.name}
                   selected={list.id === aiDefaultListId}
                   onPress={() => setAiDefaultListId(list.id === aiDefaultListId ? null : list.id)}
                 />
-              ))}
+              </Fragment>
+            ))}
+          </SettingsGroup>
+        ) : (
+          <SettingsGroup title="Default import list">
+            <View className="gap-3 px-4 py-4">
+              <Text className="text-sf-text-2 text-sm">
+                Where AI-generated tasks land unless you pick another list at import time.
+              </Text>
+              <View className="flex-row flex-wrap items-center gap-2">
+                {lists.map((list) => (
+                  <ToggleChip
+                    key={list.id}
+                    label={list.name}
+                    selected={list.id === aiDefaultListId}
+                    onPress={() => setAiDefaultListId(list.id === aiDefaultListId ? null : list.id)}
+                  />
+                ))}
+              </View>
             </View>
-          </View>
-        </SettingsGroup>
+          </SettingsGroup>
+        )
       ) : null}
     </SettingsScreen>
   );
@@ -318,4 +382,108 @@ function relativeTime(timestamp: number) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function effortLabel(effort: ReasoningEffort | null): string {
+  return REASONING_OPTIONS.find((option) => option.value === effort)?.label ?? 'Auto';
+}
+
+/** Chain position on an accent tile, sized like the iOS settings icons. */
+function RankTile({ n }: { n: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 7,
+        borderCurve: 'continuous',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accent,
+      }}>
+      <Text style={{ color: colors.onAccent, fontSize: 15, fontWeight: '700' }}>{n}</Text>
+    </View>
+  );
+}
+
+/** Native iOS menu with the per-model chain actions. */
+function ChainMenu({
+  name,
+  reasoning,
+  effort,
+  first,
+  last,
+  onEffort,
+  onMove,
+  onRemove,
+}: {
+  name: string;
+  reasoning: boolean;
+  effort: ReasoningEffort | null;
+  first: boolean;
+  last: boolean;
+  onEffort: (effort: ReasoningEffort | null) => void;
+  onMove: (direction: -1 | 1) => void;
+  onRemove: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <MenuView
+      actions={[
+        ...(reasoning
+          ? [
+              {
+                id: 'thinking',
+                title: 'Thinking',
+                displayInline: true,
+                subactions: REASONING_OPTIONS.map((option) => ({
+                  id: `effort:${option.value ?? 'auto'}`,
+                  title: option.label,
+                  state: (option.value === effort ? 'on' : 'off') as 'on' | 'off',
+                })),
+              },
+            ]
+          : []),
+        {
+          id: 'order',
+          title: 'Order',
+          displayInline: true,
+          subactions: [
+            { id: 'up', title: 'Move Up', image: 'arrow.up', attributes: { disabled: first } },
+            { id: 'down', title: 'Move Down', image: 'arrow.down', attributes: { disabled: last } },
+          ],
+        },
+        {
+          id: 'remove',
+          title: 'Remove from Chain',
+          image: 'trash',
+          attributes: { destructive: true },
+        },
+      ]}
+      onPressAction={({ nativeEvent }) => {
+        const event = nativeEvent.event;
+        if (event === 'up') onMove(-1);
+        else if (event === 'down') onMove(1);
+        else if (event === 'remove') onRemove();
+        else if (event.startsWith('effort:')) {
+          const value = event.slice('effort:'.length);
+          onEffort(value === 'auto' ? null : (value as ReasoningEffort));
+        }
+      }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Options for ${name}`}
+        hitSlop={8}
+        style={({ pressed }) => ({
+          minWidth: 32,
+          minHeight: 32,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: pressed ? 0.5 : 1,
+        })}>
+        <SymbolView name="ellipsis.circle" size={22} tintColor={colors.accent} />
+      </Pressable>
+    </MenuView>
+  );
 }

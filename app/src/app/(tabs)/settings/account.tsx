@@ -1,11 +1,29 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState, type ComponentProps, type ReactNode } from 'react';
-import { Pressable, type TextInputProps } from 'react-native';
+import {
+  Children,
+  Fragment,
+  isValidElement,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
+import { SymbolView } from 'expo-symbols';
+import { Pressable } from 'react-native';
 
 import { validateCalDavAccount } from '@/api/tasks';
-import { SettingsScreen } from '@/components/settings/settings-list';
+import {
+  HeaderTextButton,
+  SETTINGS_IOS,
+  SettingsActionRow,
+  SettingsDivider,
+  SettingsGroup,
+  SettingsScreen,
+  SettingsTextField,
+  SettingsValueRow,
+  useSettingsColors,
+} from '@/components/settings/settings-list';
 import { ServerTypeMenu } from '@/components/settings/server-type-menu';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
@@ -18,12 +36,13 @@ import {
   type ServerType,
 } from '@/lib/credentials';
 import { queryKeys } from '@/lib/query-client';
-import { Text, TextInput, View } from '@/tw';
+import { Text, View } from '@/tw';
 
 export default function AccountEditor() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
+  const { cell } = useSettingsColors();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isNew = !id;
 
@@ -132,13 +151,52 @@ export default function AccountEditor() {
     }
   }
 
+  const ios = SETTINGS_IOS;
+  const busy = saving || testing;
+
+  const eye = (
+    <Pressable
+      onPress={() => setShowPassword((v) => !v)}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+      style={{ minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center' }}>
+      {ios ? (
+        <SymbolView
+          name={showPassword ? 'eye.slash' : 'eye'}
+          size={18}
+          tintColor={colors.text2}
+        />
+      ) : (
+        <MaterialCommunityIcons
+          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+          size={22}
+          color={colors.text2}
+        />
+      )}
+    </Pressable>
+  );
+
+  const connectedNote =
+    connectionStatus === 'ok' ? (
+      <Text style={{ color: colors.green }}>Connection successful. CalDAV is reachable.</Text>
+    ) : undefined;
+
   return (
     <SettingsScreen>
       <Stack.Screen
         options={{
-          title: isNew ? 'Add account' : displayName || 'Account',
+          title: isNew ? 'Add Account' : displayName || 'Account',
           headerRight: () =>
-            !isNew ? (
+            ios ? (
+              // iOS: Save lives in the navigation bar (a Liquid Glass button).
+              <HeaderTextButton
+                label="Save"
+                onPress={handleSave}
+                disabled={!canSubmit || testing}
+                loading={saving}
+              />
+            ) : !isNew ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Remove account"
@@ -166,99 +224,72 @@ export default function AccountEditor() {
         />
       ) : (
         <>
-          {/* Intro — Paisa detail-header style */}
-          <View
-            className="flex-row items-start gap-3.5 rounded-3xl px-4 py-4"
-            style={{
-              backgroundColor: colors.bg2,
-              borderCurve: 'continuous',
-            }}>
+          {!ios ? (
             <View
-              className="h-12 w-12 items-center justify-center rounded-2xl"
-              style={{
-                backgroundColor: colors.primaryContainer,
-                borderCurve: 'continuous',
-              }}>
-              <MaterialCommunityIcons
-                name="cloud-sync-outline"
-                size={26}
-                color={colors.onPrimaryContainer}
-              />
+              className="flex-row items-start gap-3.5 rounded-3xl px-4 py-4"
+              style={{ backgroundColor: cell, borderCurve: 'continuous' }}>
+              <View
+                className="h-12 w-12 items-center justify-center rounded-2xl"
+                style={{ backgroundColor: colors.primaryContainer, borderCurve: 'continuous' }}>
+                <MaterialCommunityIcons
+                  name="cloud-sync-outline"
+                  size={26}
+                  color={colors.onPrimaryContainer}
+                />
+              </View>
+              <View className="flex-1 gap-1">
+                <Text className="text-sf-text text-base font-bold">
+                  {isNew ? 'Connect CalDAV' : 'Account details'}
+                </Text>
+                <Text className="text-sf-text-2 text-sm" style={{ lineHeight: 20 }}>
+                  {INTRO}
+                </Text>
+              </View>
             </View>
-            <View className="flex-1 gap-1">
-              <Text className="text-sf-text text-base font-bold">
-                {isNew ? 'Connect CalDAV' : 'Account details'}
-              </Text>
-              <Text className="text-sf-text-2 text-sm" style={{ lineHeight: 20 }}>
-                Works with Nextcloud, iCloud, Fastmail, and other CalDAV servers. Prefer an app
-                password when available.
-              </Text>
-            </View>
-          </View>
+          ) : null}
 
-          {/* Profile */}
-          <FormSection title="Profile">
-            <FilledField
-              label="Display name"
+          <FormSection title={ios ? 'Account' : 'Profile'}>
+            <SettingsTextField
+              label={ios ? 'Name' : 'Display name'}
               icon="account-outline"
               value={displayName}
               onChangeText={setDisplayName}
-              placeholder="My calendar"
+              placeholder={ios ? 'Optional' : 'My calendar'}
               autoCapitalize="words"
               returnKeyType="next"
             />
           </FormSection>
 
-          {/* Credentials */}
           <FormSection title="Credentials">
-            <FilledField
+            <SettingsTextField
               label="Username"
               icon="account-circle-outline"
               value={username}
               onChangeText={setUsername}
-              placeholder="username or email"
+              placeholder={ios ? 'Required' : 'username or email'}
               autoCapitalize="none"
               autoComplete="username"
               textContentType="username"
               returnKeyType="next"
             />
-            <FilledField
+            <SettingsTextField
               label="Password"
               icon="lock-outline"
               value={password}
               onChangeText={setPassword}
-              placeholder="App password"
+              placeholder={ios ? 'App password' : 'App password'}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
               autoComplete="password"
               textContentType="password"
               returnKeyType="next"
-              trailing={
-                <Pressable
-                  onPress={() => setShowPassword((v) => !v)}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                  style={{
-                    minWidth: 40,
-                    minHeight: 40,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                  <MaterialCommunityIcons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={22}
-                    color={colors.text2}
-                  />
-                </Pressable>
-              }
+              trailing={eye}
             />
           </FormSection>
 
-          {/* Server */}
-          <FormSection title="Server">
-            <FilledField
-              label="Server URL"
+          <FormSection title="Server" footer={ios ? INTRO : undefined}>
+            <SettingsTextField
+              label={ios ? 'URL' : 'Server URL'}
               icon="web"
               value={baseUrl}
               onChangeText={setBaseUrl}
@@ -269,79 +300,84 @@ export default function AccountEditor() {
               textContentType="URL"
               returnKeyType="done"
             />
-            <View className="gap-1.5">
-              <Text
-                className="px-1 text-xs font-semibold uppercase tracking-wide"
-                style={{ color: colors.text2 }}>
-                Server type
-              </Text>
-              <View
-                className="flex-row items-center gap-3 rounded-2xl px-3.5"
-                style={{
-                  backgroundColor: colors.bg2,
-                  minHeight: 56,
-                  borderCurve: 'continuous',
-                }}>
-                <MaterialCommunityIcons name="server" size={22} color={colors.accent} />
-                <View className="flex-1 py-1">
-                  <ServerTypeMenu value={serverType} onChange={setServerType} />
-                </View>
-              </View>
-            </View>
+            <SettingsValueRow label="Server type" icon="server">
+              <ServerTypeMenu value={serverType} onChange={setServerType} />
+            </SettingsValueRow>
           </FormSection>
 
-          {connectionStatus === 'ok' ? (
-            <View
-              className="flex-row items-center gap-2.5 rounded-2xl px-4 py-3.5"
-              style={{
-                backgroundColor: `${colors.green}18`,
-                borderCurve: 'continuous',
-              }}>
-              <MaterialCommunityIcons name="check-circle" size={22} color={colors.green} />
-              <Text className="text-sm font-medium" style={{ color: colors.green, flex: 1 }}>
-                Connection successful — CalDAV is reachable.
-              </Text>
-            </View>
-          ) : null}
+          {ios ? (
+            <>
+              <SettingsGroup footer={connectedNote}>
+                <SettingsActionRow
+                  title="Test Connection"
+                  onPress={testConnection}
+                  loading={testing}
+                  disabled={saving || !canSubmit}
+                />
+              </SettingsGroup>
+              {!isNew ? (
+                <SettingsGroup>
+                  <SettingsActionRow
+                    title="Delete Account"
+                    destructive
+                    disabled={busy}
+                    onPress={() => setRemoveVisible(true)}
+                  />
+                </SettingsGroup>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {connectionStatus === 'ok' ? (
+                <View
+                  className="flex-row items-center gap-2.5 rounded-2xl px-4 py-3.5"
+                  style={{ backgroundColor: `${colors.green}18`, borderCurve: 'continuous' }}>
+                  <MaterialCommunityIcons name="check-circle" size={22} color={colors.green} />
+                  <Text className="text-sm font-medium" style={{ color: colors.green, flex: 1 }}>
+                    Connection successful. CalDAV is reachable.
+                  </Text>
+                </View>
+              ) : null}
 
-          {/* Actions — full-width M3 buttons; loading uses Compose LoadingIndicator */}
-          <View className="gap-3 pt-2">
-            {testing || saving ? (
-              <View className="gap-2 px-0.5 pb-1">
-                <Text className="text-sf-text-2 text-center text-sm font-medium">
-                  {testing ? 'Testing CalDAV connection…' : 'Saving account…'}
-                </Text>
-                <LoadingBar />
+              <View className="gap-3 pt-2">
+                {busy ? (
+                  <View className="gap-2 px-0.5 pb-1">
+                    <Text className="text-sf-text-2 text-center text-sm font-medium">
+                      {testing ? 'Testing CalDAV connection…' : 'Saving account…'}
+                    </Text>
+                    <LoadingBar />
+                  </View>
+                ) : null}
+                <Button
+                  variant="tonal"
+                  label="Test connection"
+                  icon="lan-connect"
+                  loading={testing}
+                  disabled={busy || !canSubmit}
+                  onPress={testConnection}
+                  minHeight={52}
+                />
+                <Button
+                  label={isNew ? 'Save account' : 'Save changes'}
+                  icon="content-save-outline"
+                  loading={saving}
+                  disabled={!canSubmit || testing}
+                  onPress={handleSave}
+                  minHeight={52}
+                />
+                {!isNew ? (
+                  <Button
+                    variant="danger"
+                    label="Remove account"
+                    icon="trash-can-outline"
+                    disabled={busy}
+                    onPress={() => setRemoveVisible(true)}
+                    minHeight={52}
+                  />
+                ) : null}
               </View>
-            ) : null}
-            <Button
-              variant="tonal"
-              label="Test connection"
-              icon="lan-connect"
-              loading={testing}
-              disabled={saving || testing || !canSubmit}
-              onPress={testConnection}
-              minHeight={52}
-            />
-            <Button
-              label={isNew ? 'Save account' : 'Save changes'}
-              icon="content-save-outline"
-              loading={saving}
-              disabled={!canSubmit || testing}
-              onPress={handleSave}
-              minHeight={52}
-            />
-            {!isNew ? (
-              <Button
-                variant="danger"
-                label="Remove account"
-                icon="trash-can-outline"
-                disabled={saving || testing}
-                onPress={() => setRemoveVisible(true)}
-                minHeight={52}
-              />
-            ) : null}
-          </View>
+            </>
+          )}
         </>
       )}
 
@@ -364,82 +400,28 @@ export default function AccountEditor() {
   );
 }
 
-function FormSection({ title, children }: { title: string; children: ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View className="gap-2.5">
-      <Text
-        className="px-1 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: colors.accent }}>
-        {title}
-      </Text>
-      <View className="gap-3">{children}</View>
-    </View>
-  );
-}
+const INTRO =
+  'Works with Nextcloud, iCloud, Fastmail and other CalDAV servers. Use an app password when your server offers one.';
 
-function FilledField({
-  label,
-  icon,
-  value,
-  onChangeText,
-  placeholder,
-  secureTextEntry,
-  keyboardType,
-  autoCapitalize,
-  autoComplete,
-  textContentType,
-  returnKeyType,
-  trailing,
+/** A grouped card of form fields, divided like any settings group. */
+function FormSection({
+  title,
+  footer,
+  children,
 }: {
-  label: string;
-  icon: ComponentProps<typeof MaterialCommunityIcons>['name'];
-  value: string;
-  onChangeText: (v: string) => void;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  keyboardType?: TextInputProps['keyboardType'];
-  autoCapitalize?: TextInputProps['autoCapitalize'];
-  autoComplete?: TextInputProps['autoComplete'];
-  textContentType?: TextInputProps['textContentType'];
-  returnKeyType?: TextInputProps['returnKeyType'];
-  trailing?: ReactNode;
+  title: string;
+  footer?: ReactNode;
+  children: ReactNode;
 }) {
-  const { colors } = useTheme();
+  const fields = Children.toArray(children).filter(isValidElement);
   return (
-    <View className="gap-1.5">
-      <Text
-        className="px-1 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: colors.text2 }}>
-        {label}
-      </Text>
-      <View
-        className="flex-row items-center gap-3 rounded-2xl px-3.5"
-        style={{
-          backgroundColor: colors.bg2,
-          minHeight: 56,
-          borderCurve: 'continuous',
-        }}>
-        <MaterialCommunityIcons name={icon} size={22} color={colors.accent} />
-        <TextInput
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={colors.text3}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize ?? 'none'}
-          autoComplete={autoComplete}
-          textContentType={textContentType}
-          returnKeyType={returnKeyType}
-          autoCorrect={false}
-          underlineColorAndroid="transparent"
-          accessibilityLabel={label}
-          className="text-sf-text flex-1 py-3 text-base"
-          style={{ minHeight: 48, color: colors.text }}
-        />
-        {trailing}
-      </View>
-    </View>
+    <SettingsGroup title={title} footer={footer}>
+      {fields.map((field, index) => (
+        <Fragment key={field.key ?? index}>
+          {index > 0 ? <SettingsDivider /> : null}
+          {field}
+        </Fragment>
+      ))}
+    </SettingsGroup>
   );
 }

@@ -1,457 +1,470 @@
-import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { Linking, Modal, Pressable } from 'react-native';
+import { Stack, router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
+import { useState } from 'react';
+import { Linking, Platform, Pressable } from 'react-native';
 
-import { RowSeparator, SettingsGroup, SettingsRow, SettingsScreen } from '@/components/settings/settings-list';
+import {
+  RowSeparator,
+  SETTINGS_IOS,
+  SettingsActionRow,
+  SettingsDivider,
+  SettingsGroup,
+  SettingsRow,
+  SettingsScreen,
+  SettingsTextField,
+  SettingsToggleRow,
+} from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
-import { Button } from '@/components/ui/button';
-import { LoadingState } from '@/components/ui/loading';
+import { LoadingSpinner, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
+import type { GitHubIssueScope } from '@/features/github/types';
 import { useGitHubConnection } from '@/hooks/use-github-connection';
-import { selectionFromRepo, useValidatePublicGitHubRepo } from '@/hooks/use-github';
-import { normalizeGitHubRepository } from '@/features/github/repository-ref';
-import type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
-import { queryKeys } from '@/lib/query-client';
-import { isOAuthAvailable } from '@/lib/github-auth';
+import { GITHUB_NEW_TOKEN_URL } from '@/lib/github-auth';
+import { haptics } from '@/lib/haptics';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, TextInput, View } from '@/tw';
 
-const SCOPE_OPTIONS: { id: GitHubIssueScope; label: string; hint: string }[] = [
-  { id: 'assigned', label: 'Assigned to me', hint: 'Issues where you are an assignee' },
-  { id: 'created', label: 'Created by me', hint: 'Issues you opened' },
-  { id: 'mentioned', label: 'Mentioned', hint: 'Issues that mention you' },
-  { id: 'all', label: 'All issues', hint: 'Every issue in selected repositories' },
+const SCOPES: {
+  value: GitHubIssueScope;
+  title: string;
+  subtitle: string;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+}[] = [
+  {
+    value: 'assigned',
+    title: 'Assigned to me',
+    subtitle: 'Issues you are working on',
+    icon: 'account-check-outline',
+  },
+  {
+    value: 'created',
+    title: 'Created by me',
+    subtitle: 'Issues you opened',
+    icon: 'pencil-outline',
+  },
+  {
+    value: 'mentioned',
+    title: 'Mentioning me',
+    subtitle: 'Issues where you were @-mentioned',
+    icon: 'at',
+  },
+  {
+    value: 'all',
+    title: 'All issues',
+    subtitle: 'Everything in your repositories',
+    icon: 'format-list-bulleted',
+  },
 ];
 
-const STATE_OPTIONS: { id: GitHubIssueState; label: string }[] = [
-  { id: 'open', label: 'Open' },
-  { id: 'closed', label: 'Closed' },
-  { id: 'all', label: 'All' },
-];
-
+/**
+ * GitHub, connected with a personal access token only. Disconnected, the page
+ * is a three-step setup; connected, it lists the repositories that show up as
+ * lists in Tasks and the filter for which of their issues appear.
+ */
 export default function GitHubSettingsScreen() {
-  const { colors, scheme } = useTheme();
-  const queryClient = useQueryClient();
+  const { colors } = useTheme();
   const connection = useGitHubConnection();
-  const repositories = useSettingsStore((state) => state.githubRepositories);
-  const setRepositories = useSettingsStore((state) => state.setGitHubRepositories);
-  const issueScope = useSettingsStore((state) => state.githubIssueScope);
-  const issueState = useSettingsStore((state) => state.githubIssueState);
-  const setIssueScope = useSettingsStore((state) => state.setGitHubIssueScope);
-  const setIssueState = useSettingsStore((state) => state.setGitHubIssueState);
-  const validatePublicRepo = useValidatePublicGitHubRepo();
-
-  const [publicRepoInput, setPublicRepoInput] = useState('');
-  const [showPat, setShowPat] = useState(false);
-  const [patInput, setPatInput] = useState('');
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const repositories = useSettingsStore((s) => s.githubRepositories);
+  const setRepositories = useSettingsStore((s) => s.setGitHubRepositories);
+  const scope = useSettingsStore((s) => s.githubIssueScope);
+  const issueState = useSettingsStore((s) => s.githubIssueState);
+  const setScope = useSettingsStore((s) => s.setGitHubIssueScope);
+  const setIssueState = useSettingsStore((s) => s.setGitHubIssueState);
+  const [token, setToken] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
+  const state = connection.connection;
+  const connected = state.status === 'connected';
   const account =
-    connection.connection.status === 'connected' ||
-    connection.connection.status === 'refreshing'
-      ? connection.connection.credentials.account
-      : connection.connection.status === 'expired'
-        ? connection.connection.account
+    state.status === 'connected' || state.status === 'refreshing'
+      ? state.credentials.account
+      : state.status === 'expired'
+        ? state.account
         : undefined;
-  const isConnected = connection.connection.status === 'connected';
 
-  const addPublicRepository = async () => {
+  async function connect() {
     try {
-      const fullName = normalizeGitHubRepository(publicRepoInput);
-      if (
-        repositories.some(
-          (repository) => repository.fullName.toLowerCase() === fullName.toLowerCase()
-        )
-      ) {
-        setPublicRepoInput('');
-        return;
-      }
-      const repo = await validatePublicRepo.mutateAsync({ fullName });
-      setRepositories([...repositories, selectionFromRepo(repo)]);
-      setPublicRepoInput('');
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.githubRepos }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues }),
-      ]);
-    } catch (error) {
-      setAlert({
-        title: 'Could not add repository',
-        message: error instanceof Error ? error.message : 'Please check the repository name.',
-      });
-    }
-  };
-
-  const savePat = async () => {
-    try {
-      await connection.connectPat(patInput);
-      setPatInput('');
-      setShowPat(false);
+      await connection.connectPat(token);
+      haptics.success();
+      setToken('');
     } catch {
-      // The connection hook exposes the actionable message through connectionError.
+      haptics.error();
+      // The hook keeps the message in `connectionError`, shown under the field.
     }
-  };
+  }
 
-  if (connection.connection.status === 'initializing') {
-    return <LoadingState message="Checking GitHub…" subtitle="Reading the connection from this device" />;
+  if (state.status === 'initializing') {
+    return <LoadingState message="Checking GitHub…" fullScreen />;
   }
 
   return (
     <>
+      <Stack.Screen options={{ title: 'GitHub', headerLargeTitle: false }} />
       <SettingsScreen>
-        <ConnectionSummary
-          account={account}
-          status={connection.connection.status}
-          authKind={
-            isConnected ? connection.connection.credentials.authKind : undefined
-          }
-          message={
-            connection.connection.status === 'expired' ||
-            connection.connection.status === 'error'
-              ? connection.connection.message
-              : undefined
-          }
-        />
+        {/* Hero */}
+        <View className="items-center gap-3" style={{ paddingTop: 8 }}>
+          {account ? (
+            <Image
+              source={{ uri: account.avatarUrl }}
+              style={{ width: 72, height: 72, borderRadius: 36 }}
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: SETTINGS_IOS ? 16 : 24,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderCurve: 'continuous',
+                backgroundColor: SETTINGS_IOS ? colors.accent : colors.primaryContainer,
+              }}>
+              <MaterialCommunityIcons
+                name="github"
+                size={40}
+                color={SETTINGS_IOS ? colors.onAccent : colors.onPrimaryContainer}
+              />
+            </View>
+          )}
+          <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text }}>
+            {connected && account ? `@${account.login}` : 'Issues as to-dos'}
+          </Text>
+          <Text
+            style={{
+              fontSize: 15,
+              lineHeight: 21,
+              color: colors.text2,
+              textAlign: 'center',
+              maxWidth: 320,
+            }}>
+            {connected
+              ? 'Each repository you add shows up as a list in Tasks. Ticking an issue closes it on GitHub.'
+              : state.status === 'expired'
+                ? state.message
+                : 'Connect with a personal access token. It stays encrypted on this device.'}
+          </Text>
+        </View>
 
-        {!isConnected ? (
-          <SettingsGroup title="Connect">
-            <View className="gap-4 px-4 py-4">
-              <Text selectable className="text-sf-text-2 text-sm">
-                Connect a GitHub App to access repositories and close or reopen issues.
-                Credentials stay encrypted on this device.
-              </Text>
-              {isOAuthAvailable() ? (
-                <Button
-                  label={
-                    connection.deviceFlow ? 'Waiting for GitHub…' : 'Connect GitHub'
+        {connected ? (
+          <>
+            <SettingsGroup
+              title="Repositories"
+              footer={
+                repositories.length === 0
+                  ? 'Add a repository to see its issues in Tasks.'
+                  : undefined
+              }>
+              {repositories.map((repo) => (
+                <SettingsRow
+                  key={repo.fullName}
+                  icon={repo.visibility === 'private' ? 'lock-outline' : 'source-repository'}
+                  title={repo.fullName.split('/')[1] ?? repo.fullName}
+                  subtitle={`${repo.fullName.split('/')[0]}${repo.canWriteIssues === false ? ' · read only' : ''}`}
+                  trailing={
+                    <Pressable
+                      onPress={() => {
+                        haptics.tap();
+                        setRepositories(repositories.filter((r) => r.fullName !== repo.fullName));
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${repo.fullName}`}
+                      hitSlop={8}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                      {SETTINGS_IOS ? (
+                        <SymbolView name="xmark.circle.fill" size={20} tintColor={colors.text3} />
+                      ) : (
+                        <MaterialCommunityIcons name="close" size={20} color={colors.text2} />
+                      )}
+                    </Pressable>
                   }
-                  icon="github"
-                  disabled={!!connection.deviceFlow}
-                  onPress={connection.beginDeviceFlow}
                 />
-              ) : (
-                <View
-                  className="gap-2 rounded-xl p-4"
-                  style={{ backgroundColor: `${colors.danger}18`, borderCurve: 'continuous' }}>
-                  <Text selectable style={{ color: colors.danger, fontWeight: '600' }}>
-                    GitHub App not configured
+              ))}
+              <SettingsRow
+                icon="plus"
+                title="Add repositories"
+                onPress={() => router.push('/settings/github-repositories')}
+                showChevron
+              />
+            </SettingsGroup>
+
+            {/* One choice per row, like a radio list: no wrapping chips. */}
+            <SettingsGroup title="Show issues">
+              {SCOPES.map((option) => (
+                <SettingsRow
+                  key={option.value}
+                  icon={option.icon}
+                  title={option.title}
+                  subtitle={option.subtitle}
+                  selected={scope === option.value}
+                  onPress={() => {
+                    haptics.selection();
+                    setScope(option.value);
+                  }}
+                  trailing={
+                    scope === option.value ? (
+                      <MaterialCommunityIcons name="check" size={22} color={colors.accent} />
+                    ) : undefined
+                  }
+                />
+              ))}
+            </SettingsGroup>
+
+            <SettingsGroup>
+              <SettingsToggleRow
+                icon="check-circle-outline"
+                title="Show closed issues"
+                subtitle="Listed under Closed in each repository"
+                value={issueState !== 'open'}
+                onValueChange={(on) => setIssueState(on ? 'all' : 'open')}
+              />
+            </SettingsGroup>
+
+            <SettingsGroup>
+              <SettingsRow
+                icon="logout"
+                title="Disconnect GitHub"
+                danger
+                onPress={() => setConfirmDisconnect(true)}
+              />
+            </SettingsGroup>
+          </>
+        ) : SETTINGS_IOS ? (
+          <>
+            <SettingsGroup title="Connect in three steps">
+              <SettingsRow
+                leading={<NumberTile n={1} />}
+                title="Create a token on GitHub"
+                subtitle="Opens github.com in Safari"
+                onPress={() => Linking.openURL(GITHUB_NEW_TOKEN_URL)}
+                trailing={
+                  <SymbolView
+                    name="arrow.up.right"
+                    size={14}
+                    weight="semibold"
+                    tintColor={colors.text3}
+                  />
+                }
+              />
+              <RowSeparator />
+              <SettingsRow
+                leading={<NumberTile n={2} />}
+                title="Give it access"
+                subtitle="Pick the repositories you want, then set Issues to Read and write. Classic tokens with the repo scope work too."
+              />
+              <RowSeparator />
+              <SettingsRow leading={<NumberTile n={3} />} title="Paste it below" />
+            </SettingsGroup>
+
+            <SettingsGroup
+              title="Personal access token"
+              footer={
+                connection.connectionError ? (
+                  <Text style={{ color: colors.danger }}>{connection.connectionError}</Text>
+                ) : (
+                  'Stored encrypted on this device.'
+                )
+              }>
+              <SettingsTextField
+                value={token}
+                onChangeText={(value) => {
+                  setToken(value);
+                  if (connection.connectionError) connection.clearConnectionError();
+                }}
+                onSubmitEditing={connect}
+                placeholder="github_pat_…"
+                secureTextEntry
+                autoCapitalize="none"
+                returnKeyType="go"
+                accessibilityLabel="Personal access token"
+                mono
+              />
+              <SettingsDivider />
+              <SettingsActionRow
+                title={connection.patPending ? 'Checking Token…' : 'Connect'}
+                onPress={connect}
+                disabled={!token.trim()}
+                loading={connection.patPending}
+              />
+            </SettingsGroup>
+          </>
+        ) : (
+          <SettingsGroup title="Connect in three steps">
+            <View className="gap-5 px-4 py-4">
+              <Step n={1} title="Create a token on GitHub">
+                <Pressable
+                  onPress={() => Linking.openURL(GITHUB_NEW_TOKEN_URL)}
+                  accessibilityRole="link"
+                  accessibilityLabel="Open GitHub to create a token"
+                  style={({ pressed }) => ({
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    alignSelf: 'flex-start',
+                    height: 36,
+                    paddingHorizontal: 14,
+                    borderRadius: pressed ? 10 : 18,
+                    backgroundColor: colors.primaryContainer,
+                  })}>
+                  <MaterialCommunityIcons
+                    name="open-in-new"
+                    size={16}
+                    color={colors.onPrimaryContainer}
+                  />
+                  <Text
+                    style={{ fontSize: 14, fontWeight: '600', color: colors.onPrimaryContainer }}>
+                    Open GitHub
                   </Text>
-                  <Text selectable className="text-sf-text-2 text-sm">
-                    Add EXPO_PUBLIC_GITHUB_CLIENT_ID to the native build, or use a
-                    fine-grained token below.
+                </Pressable>
+              </Step>
+              <Step n={2} title="Give it access">
+                <Text style={{ fontSize: 14, lineHeight: 20, color: colors.text2 }}>
+                  Under Repository access pick the repos you want. Under Permissions set
+                  <Text style={{ fontWeight: '700', color: colors.text }}>
+                    {' '}
+                    Issues: Read and write
                   </Text>
-                </View>
-              )}
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setShowPat((visible) => !visible)}
-                style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1, minHeight: 44, justifyContent: 'center' })}>
-                <Text className="text-sf-blue text-center text-sm font-semibold">
-                  {showPat ? 'Hide advanced token setup' : 'Advanced: use a fine-grained token'}
+                  . Metadata read is added for you. Classic tokens with the
+                  <Text style={{ fontWeight: '700', color: colors.text }}> repo</Text> scope work
+                  too.
                 </Text>
-              </Pressable>
-              {showPat ? (
-                <View className="gap-3">
-                  <Text selectable className="text-sf-text-2 text-sm">
-                    Use a fine-grained token limited to the repositories you want, with
-                    Issues read and write permission.
-                  </Text>
+              </Step>
+              <Step n={3} title="Paste it here">
+                <View
+                  className="flex-row items-center"
+                  style={{
+                    height: 52,
+                    borderRadius: 16,
+                    paddingHorizontal: 14,
+                    gap: 10,
+                    backgroundColor: colors.bg,
+                    borderWidth: connection.connectionError ? 2 : 1,
+                    borderColor: connection.connectionError ? colors.danger : colors.gray2,
+                  }}>
+                  <MaterialCommunityIcons name="key-variant" size={18} color={colors.text2} />
                   <TextInput
-                    value={patInput}
-                    onChangeText={setPatInput}
+                    value={token}
+                    onChangeText={(value) => {
+                      setToken(value);
+                      if (connection.connectionError) connection.clearConnectionError();
+                    }}
+                    onSubmitEditing={connect}
                     placeholder="github_pat_…"
-                    placeholderTextColor={colors.gray}
+                    placeholderTextColor={colors.text3}
                     secureTextEntry
                     autoCapitalize="none"
                     autoCorrect={false}
-                    className="text-sf-text rounded-xl px-4 py-3.5 text-base"
-                    style={{ backgroundColor: colors.bg3, minHeight: 48 }}
-                  />
-                  <Button
-                    variant="tonal"
-                    label={connection.patPending ? 'Validating…' : 'Validate and save'}
-                    loading={connection.patPending}
-                    disabled={!patInput.trim() || connection.patPending}
-                    onPress={savePat}
+                    returnKeyType="go"
+                    accessibilityLabel="Personal access token"
+                    className="text-sf-text flex-1"
+                    style={{
+                      fontSize: 15,
+                      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                      paddingVertical: 0,
+                    }}
                   />
                 </View>
-              ) : null}
+                {connection.connectionError ? (
+                  <Text style={{ fontSize: 13, color: colors.danger, marginTop: 6 }}>
+                    {connection.connectionError}
+                  </Text>
+                ) : null}
+                <Pressable
+                  onPress={connect}
+                  disabled={!token.trim() || connection.patPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Connect GitHub"
+                  android_ripple={{ color: colors.separator }}
+                  style={({ pressed }) => ({
+                    marginTop: 12,
+                    height: 52,
+                    borderRadius: pressed ? 14 : 26,
+                    overflow: 'hidden',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    backgroundColor: colors.accent,
+                    opacity: !token.trim() || connection.patPending ? 0.45 : 1,
+                  })}>
+                  {connection.patPending ? (
+                    <LoadingSpinner size={22} />
+                  ) : (
+                    <MaterialCommunityIcons name="github" size={20} color={colors.onAccent} />
+                  )}
+                  <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>
+                    {connection.patPending ? 'Checking token…' : 'Connect'}
+                  </Text>
+                </Pressable>
+              </Step>
             </View>
           </SettingsGroup>
-        ) : null}
-
-        <SettingsGroup title={`Repositories · ${repositories.length}`}>
-          <SettingsRow
-            icon="source-repository-multiple"
-            title="Manage repositories"
-            subtitle={
-              isConnected
-                ? 'Choose from repositories accessible to this GitHub account'
-                : 'Manage public repositories available without signing in'
-            }
-            showChevron
-            onPress={() => router.push('/settings/github-repositories')}
-          />
-          {!isConnected ? (
-            <>
-              <RowSeparator />
-              <View className="gap-3 px-4 py-4">
-                <Text selectable className="text-sf-text-2 text-sm">
-                  Public repositories work without an account and remain read-only.
-                </Text>
-                <TextInput
-                  value={publicRepoInput}
-                  onChangeText={setPublicRepoInput}
-                  placeholder="owner/repository or GitHub URL"
-                  placeholderTextColor={colors.gray}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  className="text-sf-text rounded-xl px-4 py-3.5 text-base"
-                  style={{ backgroundColor: colors.bg3, minHeight: 48 }}
-                  onSubmitEditing={addPublicRepository}
-                />
-                <Button
-                  variant="tonal"
-                  label={validatePublicRepo.isPending ? 'Checking…' : 'Add public repository'}
-                  loading={validatePublicRepo.isPending}
-                  disabled={!publicRepoInput.trim() || validatePublicRepo.isPending}
-                  onPress={addPublicRepository}
-                />
-              </View>
-            </>
-          ) : null}
-        </SettingsGroup>
-
-        {repositories.length > 0 ? (
-          <>
-            {isConnected ? (
-              <SettingsGroup title="Issue scope">
-                {SCOPE_OPTIONS.map((option, index) => (
-                  <View key={option.id}>
-                    {index > 0 ? <RowSeparator /> : null}
-                    <SettingsRow
-                      icon={
-                        option.id === 'assigned'
-                          ? 'account-check-outline'
-                          : option.id === 'created'
-                            ? 'pencil-outline'
-                            : option.id === 'mentioned'
-                              ? 'at'
-                              : 'format-list-bulleted'
-                      }
-                      title={option.label}
-                      subtitle={option.hint}
-                      selected={issueScope === option.id}
-                      onPress={() => {
-                        setIssueScope(option.id);
-                        queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
-                      }}
-                      trailing={
-                        issueScope === option.id ? (
-                          <MaterialCommunityIcons name="check" size={20} color={colors.accent} />
-                        ) : null
-                      }
-                    />
-                  </View>
-                ))}
-              </SettingsGroup>
-            ) : null}
-
-            <SettingsGroup title="Issue state">
-              <View className="px-4 py-4">
-                <SegmentedControl
-                  appearance={scheme}
-                  values={STATE_OPTIONS.map((option) => option.label)}
-                  selectedIndex={Math.max(
-                    0,
-                    STATE_OPTIONS.findIndex((option) => option.id === issueState)
-                  )}
-                  tintColor={colors.accent}
-                  onChange={(event) => {
-                    const next =
-                      STATE_OPTIONS[event.nativeEvent.selectedSegmentIndex]?.id ?? 'all';
-                    setIssueState(next);
-                    queryClient.invalidateQueries({ queryKey: queryKeys.githubIssues });
-                  }}
-                />
-              </View>
-            </SettingsGroup>
-          </>
-        ) : null}
-
-        {isConnected || connection.connection.status === 'expired' ? (
-          <SettingsGroup>
-            {connection.connection.status === 'expired' ? (
-              <SettingsRow
-                icon="refresh"
-                title="Reconnect GitHub"
-                subtitle="Authorization expired or was revoked"
-                onPress={connection.beginDeviceFlow}
-              />
-            ) : null}
-            {connection.connection.status === 'expired' ? <RowSeparator /> : null}
-            <SettingsRow
-              icon="logout"
-              title="Disconnect account"
-              subtitle="Repository selections are kept on this device"
-              danger
-              onPress={() => setConfirmDisconnect(true)}
-            />
-          </SettingsGroup>
-        ) : null}
+        )}
       </SettingsScreen>
 
-      <DeviceFlowSheet
-        flow={connection.deviceFlow}
-        onCancel={connection.cancelDeviceFlow}
-      />
-
-      <NativeAlert
-        visible={alert !== null || connection.connectionError !== null}
-        title={alert?.title ?? 'GitHub connection'}
-        message={alert?.message ?? connection.connectionError ?? ''}
-        onDismiss={() => {
-          setAlert(null);
-          connection.clearConnectionError();
-        }}
-      />
       <NativeAlert
         visible={confirmDisconnect}
         title="Disconnect GitHub?"
-        message="The token will be removed from this device. Your repository selections will be kept."
+        message="The token is removed from this device. Your repositories stay saved for when you reconnect."
         confirmLabel="Disconnect"
         dismissLabel="Cancel"
         onDismiss={() => setConfirmDisconnect(false)}
         onConfirm={() => {
           setConfirmDisconnect(false);
-          connection.disconnect().catch((error) =>
-            setAlert({
-              title: 'Could not disconnect',
-              message: error instanceof Error ? error.message : 'Please try again.',
-            })
-          );
+          void connection.disconnect();
         }}
       />
     </>
   );
 }
 
-function ConnectionSummary({
-  account,
-  status,
-  authKind,
-  message,
-}: {
-  account?: { login: string; avatarUrl: string };
-  status: string;
-  authKind?: string;
-  message?: string;
-}) {
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   const { colors } = useTheme();
-  const connected = status === 'connected';
-  const title = account ? `@${account.login}` : 'GitHub Issues';
-  const subtitle = connected
-    ? authKind === 'fine-grained-pat'
-      ? 'Connected with a fine-grained token'
-      : authKind === 'legacy-oauth'
-        ? 'Legacy connection · reconnect recommended'
-        : 'Connected with GitHub App'
-    : status === 'expired'
-      ? 'Connection needs attention'
-      : status === 'error'
-        ? 'GitHub could not be checked'
-        : 'Not connected';
-
   return (
-    <SettingsGroup>
-      <View className="items-center gap-3 px-5 py-6">
-        {account?.avatarUrl ? (
-          <Image
-            source={{ uri: account.avatarUrl }}
-            style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: colors.bg2 }}
-            contentFit="cover"
-          />
-        ) : (
-          <View
-            className="h-20 w-20 items-center justify-center rounded-full"
-            style={{ backgroundColor: colors.bg2 }}>
-            <MaterialCommunityIcons name="github" size={40} color={colors.text2} />
-          </View>
-        )}
-        <View className="items-center gap-1">
-          <Text selectable className="text-sf-text text-lg font-semibold">{title}</Text>
-          <Text selectable className="text-sf-text-2 text-center text-sm">{subtitle}</Text>
-          {message ? (
-            <Text selectable style={{ color: colors.danger, textAlign: 'center', fontSize: 13 }}>
-              {message}
-            </Text>
-          ) : null}
-        </View>
+    <View className="flex-row" style={{ gap: 14 }}>
+      <View
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 14,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.accent,
+        }}>
+        <Text style={{ color: colors.onAccent, fontSize: 14, fontWeight: '700' }}>{n}</Text>
       </View>
-    </SettingsGroup>
+      <View className="flex-1 gap-2">
+        <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text, paddingTop: 3 }}>
+          {title}
+        </Text>
+        {children}
+      </View>
+    </View>
   );
 }
 
-function DeviceFlowSheet({
-  flow,
-  onCancel,
-}: {
-  flow: { userCode: string; verificationUrl: string; expiresAt: number } | null;
-  onCancel: () => void;
-}) {
+/** Step number on an accent tile, sized like the iOS settings icons. */
+function NumberTile({ n }: { n: number }) {
   const { colors } = useTheme();
-  const [now, setNow] = useState(0);
-
-  useEffect(() => {
-    if (!flow) return;
-    const update = () => setNow(Date.now());
-    const kickoff = setTimeout(update, 0);
-    const timer = setInterval(update, 1000);
-    return () => {
-      clearTimeout(kickoff);
-      clearInterval(timer);
-    };
-  }, [flow]);
-
-  const remaining = useMemo(
-    () => (flow ? Math.max(0, Math.ceil((flow.expiresAt - now) / 1000)) : 0),
-    [flow, now]
-  );
-
   return (
-    <Modal visible={!!flow} transparent animationType="slide" onRequestClose={onCancel}>
-      <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-        <View
-          className="gap-5 rounded-t-3xl px-6 pb-12 pt-6"
-          style={{ backgroundColor: colors.bg, borderCurve: 'continuous' }}>
-          <Text className="text-sf-text text-center text-xl font-bold">Authorize Patchwork</Text>
-          <Text selectable className="text-sf-text-2 text-center text-sm">
-            Enter this one-time code on GitHub. Patchwork will continue automatically.
-          </Text>
-          <View className="items-center rounded-2xl p-5" style={{ backgroundColor: colors.bg2 }}>
-            <Text selectable className="text-sf-text font-mono text-3xl font-bold tracking-widest">
-              {flow?.userCode ?? ''}
-            </Text>
-          </View>
-          <Button
-            label="Open GitHub"
-            icon="open-in-new"
-            onPress={() => flow && Linking.openURL(flow.verificationUrl)}
-          />
-          <Text
-            selectable
-            className="text-sf-text-3 text-center text-sm"
-            style={{ fontVariant: ['tabular-nums'] }}>
-            Waiting for authorization · {Math.floor(remaining / 60)}:
-            {String(remaining % 60).padStart(2, '0')}
-          </Text>
-          <Button variant="text" label="Cancel" onPress={onCancel} />
-        </View>
-      </View>
-    </Modal>
+    <View
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 7,
+        borderCurve: 'continuous',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accent,
+      }}>
+      <Text style={{ color: colors.onAccent, fontSize: 15, fontWeight: '700' }}>{n}</Text>
+    </View>
   );
 }

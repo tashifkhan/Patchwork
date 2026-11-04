@@ -20,9 +20,10 @@ export function Switch({ value, onValueChange, disabled }: SwitchProps) {
       value={value}
       onValueChange={onValueChange}
       disabled={disabled}
-      trackColor={{ false: colors.gray3, true: colors.accent }}
-      thumbColor={colors.onAccent}
-      ios_backgroundColor={colors.gray3}
+      // Only tint the "on" track. The off track and thumb stay system-drawn so
+      // the switch reads on every palette (a palette gray3 can match the cell).
+      trackColor={{ true: colors.accent }}
+      thumbColor={process.env.EXPO_OS === 'ios' ? undefined : colors.onAccent}
     />
   );
 }

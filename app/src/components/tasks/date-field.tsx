@@ -73,8 +73,16 @@ export function DateField({ label, iconName, value, onChange }: DateFieldProps) 
             accessibilityRole="button"
             accessibilityLabel={`Clear ${label}`}
             hitSlop={8}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-            <MaterialCommunityIcons name="close-circle" size={20} color={colors.red} />
+            android_ripple={{ color: colors.separator, borderless: true, radius: 20 }}
+            style={({ pressed }) => ({
+              width: 40,
+              height: 40,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: pressed && Platform.OS === 'ios' ? 0.6 : 1,
+            })}>
+            {/* Quiet icon button: clearing a date is routine, not destructive. */}
+            <MaterialCommunityIcons name="close" size={20} color={colors.text2} />
           </Pressable>
         ) : null}
       </View>

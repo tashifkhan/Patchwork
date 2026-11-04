@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { Platform } from 'react-native';
 
 import { HeaderBackButtonLeft } from '@/components/ui/header-back-button';
@@ -35,7 +36,14 @@ export function themedStackScreenOptions(colors: ThemeColors) {
       ? {
           // Hide the native up-arrow so only the circular headerLeft renders.
           headerBackVisible: false as const,
-          headerLeft: HeaderBackButtonLeft,
+          // Rendered as an element, not passed as the render function itself:
+          // the navigator calls `headerLeft(props)` inside its own SceneView
+          // render, so a hook-using component passed directly would add hooks
+          // to SceneView and crash ("Rendered more hooks…") whenever a screen
+          // gains this option after mounting, e.g. a root-stack screen that
+          // sets these themed options from inside itself.
+          headerLeft: (props: Parameters<typeof HeaderBackButtonLeft>[0]) =>
+            createElement(HeaderBackButtonLeft, props),
         }
       : null),
   };

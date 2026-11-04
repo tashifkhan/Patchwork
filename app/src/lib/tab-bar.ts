@@ -6,13 +6,13 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useTabBarChromeStore } from '@/stores/tab-bar-chrome-store';
 
 /** Height of the floating capsule (icon + label). */
-export const FLOATING_TAB_BAR_HEIGHT = 56;
+export const FLOATING_TAB_BAR_HEIGHT = 64;
 /** Diameter of the separate search / mini circle (matches capsule height). */
-export const FLOATING_TAB_CIRCLE = 56;
+export const FLOATING_TAB_CIRCLE = 64;
 /** Horizontal / bottom margin around the floating chrome. */
 export const FLOATING_TAB_BAR_MARGIN = 14;
 
-/** True when Android is using the iOS-style floating tab bar. */
+/** True when Android is using the floating navbar. */
 export function useFloatingTabBar(): boolean {
   const floatingTabBar = useSettingsStore((s) => s.floatingTabBar);
   return Platform.OS === 'android' && floatingTabBar;

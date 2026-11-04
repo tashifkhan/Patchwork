@@ -15,11 +15,8 @@ import type {
   GitHubReposResult,
   GitHubSourceWarning,
 } from '@/features/github/types';
-import { getGitHubCredentials, saveGitHubCredentials } from '@/lib/credentials';
-import {
-  credentialsNeedRefresh,
-  refreshGitHubCredentials,
-} from '@/lib/github-auth';
+import { getGitHubCredentials } from '@/lib/credentials';
+import { isLegacyCredential } from '@/lib/github-auth';
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
@@ -434,10 +431,14 @@ export function buildGitHubIssueCreatePayload(input: GitHubIssueCreate) {
         .filter(Boolean)
     ),
   ];
+  const labels = [
+    ...new Set((input.labels ?? []).map((label) => label.trim()).filter(Boolean)),
+  ];
   return {
     title,
     ...(body ? { body } : {}),
     ...(assignees.length > 0 ? { assignees } : {}),
+    ...(labels.length > 0 ? { labels } : {}),
   };
 }
 
@@ -451,13 +452,17 @@ export function reopenGitHubIssue(repo: string, issueNumber: number): Promise<Gi
 
 async function getClient(authenticated: boolean): Promise<GitHubClient> {
   if (!authenticated) return new GitHubClient();
-  let credentials = await getGitHubCredentials();
+  const credentials = await getGitHubCredentials();
   if (!credentials) {
     throw new GitHubError('unauthenticated', 'Connect GitHub in Settings to access this repository.', 401);
   }
-  if (credentialsNeedRefresh(credentials)) {
-    credentials = await refreshGitHubCredentials(credentials);
-    await saveGitHubCredentials(credentials);
+  // Tokens don't refresh. An old GitHub App sign-in has to be replaced.
+  if (isLegacyCredential(credentials)) {
+    throw new GitHubError(
+      'token_expired',
+      'Patchwork now connects with a personal access token. Paste one in Settings.',
+      401
+    );
   }
   return new GitHubClient(credentials.accessToken);
 }

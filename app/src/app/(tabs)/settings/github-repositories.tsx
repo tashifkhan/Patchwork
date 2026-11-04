@@ -1,23 +1,38 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl } from 'react-native';
+import { FlatList, Platform, Pressable, RefreshControl, type ViewStyle } from 'react-native';
 
 import type { GitHubRepo } from '@/api/types';
+import {
+  SETTINGS_IOS,
+  SettingsDivider,
+  SettingsSearchField,
+  SettingsToggleRow,
+  useSettingsColors,
+} from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
-import { Switch } from '@/components/ui/switch';
+import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { selectionFromRepo, useGitHubRepos } from '@/hooks/use-github';
 import { useTabBarContentPadding } from '@/lib/tab-bar';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { Text, TextInput, View } from '@/tw';
+import { Text, View } from '@/tw';
 
 type RepositoryFilter = 'all' | 'selected' | 'public' | 'private';
 
+const FILTERS: { label: string; value: RepositoryFilter }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Selected', value: 'selected' },
+  { label: 'Public', value: 'public' },
+  { label: 'Private', value: 'private' },
+];
+
 export default function GitHubRepositoriesScreen() {
   const { colors } = useTheme();
+  const { screen, cell } = useSettingsColors();
   const bottomPadding = useTabBarContentPadding(40);
   const repositoriesQuery = useGitHubRepos();
   const selections = useSettingsStore((state) => state.githubRepositories);
@@ -113,6 +128,7 @@ export default function GitHubRepositoriesScreen() {
     <>
       <Stack.Screen options={{ title: 'GitHub Repositories', headerLargeTitle: false }} />
       <FlatList
+        style={{ backgroundColor: screen }}
         data={filtered}
         keyExtractor={(repository) => String(repository.id)}
         contentInsetAdjustmentBehavior="automatic"
@@ -132,63 +148,49 @@ export default function GitHubRepositoriesScreen() {
         }}
         ListHeaderComponent={
           <View className="gap-3 pb-4">
-            <View
-              className="flex-row items-center rounded-2xl px-3"
-              style={{ minHeight: 48, backgroundColor: colors.bg2, borderCurve: 'continuous' }}>
-              <MaterialCommunityIcons name="magnify" size={20} color={colors.text2} />
-              <TextInput
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Search repositories"
-                placeholderTextColor={colors.gray}
-                autoCapitalize="none"
-                autoCorrect={false}
-                className="text-sf-text flex-1 px-3 py-3 text-base"
-              />
-              {search ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear search"
-                  hitSlop={12}
-                  onPress={() => setSearch('')}>
-                  <MaterialCommunityIcons name="close-circle" size={20} color={colors.text2} />
-                </Pressable>
-              ) : null}
-            </View>
+            <SettingsSearchField
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search repositories"
+            />
 
-            <View className="flex-row flex-wrap gap-2">
-              {(
-                [
-                  ['all', 'All'],
-                  ['selected', 'Selected'],
-                  ['public', 'Public'],
-                  ['private', 'Private'],
-                ] as const
-              ).map(([id, label]) => (
-                <Pressable
-                  key={id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: filter === id }}
-                  onPress={() => setFilter(id)}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}>
-                  <View
-                    className="rounded-full px-3.5 py-2"
-                    style={{
-                      backgroundColor:
-                        filter === id ? colors.primaryContainer : colors.bg2,
-                    }}>
-                    <Text
-                      className="text-sm font-medium"
+            {SETTINGS_IOS ? (
+              <SegmentedChoice options={FILTERS} value={filter} onChange={setFilter} />
+            ) : (
+              <View className="flex-row flex-wrap gap-2">
+                {(
+                  [
+                    ['all', 'All'],
+                    ['selected', 'Selected'],
+                    ['public', 'Public'],
+                    ['private', 'Private'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <Pressable
+                    key={id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: filter === id }}
+                    onPress={() => setFilter(id)}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}>
+                    <View
+                      className="rounded-full px-3.5 py-2"
                       style={{
-                        color:
-                          filter === id ? colors.onPrimaryContainer : colors.text2,
+                        backgroundColor:
+                          filter === id ? colors.primaryContainer : cell,
                       }}>
-                      {label}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
+                      <Text
+                        className="text-sm font-medium"
+                        style={{
+                          color:
+                            filter === id ? colors.onPrimaryContainer : colors.text2,
+                        }}>
+                        {label}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             <View className="flex-row items-center justify-between gap-3 px-1">
               <Text selectable className="text-sf-text-2 text-sm" style={{ fontVariant: ['tabular-nums'] }}>
@@ -225,14 +227,25 @@ export default function GitHubRepositoriesScreen() {
             ))}
           </View>
         }
-        renderItem={({ item }) => (
-          <RepositoryRow
-            repository={item}
-            selected={selectedNames.has(item.full_name.toLowerCase())}
-            onToggle={() => toggleRepository(item)}
-          />
+        renderItem={({ item, index }) => (
+          // Rows draw as one grouped list: a card on iOS, segments on Android.
+          <View style={segmentStyle(index, filtered.length, cell)}>
+            <RepositoryRow
+              repository={item}
+              selected={selectedNames.has(item.full_name.toLowerCase())}
+              onToggle={() => toggleRepository(item)}
+            />
+          </View>
         )}
-        ItemSeparatorComponent={() => <View className="bg-sf-separator ml-4 h-px" />}
+        ItemSeparatorComponent={() =>
+          Platform.OS === 'android' ? (
+            <View style={{ height: 2 }} />
+          ) : (
+            <View style={{ backgroundColor: cell }}>
+              <SettingsDivider />
+            </View>
+          )
+        }
         ListEmptyComponent={
           repositoriesQuery.isLoading ? (
             <LoadingState message="Loading repositories…" fullScreen={false} />
@@ -279,44 +292,39 @@ function RepositoryRow({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const { colors } = useTheme();
   const unavailable = repository.archived || !repository.has_issues;
+  const status = repository.archived
+    ? 'Archived'
+    : !repository.has_issues
+      ? 'Issues are disabled'
+      : repository.canWriteIssues
+        ? 'Issues read and write'
+        : (repository.description ?? 'Issues read-only');
   return (
-    <Pressable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected, disabled: unavailable }}
+    <SettingsToggleRow
+      title={repository.full_name}
+      subtitle={repository.private ? `Private · ${status}` : status}
+      value={selected}
       disabled={unavailable}
-      onPress={onToggle}
-      style={({ pressed }) => ({
-        opacity: unavailable ? 0.55 : pressed ? 0.7 : 1,
-        minHeight: 68,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        backgroundColor: selected ? colors.selectionBg : 'transparent',
-      })}>
-      <View className="flex-1 gap-1">
-        <View className="flex-row items-center gap-2">
-          <Text selectable className="text-sf-text flex-1 text-base font-medium">
-            {repository.full_name}
-          </Text>
-          {repository.private ? (
-            <MaterialCommunityIcons name="lock-outline" size={15} color={colors.text3} />
-          ) : null}
-        </View>
-        <Text selectable numberOfLines={1} className="text-sf-text-2 text-sm">
-          {repository.archived
-            ? 'Archived'
-            : !repository.has_issues
-              ? 'Issues are disabled'
-              : repository.canWriteIssues
-                ? 'Issues read and write'
-                : repository.description ?? 'Issues read-only'}
-        </Text>
-      </View>
-      <Switch value={selected} disabled={unavailable} onValueChange={onToggle} />
-    </Pressable>
+      onValueChange={onToggle}
+    />
   );
+}
+
+/** Corner radii for row `index` of `count` in a grouped list. */
+function segmentStyle(index: number, count: number, cell: string): ViewStyle {
+  const android = Platform.OS === 'android';
+  const outer = android ? 24 : 26;
+  const inner = android ? 4 : 0;
+  const top = index === 0 ? outer : inner;
+  const bottom = index === count - 1 ? outer : inner;
+  return {
+    backgroundColor: cell,
+    overflow: 'hidden',
+    borderCurve: 'continuous',
+    borderTopLeftRadius: top,
+    borderTopRightRadius: top,
+    borderBottomLeftRadius: bottom,
+    borderBottomRightRadius: bottom,
+  };
 }

@@ -79,9 +79,3 @@ export type GitHubConnectionState =
   | { status: 'expired'; account?: GitHubAccount; message: string }
   | { status: 'error'; message: string };
 
-export interface GitHubTokenGrant {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn?: number;
-  refreshTokenExpiresIn?: number;
-}

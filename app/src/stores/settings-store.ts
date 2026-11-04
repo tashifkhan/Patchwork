@@ -28,7 +28,7 @@ interface SettingsState {
   /** Stronger text and outline contrast. */
   highContrast: boolean;
   /**
-   * Android only: use an iOS-style floating pill tab bar instead of the
+   * Android only: use the floating pill navbar instead of the
    * edge-to-edge Material 3 bottom navigation.
    */
   floatingTabBar: boolean;

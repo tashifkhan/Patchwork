@@ -1,18 +1,27 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Linking, RefreshControl } from 'react-native';
 import { Image } from 'expo-image';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
+import { Linking, Platform, Pressable, RefreshControl } from 'react-native';
+import Animated, { SlideInDown } from 'react-native-reanimated';
 
 import type { GitHubIssue } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
+import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
 import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
+import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { Button } from '@/components/ui/button';
-import { LoadingState } from '@/components/ui/loading';
+import { LoadingSpinner, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useGitHubIssue, useToggleGitHubIssue } from '@/hooks/use-github';
+import { useGitHubIssue, useToggleGitHubIssue, useUpdateGitHubIssue } from '@/hooks/use-github';
 import { formatDateTime } from '@/lib/format';
-import { ScrollView, Text, View } from '@/tw';
+import { haptics } from '@/lib/haptics';
+import { SPRING } from '@/lib/motion';
+import { useTabBarFabOffset } from '@/lib/tab-bar';
+import { ScrollView, Text, TextInput, View } from '@/tw';
+
+/** Left edge shared by title, body and labels (checkbox slot). */
+const TEXT_INSET = 34;
 
 export default function GitHubIssueDetailScreen() {
   const { colors } = useTheme();
@@ -23,14 +32,84 @@ export default function GitHubIssueDetailScreen() {
   }>();
   const issueNumber = numberParam ? Number(numberParam) : undefined;
   const issueQuery = useGitHubIssue(repo, issueNumber);
-  const toggleIssue = useToggleGitHubIssue();
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
   const issue = issueQuery.data;
 
-  async function handleToggle() {
-    if (!issue || issue.readOnly) return;
+  if (issueQuery.isLoading && !issue) {
+    return <LoadingState message="Loading issue…" fullScreen />;
+  }
+
+  if (!issue) {
+    return (
+      <View
+        className="flex-1 items-center justify-center gap-3 px-8"
+        style={{ backgroundColor: colors.bg }}>
+        <Stack.Screen options={{ title: '' }} />
+        <MaterialCommunityIcons name="github" size={32} color={colors.text2} />
+        <Text className="text-sf-text-2 text-center">
+          {issueQuery.isError
+            ? issueQuery.error instanceof Error
+              ? issueQuery.error.message
+              : 'Could not load issue.'
+            : 'Issue not found.'}
+        </Text>
+        {issueQuery.isError ? (
+          <Button variant="tonal" label="Retry" onPress={() => issueQuery.refetch()} />
+        ) : null}
+      </View>
+    );
+  }
+
+  // Keyed so edits reset cleanly when a different issue is opened.
+  return (
+    <IssueDocument
+      key={`${issue.repo}#${issue.number}`}
+      issue={issue}
+      refreshing={issueQuery.isFetching && !issueQuery.isLoading}
+      onRefresh={() => issueQuery.refetch()}
+    />
+  );
+}
+
+/**
+ * A GitHub issue laid out like a to-do: checkbox and title, the body as live
+ * Markdown, labels, then quiet details. Title and body save to GitHub when
+ * you leave the field, if the token can write to the repository.
+ */
+function IssueDocument({
+  issue,
+  refreshing,
+  onRefresh,
+}: {
+  issue: GitHubIssue;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const { colors } = useTheme();
+  const toggleIssue = useToggleGitHubIssue();
+  const updateIssue = useUpdateGitHubIssue();
+  const bottom = useTabBarFabOffset();
+  const editable = !issue.readOnly && issue.canWrite;
+  const [title, setTitle] = useState(issue.title);
+  const [body, setBody] = useState(issue.body);
+  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const repoName = issue.repo.split('/')[1] ?? issue.repo;
+
+  async function save(patch: { title?: string; body?: string }) {
+    try {
+      await updateIssue.mutateAsync({ repo: issue.repo, issueNumber: issue.number, patch });
+    } catch (error) {
+      setAlert({
+        title: 'Could not save to GitHub',
+        message: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
+  }
+
+  async function toggle() {
+    if (issue.readOnly) return;
     try {
       await toggleIssue.mutateAsync(issue);
+      haptics.success();
     } catch (error) {
       setAlert({
         title: 'Could not update issue',
@@ -40,159 +119,254 @@ export default function GitHubIssueDetailScreen() {
   }
 
   async function openOnGitHub() {
-    if (!issue?.html_url?.startsWith('https://github.com/')) return;
-    if (await Linking.canOpenURL(issue.html_url)) {
-      await Linking.openURL(issue.html_url);
-    }
-  }
-
-  if (issueQuery.isLoading && !issue) {
-    return <LoadingState message="Loading issue…" subtitle="Fetching from GitHub" />;
-  }
-
-  if (!issue) {
-    return (
-      <View className="flex-1 items-center justify-center gap-3 px-8" style={{ backgroundColor: colors.bg }}>
-        <MaterialCommunityIcons name="github" size={32} color={colors.text2} />
-        <Text className="text-sf-text-2 text-center">
-          {issueQuery.isError
-            ? issueQuery.error instanceof Error
-              ? issueQuery.error.message
-              : 'Could not load issue.'
-            : 'Issue not found. Check the repository and issue number.'}
-        </Text>
-        {issueQuery.isError ? (
-          <Button variant="tonal" label="Retry" onPress={() => issueQuery.refetch()} />
-        ) : null}
-        <Button variant="text" label="Go back" onPress={() => router.back()} />
-      </View>
-    );
+    if (!issue.html_url?.startsWith('https://github.com/')) return;
+    haptics.tap();
+    await Linking.openURL(issue.html_url);
   }
 
   return (
-    <ScrollView
-      className="flex-1"
-      style={{ backgroundColor: colors.bg }}
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ paddingBottom: 48, backgroundColor: colors.bg }}
-      refreshControl={
-        <RefreshControl refreshing={issueQuery.isFetching && !issueQuery.isLoading} onRefresh={() => issueQuery.refetch()} />
-      }>
+    <>
       <Stack.Screen
         options={{
-          title: `${issue.repo} #${issue.number}`,
           headerLargeTitle: false,
+          headerTitleAlign: 'left',
           contentStyle: { backgroundColor: colors.bg },
+          headerTitle: () => (
+            <View
+              accessible
+              accessibilityLabel={`Issue ${issue.number} in ${issue.repo}`}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MaterialCommunityIcons name="github" size={16} color={colors.text2} />
+              <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text2 }}>
+                {repoName} #{issue.number}
+              </Text>
+            </View>
+          ),
         }}
       />
-
-      <View className="gap-4 px-4 py-4">
-        {/* Status + title */}
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-center gap-2">
-            <StateBadge issue={issue} />
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: colors.bg }}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 140 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+        {/* Title */}
+        <View className="flex-row items-start">
+          <View style={{ marginLeft: -10, marginTop: 2 }}>
             {issue.readOnly ? (
               <View
-                className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
-                style={{ backgroundColor: colors.bg2 }}>
-                <MaterialCommunityIcons name="eye-outline" size={14} color={colors.text2} />
-                <Text className="text-sf-text-2 text-xs">Read-only</Text>
+                style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialCommunityIcons name="github" size={22} color={colors.text3} />
               </View>
-            ) : null}
+            ) : (
+              <TaskCheckbox
+                checked={issue.completed}
+                size={26}
+                onToggle={toggle}
+                label={issue.completed ? 'Reopen issue' : 'Close issue'}
+              />
+            )}
           </View>
-          <Text className="text-sf-text text-2xl font-bold">{issue.title}</Text>
-          <Text className="text-sf-text-2 text-sm">
-            {issue.repo} · #{issue.number}
-            {issue.updated_at ? ` · updated ${formatDateTime(issue.updated_at)}` : ''}
-          </Text>
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            onBlur={() => {
+              const next = title.trim();
+              if (next && next !== issue.title) void save({ title: next });
+            }}
+            editable={editable}
+            multiline
+            submitBehavior="blurAndSubmit"
+            accessibilityLabel="Issue title"
+            className="text-sf-text flex-1"
+            style={{
+              fontSize: 28,
+              lineHeight: 34,
+              fontWeight: '700',
+              letterSpacing: -0.4,
+              paddingVertical: 6,
+              paddingHorizontal: 0,
+              textDecorationLine: issue.completed ? 'line-through' : 'none',
+            }}
+          />
+        </View>
+
+        {/* Body */}
+        <View style={{ marginLeft: TEXT_INSET, marginTop: 4 }}>
+          {editable ? (
+            <LiveMarkdownInput
+              value={body}
+              onChangeText={setBody}
+              onBlur={() => {
+                if (body !== issue.body) void save({ body });
+              }}
+              placeholder="Add a description"
+              placeholderTextColor={colors.text3}
+              accessibilityLabel="Issue description"
+              style={{ minHeight: 40 }}
+            />
+          ) : issue.body.trim() ? (
+            <MarkdownViewer markdown={issue.body} />
+          ) : (
+            <Text style={{ fontSize: 17, color: colors.text3 }}>No description.</Text>
+          )}
         </View>
 
         {/* Labels */}
         {issue.labels.length > 0 ? (
-          <View className="flex-row flex-wrap gap-2">
-            {issue.labels.map((label) => {
-              const hex = label.color.startsWith('#') ? label.color : `#${label.color}`;
-              return (
-                <View
-                  key={label.id}
-                  className="flex-row items-center rounded-full px-3 py-1.5"
-                  style={{ backgroundColor: `${hex}33`, borderCurve: 'continuous' }}>
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: hex,
-                      marginRight: 6,
-                    }}
-                  />
-                  <Text className="text-sf-text text-xs font-medium">{label.name}</Text>
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {/* Assignees */}
-        {issue.assignees.length > 0 ? (
-          <View className="gap-2">
-            <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Assignees</Text>
-            <View
-              className="flex-row flex-wrap gap-2 rounded-2xl px-3 py-3"
-              style={{ backgroundColor: colors.bg2, borderCurve: 'continuous' }}>
-              {issue.assignees.map((a) => (
-                <View key={a.login} className="flex-row items-center gap-2">
-                  <Image
-                    source={{ uri: a.avatar_url }}
-                    style={{ width: 28, height: 28, borderRadius: 14 }}
-                    contentFit="cover"
-                  />
-                  <Text className="text-sf-text text-sm">@{a.login}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        {/* Body */}
-        <View className="gap-2">
-          <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Description</Text>
           <View
-            className="rounded-2xl px-3 py-3"
-            style={{ backgroundColor: colors.bg2, borderCurve: 'continuous' }}>
-            {issue.body?.trim() ? (
-              <MarkdownViewer markdown={issue.body} />
-            ) : (
-              <Text className="text-sf-text-3 text-sm italic">No description provided.</Text>
-            )}
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginLeft: TEXT_INSET,
+              marginTop: 16,
+            }}>
+            {issue.labels.map((label) => (
+              <View
+                key={label.id}
+                className="flex-row items-center"
+                style={{
+                  gap: 6,
+                  height: 32,
+                  paddingHorizontal: 12,
+                  borderRadius: 16,
+                  backgroundColor: colors.selectionBg,
+                }}>
+                <View
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 5,
+                    backgroundColor: `#${label.color || '888888'}`,
+                  }}
+                />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: colors.onSelectionBg }}>
+                  {label.name}
+                </Text>
+              </View>
+            ))}
           </View>
-        </View>
+        ) : null}
 
-        {/* Actions */}
-        <View className="gap-3 pt-2">
-          {!issue.readOnly ? (
-            <Button
-              variant={issue.completed ? 'tonal' : 'filled'}
-              label={
-                toggleIssue.isPending
-                  ? 'Updating…'
-                  : issue.completed
-                    ? 'Reopen issue'
-                    : 'Close issue'
-              }
-              icon={issue.completed ? 'reload' : 'check-circle-outline'}
-              loading={toggleIssue.isPending}
-              onPress={handleToggle}
-            />
-          ) : null}
-          <Button
-            variant="outlined"
-            label="Open on GitHub"
-            icon="open-in-new"
-            onPress={openOnGitHub}
+        {/* Details */}
+        <Text
+          style={{
+            marginTop: 28,
+            paddingBottom: 6,
+            fontSize: 17,
+            fontWeight: '700',
+            color: colors.accent,
+          }}>
+          Details
+        </Text>
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 4,
+            borderRadius: 24,
+            borderCurve: 'continuous',
+            backgroundColor: colors.bg2,
+          }}>
+          <DetailRow
+            icon={issue.completed ? 'check-circle-outline' : 'record-circle-outline'}
+            iconColor={issue.completed ? colors.purple : colors.green}
+            label="Status"
+            value={issue.completed ? 'Closed' : 'Open'}
           />
+          <DetailRow icon="source-repository" label="Repository" value={issue.repo} />
+          <DetailRow
+            icon="account-multiple-outline"
+            label="Assignees"
+            value={
+              issue.assignees.length > 0
+                ? issue.assignees.map((a) => `@${a.login}`).join(', ')
+                : 'No one'
+            }
+            avatars={issue.assignees.map((a) => a.avatar_url)}
+          />
+          <DetailRow icon="calendar-plus" label="Opened" value={formatDateTime(issue.created_at)} />
+          <DetailRow icon="update" label="Updated" value={formatDateTime(issue.updated_at)} />
         </View>
-      </View>
+        {!editable ? (
+          <Text style={{ fontSize: 13, color: colors.text3, marginTop: 10, paddingHorizontal: 4 }}>
+            Your token can only read this repository, so the issue can&apos;t be edited here.
+          </Text>
+        ) : null}
+      </ScrollView>
+
+      {/* Floating actions, matching the to-do toolbar */}
+      <Animated.View
+        entering={SlideInDown.springify()
+          .damping(SPRING.spatial.damping)
+          .stiffness(SPRING.spatial.stiffness)}
+        pointerEvents="box-none"
+        style={{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }}>
+        <View
+          className="flex-row items-center"
+          style={{
+            backgroundColor: colors.primaryContainer,
+            borderRadius: 32,
+            height: 64,
+            paddingHorizontal: 8,
+            gap: 4,
+            boxShadow: '0 4px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.3)',
+          }}>
+          {!issue.readOnly ? (
+            <Pressable
+              onPress={toggle}
+              disabled={toggleIssue.isPending}
+              accessibilityRole="button"
+              accessibilityLabel={issue.completed ? 'Reopen issue' : 'Close issue'}
+              android_ripple={{ color: colors.separator }}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                height: 48,
+                paddingLeft: 16,
+                paddingRight: 20,
+                borderRadius: pressed ? 12 : 24,
+                overflow: 'hidden',
+                backgroundColor: colors.accent,
+              })}>
+              {toggleIssue.isPending ? (
+                <LoadingSpinner size={22} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={issue.completed ? 'restore' : 'check'}
+                  size={22}
+                  color={colors.onAccent}
+                />
+              )}
+              <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>
+                {issue.completed ? 'Reopen' : 'Close issue'}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={openOnGitHub}
+            accessibilityRole="link"
+            accessibilityLabel="Open on GitHub"
+            android_ripple={{ color: colors.separator, borderless: true, radius: 24 }}
+            style={({ pressed }) => ({
+              width: 48,
+              height: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: pressed ? 12 : 24,
+              opacity: pressed && Platform.OS === 'ios' ? 0.6 : 1,
+            })}>
+            <MaterialCommunityIcons
+              name="open-in-new"
+              size={22}
+              color={colors.onPrimaryContainer}
+            />
+          </Pressable>
+        </View>
+      </Animated.View>
 
       <NativeAlert
         visible={alert != null}
@@ -200,30 +374,38 @@ export default function GitHubIssueDetailScreen() {
         message={alert?.message ?? ''}
         onDismiss={() => setAlert(null)}
       />
-    </ScrollView>
+    </>
   );
 }
 
-function StateBadge({ issue }: { issue: GitHubIssue }) {
+function DetailRow({
+  icon,
+  iconColor,
+  label,
+  value,
+  avatars,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  iconColor?: string;
+  label: string;
+  value: string;
+  avatars?: string[];
+}) {
   const { colors } = useTheme();
-  const open = !issue.completed;
   return (
-    <View
-      className="flex-row items-center gap-1.5 rounded-full px-3 py-1.5"
-      style={{
-        backgroundColor: open ? `${colors.green}28` : `${colors.text2}28`,
-        borderCurve: 'continuous',
-      }}>
-      <MaterialCommunityIcons
-        name={open ? 'alert-circle-outline' : 'check-circle-outline'}
-        size={16}
-        color={open ? colors.green : colors.text2}
-      />
-      <Text
-        className="text-xs font-semibold uppercase"
-        style={{ color: open ? colors.green : colors.text2 }}>
-        {open ? 'Open' : 'Closed'}
-      </Text>
+    <View className="flex-row items-center" style={{ gap: 12, minHeight: 56 }}>
+      <MaterialCommunityIcons name={icon} size={20} color={iconColor ?? colors.accent} />
+      <Text className="text-sf-text text-base">{label}</Text>
+      <View className="flex-1 flex-row items-center justify-end" style={{ gap: 6 }}>
+        {avatars?.slice(0, 3).map((uri) => (
+          <Image key={uri} source={{ uri }} style={{ width: 22, height: 22, borderRadius: 11 }} />
+        ))}
+        <Text
+          numberOfLines={1}
+          style={{ color: colors.text2, fontSize: 15, flexShrink: 1, textAlign: 'right' }}>
+          {value}
+        </Text>
+      </View>
     </View>
   );
 }

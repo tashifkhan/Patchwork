@@ -19,6 +19,8 @@ interface DraggableColumnProps<T> {
   indicatorColor: string;
   /** Long-press duration (ms) before a drag begins. */
   longPressMs?: number;
+  /** Turn drag-to-reorder off, e.g. while a row is open as an editable card. */
+  dragEnabled?: boolean;
 }
 
 // Reorderable vertical list for variable-height rows. A long-press lifts the
@@ -36,6 +38,7 @@ export function DraggableColumn<T>({
   onReorder,
   indicatorColor,
   longPressMs = 320,
+  dragEnabled = true,
 }: DraggableColumnProps<T>) {
   const heights = useRef<number[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -106,6 +109,7 @@ export function DraggableColumn<T>({
           key={keyExtractor(item)}
           index={index}
           longPressMs={longPressMs}
+          enabled={dragEnabled}
           onLayout={onRowLayout}
           onStart={(i) => {
             // Pickup: the firmest feedback in the app — the row is now "held".
@@ -130,6 +134,7 @@ export function DraggableColumn<T>({
 interface RowProps {
   index: number;
   longPressMs: number;
+  enabled: boolean;
   onLayout: (index: number, event: LayoutChangeEvent) => void;
   onStart: (index: number) => void;
   onUpdate: (index: number, translationY: number) => void;
@@ -143,6 +148,7 @@ interface RowProps {
 function Row({
   index,
   longPressMs,
+  enabled,
   onLayout,
   onStart,
   onUpdate,
@@ -159,6 +165,7 @@ function Row({
   // Fail the gesture quickly on horizontal movement so list scroll/taps win;
   // only activate after a deliberate long-press vertical drag.
   const pan = Gesture.Pan()
+    .enabled(enabled)
     .activateAfterLongPress(longPressMs)
     .maxPointers(1)
     .activeOffsetY([-8, 8])

@@ -242,15 +242,27 @@ export interface MaterialPalette {
 }
 
 /** Map a Material 3 (Material You) palette onto our semantic theme tokens. */
-export function materialColors(m: MaterialPalette, scheme: SchemeName): ThemeColors {
-  // Keep success/warning semantics readable since Material 3 has no dedicated
-  // green/orange role; the rest follow the dynamic palette.
+export function materialColors(raw: MaterialPalette, scheme: SchemeName): ThemeColors {
+  // `@expo/ui` hands colors back as `#RRGGBBAA`. Screens build tints by
+  // appending an alpha byte (`${colors.green}18`), which turns an 8-digit hex
+  // into an invalid 10-digit one, so drop the redundant opaque alpha here.
+  const m = Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => [key, opaqueHex(value)])
+  ) as unknown as MaterialPalette;
+  const dark = scheme === 'dark';
+  const primaryContainer = tonalContainer(
+    m.primaryContainer ?? m.primary,
+    m.primary,
+    m.background,
+    scheme
+  );
+  const selection = tonalContainer(m.secondaryContainer, m.primary, m.surfaceContainer, scheme);
   return {
     accent: m.primary,
-    green: scheme === 'dark' ? '#7FD98C' : '#2E7D32',
+    green: dark ? '#7FD98C' : '#2E7D32',
     red: m.error,
-    orange: scheme === 'dark' ? '#FFB95C' : '#E8730C',
-    yellow: scheme === 'dark' ? '#FFE066' : '#C9A200',
+    orange: dark ? '#FFB95C' : '#E8730C',
+    yellow: dark ? '#FFE066' : '#C9A200',
     purple: m.tertiary,
     gray: m.outline,
     gray2: m.outlineVariant,
@@ -263,12 +275,54 @@ export function materialColors(m: MaterialPalette, scheme: SchemeName): ThemeCol
     bg3: m.surfaceContainerHigh,
     separator: m.outlineVariant,
     onAccent: m.onPrimary,
-    selectionBg: m.secondaryContainer,
-    onSelectionBg: m.onSecondaryContainer,
+    selectionBg: selection.container,
+    onSelectionBg: selection.replaced ? selection.content : m.onSecondaryContainer,
     danger: m.error,
-    primaryContainer: m.primaryContainer ?? mixHex(m.primary, m.background, 0.18),
-    onPrimaryContainer: m.onPrimaryContainer ?? m.onSecondaryContainer,
+    primaryContainer: primaryContainer.container,
+    onPrimaryContainer: primaryContainer.replaced
+      ? primaryContainer.content
+      : (m.onPrimaryContainer ?? m.onSecondaryContainer),
   };
+}
+
+/**
+ * Material You containers sit near tone 90 in light mode and tone 30 in dark.
+ * Some system palettes (the Android 15 emulator's, for one) return mid-tone
+ * containers instead, which turns the nav pill and every tonal chip into a
+ * flat slate with no visible accent. When the system container is on the wrong
+ * side of mid-grey for the scheme, rebuild it as an accent wash over the
+ * surface, which is what a tonal container is meant to look like.
+ */
+function tonalContainer(
+  container: string,
+  accent: string,
+  surface: string,
+  scheme: SchemeName
+): { container: string; content: string; replaced: boolean } {
+  const lum = luminance(container);
+  const dark = scheme === 'dark';
+  const wrongTone = lum == null ? false : dark ? lum > 0.42 : lum < 0.62;
+  if (!wrongTone) return { container, content: accent, replaced: false };
+  return {
+    container: mixHex(surface, accent, dark ? 0.32 : 0.16),
+    content: dark ? mixHex(accent, '#FFFFFF', 0.55) : mixHex(accent, '#000000', 0.15),
+    replaced: true,
+  };
+}
+
+/** `#RRGGBBFF` → `#RRGGBB`. Translucent values keep their alpha. */
+function opaqueHex(value: string): string {
+  if (typeof value !== 'string') return value;
+  if (/^#[0-9a-fA-F]{8}$/.test(value) && value.slice(7).toUpperCase() === 'FF') {
+    return value.slice(0, 7);
+  }
+  return value;
+}
+
+function luminance(hex: string): number | null {
+  const p = parseHex(hex);
+  if (!p) return null;
+  return (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / 255;
 }
 
 /**

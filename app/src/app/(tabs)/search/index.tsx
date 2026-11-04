@@ -6,12 +6,17 @@ import { Platform, Pressable, SectionList } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuseResultMatch } from 'fuse.js';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import type { TaskList } from '@/api/types';
+import { FilterChip } from '@/components/tasks/tag-chip-list';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingBar, LoadingSpinner } from '@/components/ui/loading';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
 import { useGitHubIssues } from '@/hooks/use-github';
-import { useTasks } from '@/hooks/use-tasks';
+import { useTaskLists, useTasks } from '@/hooks/use-tasks';
+import { haptics } from '@/lib/haptics';
 import { buildSearchNodes, createSearchIndex, type SearchNode } from '@/lib/search';
 import {
   useFloatingTabBar,
@@ -20,6 +25,7 @@ import {
 } from '@/lib/tab-bar';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useTabBarChromeStore } from '@/stores/tab-bar-chrome-store';
+import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 
 const RECENTS_KEY = 'search:recents';
@@ -73,7 +79,7 @@ export default function SearchScreen() {
   const floatingQuery = useTabBarChromeStore((s) => s.floatingSearchQuery);
   const setFloatingQuery = useTabBarChromeStore((s) => s.setFloatingSearchQuery);
   const [localQuery, setLocalQuery] = useState('');
-  // When the iOS-style floating bar is on, the search field lives in the tab bar.
+  // When the floating navbar is on, the search field lives in the tab bar.
   const query = floatingTabBar ? floatingQuery : localQuery;
   const setQuery = floatingTabBar ? setFloatingQuery : setLocalQuery;
   const [filter, setFilter] = useState<FilterValue>('all');
@@ -84,6 +90,17 @@ export default function SearchScreen() {
   const deferredQuery = useDeferredValue(query);
 
   const tasksQuery = useTasks();
+  const listsQuery = useTaskLists();
+  const insets = useSafeAreaInsets();
+  const selectedListId = useUiStore((s) => s.selectedListId);
+  const selectedTag = useUiStore((s) => s.selectedTag);
+  const setSelectedListId = useUiStore((s) => s.setSelectedListId);
+  const setSelectedTag = useUiStore((s) => s.setSelectedTag);
+  const requestOpenTask = useUiStore((s) => s.requestOpenTask);
+  const lists = useMemo(
+    () => (listsQuery.data ?? []).filter((list) => !list.is_deck),
+    [listsQuery.data]
+  );
   const boardsQuery = useDeckBoards();
   const boards = useMemo(
     () => (indexDeck ? (boardsQuery.data ?? []) : []),
@@ -216,13 +233,37 @@ export default function SearchScreen() {
           });
         }
       } else if (node.taskUid) {
-        router.push({
-          pathname: '/task/[uid]',
-          params: { uid: node.taskUid },
-        });
+        // Things Quick Find: jump to the Tasks tab and open the to-do in place.
+        requestOpenTask(node.taskUid);
+        router.navigate('/(tabs)/(tasks)');
       }
     },
-    [deferredQuery, persistRecent]
+    [deferredQuery, persistRecent, requestOpenTask]
+  );
+
+  // Quick Find destinations: switching the Tasks tab to a list or a tag.
+  const jumpToList = useCallback(
+    (listId: string | null) => {
+      haptics.selection();
+      setSelectedListId(listId);
+      setSelectedTag(null);
+      router.navigate('/(tabs)/(tasks)');
+    },
+    [setSelectedListId, setSelectedTag]
+  );
+  const jumpToTag = useCallback(
+    (tag: string) => {
+      haptics.selection();
+      setSelectedListId(null);
+      setSelectedTag(tag);
+      router.navigate('/(tabs)/(tasks)');
+    },
+    [setSelectedListId, setSelectedTag]
+  );
+  const needle = deferredQuery.trim().toLowerCase();
+  const matchingLists = useMemo(
+    () => (needle ? lists.filter((l) => l.name.toLowerCase().includes(needle)) : []),
+    [lists, needle]
   );
 
   const totalResults = allResults.length;
@@ -237,6 +278,8 @@ export default function SearchScreen() {
         options={{
           title: 'Search',
           headerLargeTitle: false,
+          // Android draws its own M3 search bar in place of a title header.
+          headerShown: Platform.OS === 'ios',
           headerSearchBarOptions:
             Platform.OS === 'ios'
               ? {
@@ -269,36 +312,30 @@ export default function SearchScreen() {
         }}
         ListHeaderComponent={
           <View className="gap-3 pb-1 pt-2">
-            {/* Inline field only when not using the floating iOS-style search pill. */}
-            {Platform.OS !== 'ios' && !floatingTabBar ? (
-              <View
-                className="flex-row items-center rounded-full px-4"
-                style={{
-                  backgroundColor: colors.bg2,
-                  minHeight: 52,
-                  borderCurve: 'continuous',
-                }}>
-                <MaterialCommunityIcons name="magnify" size={22} color={colors.text2} />
-                <TextInput
+            {Platform.OS === 'android' ? (
+              floatingTabBar ? (
+                <Text
+                  className="text-sf-text px-1"
+                  style={{ fontSize: 28, fontWeight: '700', paddingTop: insets.top + 12 }}>
+                  Search
+                </Text>
+              ) : (
+                <M3SearchBar
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search tasks, cards, issues"
-                  placeholderTextColor={colors.text3}
-                  returnKeyType="search"
-                  onSubmitEditing={() => persistRecent(query)}
-                  className="text-sf-text flex-1 px-3 py-3 text-base"
-                  style={{ includeFontPadding: false }}
+                  onSubmit={() => persistRecent(query)}
+                  topInset={insets.top}
                 />
-                {query ? (
-                  <Pressable
-                    onPress={() => setQuery('')}
-                    hitSlop={12}
-                    accessibilityLabel="Clear search"
-                    style={{ minWidth: 40, minHeight: 40, alignItems: 'center', justifyContent: 'center' }}>
-                    <MaterialCommunityIcons name="close-circle" size={20} color={colors.text2} />
-                  </Pressable>
-                ) : null}
-              </View>
+              )
+            ) : null}
+
+            {hasQuery && matchingLists.length > 0 ? (
+              <ListGroup
+                title="Lists"
+                lists={matchingLists}
+                selectedListId={selectedListId}
+                onPick={jumpToList}
+              />
             ) : null}
 
             {isIndexing ? (
@@ -358,11 +395,13 @@ export default function SearchScreen() {
             <EmptyIdle
               recents={recents}
               suggestedTags={suggestedTags}
+              lists={lists}
+              selectedListId={selectedListId}
+              selectedTag={selectedTag}
+              onPickList={jumpToList}
+              onPickTag={jumpToTag}
               onPickRecent={(q) => setQuery(q)}
-              onPickTag={(t) => setQuery(t)}
               onClearRecents={clearRecents}
-              totalNodes={nodes.length}
-              isIndexing={isIndexing}
             />
           )
         }
@@ -382,56 +421,224 @@ function FilterBar({
   total: number;
   onChange: (f: FilterValue) => void;
 }) {
-  const { colors } = useTheme();
-  const items: { value: FilterValue; label: string; count: number }[] = [
-    { value: 'all', label: 'All', count: total },
-    { value: 'task', label: 'Tasks', count: counts.task },
-    { value: 'subtask', label: 'Subtasks', count: counts.subtask },
-    { value: 'deck-card', label: 'Cards', count: counts['deck-card'] },
-    { value: 'github-issue', label: 'Issues', count: counts['github-issue'] },
+  const items: {
+    value: FilterValue;
+    label: string;
+    count: number;
+    icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  }[] = [
+    { value: 'all', label: 'All', count: total, icon: 'magnify' },
+    { value: 'task', label: 'Tasks', count: counts.task, icon: 'checkbox-blank-outline' },
+    { value: 'subtask', label: 'Subtasks', count: counts.subtask, icon: 'subdirectory-arrow-right' },
+    { value: 'deck-card', label: 'Cards', count: counts['deck-card'], icon: 'card-text-outline' },
+    { value: 'github-issue', label: 'Issues', count: counts['github-issue'], icon: 'github' },
   ];
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-      {items.map((it) => {
-        const selected = filter === it.value;
-        const disabled = it.value !== 'all' && it.count === 0;
-        return (
-          <Pressable
+      contentContainerStyle={{ gap: 8, paddingVertical: 4, paddingHorizontal: 2 }}>
+      {items
+        .filter((it) => it.value === 'all' || it.count > 0)
+        .map((it) => (
+          <FilterChip
             key={it.value}
-            disabled={disabled}
+            label={it.label}
+            icon={it.icon}
+            count={it.count}
+            selected={filter === it.value}
             onPress={() => onChange(it.value)}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.7 : disabled ? 0.35 : 1,
-            })}>
-            <View
-              className="flex-row items-center gap-1.5 rounded-full px-3.5 py-2"
-              style={{
-                minHeight: 36,
-                backgroundColor: selected ? colors.primaryContainer : colors.bg2,
-                borderCurve: 'continuous',
-              }}>
-              <Text
-                className="text-sm font-semibold"
-                style={{ color: selected ? colors.onPrimaryContainer : colors.text }}>
-                {it.label}
-              </Text>
-              <Text
-                className="text-xs"
-                style={{
-                  color: selected ? colors.onPrimaryContainer : colors.text3,
-                  fontVariant: ['tabular-nums'],
-                  opacity: 0.85,
-                }}>
-                {it.count}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
+          />
+        ))}
     </ScrollView>
+  );
+}
+
+/**
+ * M3 search bar: 56dp full-round container on `surfaceContainerHigh`, leading
+ * search icon, trailing clear. Replaces the Android title header on this tab.
+ */
+function M3SearchBar({
+  value,
+  onChangeText,
+  onSubmit,
+  topInset,
+}: {
+  value: string;
+  onChangeText: (q: string) => void;
+  onSubmit: () => void;
+  topInset: number;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ paddingTop: topInset + 8, paddingBottom: 4 }}>
+      <View
+        className="flex-row items-center"
+        style={{
+          height: 56,
+          borderRadius: 28,
+          paddingLeft: 16,
+          paddingRight: 4,
+          gap: 12,
+          backgroundColor: colors.bg3,
+        }}>
+        <MaterialCommunityIcons name="magnify" size={24} color={colors.text} />
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder="Search tasks, lists, tags"
+          placeholderTextColor={colors.text2}
+          returnKeyType="search"
+          autoCorrect={false}
+          onSubmitEditing={onSubmit}
+          accessibilityLabel="Search"
+          className="text-sf-text flex-1"
+          style={{ fontSize: 16, includeFontPadding: false, paddingVertical: 0 }}
+        />
+        {value ? (
+          <Pressable
+            onPress={() => onChangeText('')}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            android_ripple={{ color: colors.separator, borderless: true, radius: 24 }}
+            style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
+            <MaterialCommunityIcons name="close" size={22} color={colors.text2} />
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** Rounded M3 list group of task lists, each a Quick Find jump target. */
+function ListGroup({
+  title,
+  lists,
+  selectedListId,
+  onPick,
+  includeAll,
+}: {
+  title: string;
+  lists: TaskList[];
+  selectedListId: string | null;
+  onPick: (listId: string | null) => void;
+  includeAll?: boolean;
+}) {
+  const rows: { id: string | null; name: string; detail?: string }[] = [
+    ...(includeAll ? [{ id: null, name: 'All tasks' }] : []),
+    ...lists.map((l) => ({ id: l.id, name: l.name, detail: l.account_name })),
+  ];
+  return (
+    <View className="gap-2">
+      <SectionLabel>{title}</SectionLabel>
+      <GroupCard>
+        {rows.map((row, i) => (
+          <GroupRow
+            key={row.id ?? 'all'}
+            icon={row.id == null ? 'tray-full' : 'format-list-bulleted'}
+            label={row.name}
+            detail={row.detail}
+            selected={row.id === selectedListId}
+            last={i === rows.length - 1}
+            onPress={() => onPick(row.id)}
+          />
+        ))}
+      </GroupCard>
+    </View>
+  );
+}
+
+function SectionLabel({ children, action }: { children: string; action?: React.ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <View className="flex-row items-center justify-between px-1">
+      <Text style={{ fontSize: 14, fontWeight: '600', color: colors.accent }}>{children}</Text>
+      {action}
+    </View>
+  );
+}
+
+function GroupCard({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        backgroundColor: colors.bg2,
+        borderRadius: 24,
+        borderCurve: 'continuous',
+        overflow: 'hidden',
+      }}>
+      {children}
+    </View>
+  );
+}
+
+function GroupRow({
+  icon,
+  label,
+  detail,
+  selected,
+  last,
+  trailing,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: string;
+  detail?: string;
+  selected?: boolean;
+  last?: boolean;
+  trailing?: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!selected }}
+      android_ripple={{ color: colors.separator }}
+      style={({ pressed }) => ({ opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 })}>
+      <View
+        className="flex-row items-center gap-4"
+        style={{
+          minHeight: 64,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderBottomWidth: last ? 0 : StyleSheetHairline,
+          borderBottomColor: colors.separator,
+        }}>
+        <View
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: selected ? 12 : 20,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: selected ? colors.accent : colors.primaryContainer,
+          }}>
+          <MaterialCommunityIcons
+            name={icon}
+            size={20}
+            color={selected ? colors.onAccent : colors.onPrimaryContainer}
+          />
+        </View>
+        <View className="flex-1">
+          <Text numberOfLines={1} className="text-sf-text" style={{ fontSize: 16 }}>
+            {label}
+          </Text>
+          {detail ? (
+            <Text numberOfLines={1} className="text-sf-text-2" style={{ fontSize: 14 }}>
+              {detail}
+            </Text>
+          ) : null}
+        </View>
+        {selected ? (
+          <MaterialCommunityIcons name="check" size={22} color={colors.accent} />
+        ) : trailing ? (
+          <MaterialCommunityIcons name={trailing} size={20} color={colors.text3} />
+        ) : null}
+      </View>
+    </Pressable>
   );
 }
 
@@ -619,167 +826,87 @@ function EmptyResults({ query, onClear }: { query: string; onClear: () => void }
   );
 }
 
+/**
+ * Idle state, modeled on Things' Quick Find: jump straight to a list or a tag,
+ * or rerun a recent search. No hero illustration; the destinations are the
+ * content.
+ */
 function EmptyIdle({
   recents,
   suggestedTags,
-  onPickRecent,
+  lists,
+  selectedListId,
+  selectedTag,
+  onPickList,
   onPickTag,
+  onPickRecent,
   onClearRecents,
-  totalNodes,
-  isIndexing,
 }: {
   recents: string[];
   suggestedTags: string[];
+  lists: TaskList[];
+  selectedListId: string | null;
+  selectedTag: string | null;
+  onPickList: (listId: string | null) => void;
+  onPickTag: (tag: string) => void;
   onPickRecent: (q: string) => void;
-  onPickTag: (t: string) => void;
   onClearRecents: () => void;
-  totalNodes: number;
-  isIndexing: boolean;
 }) {
   const { colors } = useTheme();
-  const showRecents = recents.length > 0;
-  const showTags = suggestedTags.length > 0;
-
   return (
-    <View className="gap-6 pt-2">
-      <View className="items-center gap-3 px-4 pt-6">
-        <View
-          className="h-20 w-20 items-center justify-center rounded-full"
-          style={{ backgroundColor: colors.primaryContainer }}>
-          <MaterialCommunityIcons name="magnify" size={36} color={colors.onPrimaryContainer} />
-        </View>
-        <Text className="text-sf-text text-center text-xl font-bold">Search everything</Text>
-        <Text className="text-sf-text-2 text-center text-sm" style={{ lineHeight: 20, maxWidth: 300 }}>
-          {isIndexing
-            ? 'Building your search index…'
-            : totalNodes > 0
-              ? `Look across ${totalNodes.toLocaleString()} items — tasks, subtasks, Deck cards, and issues.`
-              : 'Find tasks, cards, and issues by title, tag, or list once you have some content.'}
-        </Text>
-      </View>
+    <View className="gap-6 pt-3">
+      <ListGroup
+        title="Jump to"
+        lists={lists}
+        includeAll
+        selectedListId={selectedTag ? '__none__' : selectedListId}
+        onPick={onPickList}
+      />
 
-      {/* Quick destinations */}
-      <View className="gap-2">
-        <Text className="text-sf-text-3 px-1 text-xs font-semibold uppercase tracking-wide">
-          Browse
-        </Text>
-        <View className="flex-row flex-wrap gap-2">
-          <QuickLink
-            icon="checkbox-marked-circle-outline"
-            label="Tasks"
-            onPress={() => router.push('/(tabs)/(tasks)')}
-          />
-          <QuickLink
-            icon="view-column-outline"
-            label="Boards"
-            onPress={() => router.push('/(tabs)/deck')}
-          />
-          <QuickLink
-            icon="cog-outline"
-            label="Settings"
-            onPress={() => router.push('/(tabs)/settings')}
-          />
-        </View>
-      </View>
-
-      {showRecents ? (
-        <View className="gap-2">
-          <View className="flex-row items-center justify-between px-1">
-            <Text className="text-sf-text-3 text-xs font-semibold uppercase tracking-wide">
-              Recent
-            </Text>
-            <Pressable
-              onPress={onClearRecents}
-              hitSlop={10}
-              style={{ minHeight: 32, justifyContent: 'center' }}>
-              <Text className="text-sf-blue text-xs font-semibold">Clear</Text>
-            </Pressable>
-          </View>
-          <View
-            className="overflow-hidden rounded-3xl"
-            style={{ backgroundColor: colors.bg2, borderCurve: 'continuous' }}>
-            {recents.map((r, i) => (
-              <Pressable
-                key={r + i}
-                onPress={() => onPickRecent(r)}
-                android_ripple={{ color: colors.separator }}
-                style={({ pressed }) => ({
-                  opacity: pressed && Platform.OS !== 'android' ? 0.7 : 1,
-                  minHeight: 52,
-                })}>
-                <View
-                  className="flex-row items-center gap-3 px-4 py-3.5"
-                  style={{
-                    borderBottomWidth: i === recents.length - 1 ? 0 : StyleSheetHairline,
-                    borderBottomColor: colors.separator,
-                  }}>
-                  <MaterialCommunityIcons name="history" size={20} color={colors.text2} />
-                  <Text className="text-sf-text flex-1 text-[15px]">{r}</Text>
-                  <MaterialCommunityIcons name="arrow-top-left" size={18} color={colors.text3} />
-                </View>
-              </Pressable>
+      {suggestedTags.length > 0 ? (
+        <View className="gap-3">
+          <SectionLabel>Tags</SectionLabel>
+          <View className="flex-row flex-wrap gap-2">
+            {suggestedTags.map((t) => (
+              <FilterChip
+                key={t}
+                label={t}
+                selected={selectedTag === t}
+                onPress={() => onPickTag(t)}
+              />
             ))}
           </View>
         </View>
       ) : null}
 
-      {showTags ? (
+      {recents.length > 0 ? (
         <View className="gap-2">
-          <Text className="text-sf-text-3 px-1 text-xs font-semibold uppercase tracking-wide">
-            Popular tags
-          </Text>
-          <View className="flex-row flex-wrap gap-2">
-            {suggestedTags.map((t) => (
+          <SectionLabel
+            action={
               <Pressable
-                key={t}
-                onPress={() => onPickTag(t)}
-                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-                <View
-                  className="rounded-full px-3.5 py-2"
-                  style={{
-                    backgroundColor: colors.bg2,
-                    minHeight: 36,
-                    borderCurve: 'continuous',
-                  }}>
-                  <Text className="text-sf-text text-sm font-medium">#{t}</Text>
-                </View>
+                onPress={onClearRecents}
+                accessibilityRole="button"
+                hitSlop={10}
+                style={{ minHeight: 32, justifyContent: 'center' }}>
+                <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '600' }}>Clear</Text>
               </Pressable>
+            }>
+            Recent
+          </SectionLabel>
+          <GroupCard>
+            {recents.map((r, i) => (
+              <GroupRow
+                key={r + i}
+                icon="history"
+                label={r}
+                trailing="arrow-top-left"
+                last={i === recents.length - 1}
+                onPress={() => onPickRecent(r)}
+              />
             ))}
-          </View>
+          </GroupCard>
         </View>
       ) : null}
     </View>
-  );
-}
-
-function QuickLink({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  label: string;
-  onPress: () => void;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1, flexGrow: 1, minWidth: '30%' })}>
-      <View
-        className="items-center gap-2 rounded-3xl py-4"
-        style={{
-          backgroundColor: colors.bg2,
-          borderCurve: 'continuous',
-          minHeight: 88,
-        }}>
-        <View
-          className="h-11 w-11 items-center justify-center rounded-full"
-          style={{ backgroundColor: colors.primaryContainer }}>
-          <MaterialCommunityIcons name={icon} size={22} color={colors.onPrimaryContainer} />
-        </View>
-        <Text className="text-sf-text text-sm font-semibold">{label}</Text>
-      </View>
-    </Pressable>
   );
 }
