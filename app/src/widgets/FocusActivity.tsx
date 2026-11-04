@@ -2,8 +2,6 @@ import { HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import { font, foregroundStyle, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
-import { formatDuration } from './shared/format';
-
 export interface FocusActivityProps {
   taskTitle: string;
   startedAt: number;
@@ -11,15 +9,20 @@ export interface FocusActivityProps {
   paused: boolean;
 }
 
-function remainingSeconds(props: FocusActivityProps, now: number = Date.now()): number {
-  const elapsed = Math.max(0, Math.floor((now - props.startedAt) / 1000));
-  return Math.max(0, props.durationSeconds - elapsed);
-}
-
 const FocusActivityLayout = (props: FocusActivityProps, env: LiveActivityEnvironment) => {
   'widget';
+  // Helpers live inside the layout: expo-widgets serializes only this function's body.
+  const formatDuration = (seconds: number): string => {
+    const total = Math.max(0, Math.floor(seconds));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  };
+  const elapsed = Math.max(0, Math.floor((Date.now() - props.startedAt) / 1000));
+  const remaining = Math.max(0, props.durationSeconds - elapsed);
   const accent = env.colorScheme === 'dark' ? '#FFFFFF' : '#208AEF';
-  const remaining = remainingSeconds(props);
   const label = formatDuration(remaining);
 
   return {
