@@ -1,5 +1,7 @@
 {
-  "fill" : "extended-srgb:0.98039,0.94510,0.90196,1.00000",
+  "fill" : {
+    "solid" : "extended-srgb:0.98039,0.94510,0.90196,1.00000"
+  },
   "groups" : [
     {
       "layers" : [
