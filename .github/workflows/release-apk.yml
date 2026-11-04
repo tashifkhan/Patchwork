@@ -166,6 +166,51 @@ jobs:
           echo "apk_size=$SIZE" >> "$GITHUB_OUTPUT"
           echo "Downloaded $APK_NAME ($SIZE)"
 
+      - name: Compose release notes
+        working-directory: .
+        env:
+          APK_SIZE: ${{ steps.download_apk.outputs.apk_size }}
+          EAS_BUILD_ID: ${{ steps.eas_build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+
+          # The changelog is the source of truth for the release body. Take the
+          # section for this version, then append the build-specific install
+          # details that cannot live in the changelog.
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [[ ! -s release-notes.md ]]; then
+            echo "::error::No CHANGELOG.md section for $VERSION"
+            exit 1
+          fi
+
+          {
+            echo ""
+            echo "### Package"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Package** | \`codes.tashhif.patchwork\` |"
+            echo "| **Version** | \`$VERSION\` |"
+            echo "| **EAS build** | \`$EAS_BUILD_ID\` |"
+            echo "| **Size** | $APK_SIZE |"
+            echo ""
+            echo "### Install"
+            echo ""
+            echo "- **F-Droid (recommended):** add \`https://tashif.codes/fdroid/repo\` in F-Droid, under Settings and Repositories, then install Patchwork."
+            echo "- **Direct APK:** download \`$APK_NAME\` below and allow \"Install unknown apps\" if prompted."
+            echo ""
+            echo "### Verify"
+            echo ""
+            echo '```bash'
+            echo "sha256sum -c $APK_NAME.sha256"
+            echo '```'
+          } >> release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -176,28 +221,7 @@ jobs:
           prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: true
-          body: |
-            ## Patchwork ${{ env.RELEASE_TAG }}
-
-            Production Android APK built with EAS (`github-release` profile).
-
-            | | |
-            |---|---|
-            | **Package** | `codes.tashhif.patchwork` |
-            | **Version** | `${{ env.VERSION }}` |
-            | **EAS build** | `${{ steps.eas_build.outputs.build_id }}` |
-            | **Size** | ${{ steps.download_apk.outputs.apk_size }} |
-
-            ### Install
-
-            - **F-Droid (recommended):** add `https://tashif.codes/fdroid/repo` in F-Droid → Settings → Repositories, then install Patchwork.
-            - **Direct APK:** download the `.apk` attached below (enable “Install unknown apps” if prompted).
-
-            ### Verify
-
-            ```bash
-            sha256sum -c ${{ env.APK_NAME }}.sha256
-            ```
+          body_path: release-notes.md
           files: |
             ${{ steps.download_apk.outputs.apk_path }}
             ${{ steps.download_apk.outputs.checksum_path }}
