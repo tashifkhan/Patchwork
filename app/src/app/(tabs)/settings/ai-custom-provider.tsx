@@ -1,57 +1,19 @@
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 
-import { SettingsGroup, SettingsScreen } from '@/components/settings/settings-list';
-import { useTheme } from '@/components/theme/context';
-import { Button } from '@/components/ui/button';
+import {
+  HeaderTextButton,
+  SETTINGS_IOS,
+  SettingsActionRow,
+  SettingsDivider,
+  SettingsGroup,
+  SettingsScreen,
+  SettingsTextField,
+} from '@/components/settings/settings-list';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useInvalidateAiKeys } from '@/hooks/use-ai';
 import { saveAiApiKey } from '@/lib/credentials';
 import { useSettingsStore } from '@/stores/settings-store';
-import { Text, TextInput, View } from '@/tw';
-
-interface FieldProps {
-  label: string;
-  hint?: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  secure?: boolean;
-  autoCapitalize?: 'none' | 'words';
-}
-
-/**
- * Labelled text field. Defined at module scope — declaring it inside the screen
- * would remount the input on every keystroke and drop the keyboard focus.
- */
-function Field({
-  label,
-  hint,
-  value,
-  onChangeText,
-  placeholder,
-  secure,
-  autoCapitalize = 'none',
-}: FieldProps) {
-  const { colors } = useTheme();
-  return (
-    <View className="gap-1.5">
-      <Text className="text-sf-text text-sm font-semibold">{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        autoCapitalize={autoCapitalize}
-        autoCorrect={false}
-        secureTextEntry={secure}
-        placeholder={placeholder}
-        placeholderTextColor={colors.gray}
-        className="text-sf-text rounded-2xl px-3 py-3 text-base"
-        style={{ backgroundColor: colors.bg3, minHeight: 48, borderCurve: 'continuous' }}
-      />
-      {hint ? <Text className="text-sf-text-3 text-xs">{hint}</Text> : null}
-    </View>
-  );
-}
 
 export default function AiCustomProviderScreen() {
   const router = useRouter();
@@ -100,53 +62,82 @@ export default function AiCustomProviderScreen() {
     router.back();
   }
 
+  const canAdd = Boolean(name.trim() && baseUrl.trim());
+
   return (
     <>
       <SettingsScreen>
-        <SettingsGroup>
-          <View className="gap-4 px-4 py-4">
-            <Text className="text-sf-text-2 text-sm">
-              Point Patchwork at any OpenAI-compatible endpoint — a local llama.cpp or LM Studio
-              server, vLLM, or a self-hosted gateway.
-            </Text>
+        <Stack.Screen
+          options={{
+            title: SETTINGS_IOS ? 'Custom Provider' : 'Custom provider',
+            headerRight: SETTINGS_IOS
+              ? () => <HeaderTextButton label="Add" onPress={submit} disabled={!canAdd} />
+              : undefined,
+          }}
+        />
 
-            <Field
-              label="Display name"
-              value={name}
-              onChangeText={setName}
-              placeholder="Home server"
-              autoCapitalize="words"
-            />
-            <Field
-              label="Base URL"
-              hint="HTTPS, or HTTP for a local/LAN server."
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-              placeholder="http://192.168.1.10:11434/v1"
-            />
-            <Field
-              label="Model id"
-              hint="Optional — you can add more from the provider screen."
-              value={modelId}
-              onChangeText={setModelId}
-              placeholder="qwen2.5-coder:14b"
-            />
-            <Field
-              label="API key"
-              hint="Optional — many local servers do not need one."
-              value={key}
-              onChangeText={setKey}
-              placeholder="sk-…"
-              secure
-            />
-
-            <Button
-              label="Add provider"
-              onPress={submit}
-              disabled={!name.trim() || !baseUrl.trim()}
-            />
-          </View>
+        <SettingsGroup
+          title="Server"
+          footer="Any OpenAI-compatible endpoint: a local llama.cpp or LM Studio server, vLLM, or a self-hosted gateway. Use HTTPS, or HTTP for a local or LAN server.">
+          <SettingsTextField
+            label="Name"
+            icon="tag-outline"
+            labelWidth={80}
+            value={name}
+            onChangeText={setName}
+            placeholder="Home server"
+            autoCapitalize="words"
+          />
+          <SettingsDivider />
+          <SettingsTextField
+            label="Base URL"
+            icon="web"
+            labelWidth={80}
+            value={baseUrl}
+            onChangeText={setBaseUrl}
+            placeholder="http://192.168.1.10:11434/v1"
+            autoCapitalize="none"
+            keyboardType="url"
+          />
         </SettingsGroup>
+
+        <SettingsGroup
+          title="Optional"
+          footer="Add more models later from the provider page. Many local servers do not need a key.">
+          <SettingsTextField
+            label="Model id"
+            icon="cube-outline"
+            labelWidth={80}
+            value={modelId}
+            onChangeText={setModelId}
+            placeholder="qwen2.5-coder:14b"
+            autoCapitalize="none"
+            mono
+          />
+          <SettingsDivider />
+          <SettingsTextField
+            label="API key"
+            icon="key-outline"
+            labelWidth={80}
+            value={key}
+            onChangeText={setKey}
+            placeholder="sk-…"
+            autoCapitalize="none"
+            secureTextEntry
+            mono
+          />
+        </SettingsGroup>
+
+        {!SETTINGS_IOS ? (
+          <SettingsGroup>
+            <SettingsActionRow
+              title="Add provider"
+              variant="filled"
+              onPress={submit}
+              disabled={!canAdd}
+            />
+          </SettingsGroup>
+        ) : null}
       </SettingsScreen>
 
       <NativeAlert

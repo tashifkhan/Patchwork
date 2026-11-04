@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { type ComponentProps } from 'react';
+import { Platform } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
 import type { ThemeColors } from '@/lib/theme';
@@ -54,6 +55,27 @@ export function AiProviderIcon({
 }: AiProviderIconProps) {
   const { colors } = useTheme();
   const tint = useAiProviderTint(providerId, custom);
+  if (Platform.OS === 'ios') {
+    // iOS Settings rows: a rounded tile in the accent color, like every other
+    // icon on the settings pages. "Key saved" is spelled out in the subtitle.
+    return (
+      <View
+        className="items-center justify-center"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: Math.round(size * 0.23),
+          borderCurve: 'continuous',
+          backgroundColor: colors.accent,
+        }}>
+        <MaterialCommunityIcons
+          name={aiProviderIconName(providerId, custom)}
+          size={Math.round(size * 0.6)}
+          color={colors.onAccent}
+        />
+      </View>
+    );
+  }
   return (
     <View
       className="items-center justify-center rounded-full"

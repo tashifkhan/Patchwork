@@ -71,7 +71,7 @@ export default function SettingsHub() {
           title="Look and feel"
           subtitle={
             Platform.OS === 'android'
-              ? 'Theme, palettes, AMOLED, floating bar'
+              ? 'Theme, palettes, AMOLED, floating navbar'
               : 'Theme, palettes, AMOLED, contrast'
           }
           showChevron
