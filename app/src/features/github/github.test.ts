@@ -6,7 +6,7 @@ import {
   fetchGitHubIssues,
   validatePublicGitHubRepo,
 } from '@/api/github.native';
-import { credentialsNeedRefresh } from '@/lib/github-auth';
+import { isLegacyCredential } from '@/lib/github-auth';
 import { parseGitHubNextLink } from './pagination';
 import { normalizeGitHubRepository } from './repository-ref';
 import type { GitHubCredentialsV2 } from './types';
@@ -43,29 +43,19 @@ describe('GitHub pagination', () => {
   });
 });
 
-describe('GitHub credential expiry', () => {
+describe('GitHub token-only credentials', () => {
   const base: GitHubCredentialsV2 = {
     schemaVersion: 2,
-    authKind: 'github-app',
+    authKind: 'fine-grained-pat',
     accessToken: 'token',
     account: { id: 1, login: 'octocat', avatarUrl: 'https://example.com/avatar.png' },
     validatedAt: new Date().toISOString(),
   };
 
-  test('refreshes expiring credentials but not non-expiring PATs', () => {
-    expect(credentialsNeedRefresh(base)).toBe(false);
-    expect(
-      credentialsNeedRefresh({
-        ...base,
-        accessTokenExpiresAt: new Date(Date.now() - 1000).toISOString(),
-      })
-    ).toBe(true);
-    expect(
-      credentialsNeedRefresh({
-        ...base,
-        accessTokenExpiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
-      })
-    ).toBe(false);
+  test('accepts personal access tokens and flags old GitHub App sign-ins', () => {
+    expect(isLegacyCredential(base)).toBe(false);
+    expect(isLegacyCredential({ ...base, authKind: 'github-app' })).toBe(true);
+    expect(isLegacyCredential({ ...base, authKind: 'legacy-oauth' })).toBe(true);
   });
 });
 
@@ -76,11 +66,13 @@ describe('GitHub REST integration', () => {
         title: '  Fix task sync  ',
         body: '  Reproduction steps  ',
         assignees: [' octocat ', '', 'octocat'],
+        labels: [' bug ', 'bug', '', 'ui'],
       })
     ).toEqual({
       title: 'Fix task sync',
       body: 'Reproduction steps',
       assignees: ['octocat'],
+      labels: ['bug', 'ui'],
     });
     expect(() => buildGitHubIssueCreatePayload({ title: '   ' })).toThrow(
       'Add a title'

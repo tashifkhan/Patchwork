@@ -10,11 +10,7 @@ import {
   getGitHubCredentials,
   saveGitHubCredentials,
 } from '@/lib/credentials';
-import {
-  credentialsNeedRefresh,
-  fetchGitHubUser,
-  refreshGitHubCredentials,
-} from '@/lib/github-auth';
+import { fetchGitHubUser, isLegacyCredential } from '@/lib/github-auth';
 import { queryClient, queryKeys } from '@/lib/query-client';
 
 interface GitHubSessionStore {
@@ -35,15 +31,22 @@ export const useGitHubSessionStore = create<GitHubSessionStore>((set, get) => ({
     initialization = (async () => {
       set({ state: { status: 'initializing' } });
       try {
-        let credentials = await getGitHubCredentials();
+        const credentials = await getGitHubCredentials();
         if (!credentials) {
           set({ state: { status: 'disconnected' } });
           return;
         }
 
-        if (credentialsNeedRefresh(credentials)) {
-          set({ state: { status: 'refreshing', credentials } });
-          credentials = await refreshGitHubCredentials(credentials);
+        // GitHub App sign-ins from older builds can't be refreshed any more.
+        if (isLegacyCredential(credentials)) {
+          set({
+            state: {
+              status: 'expired',
+              account: credentials.account,
+              message: 'Patchwork now connects with a personal access token. Paste one to reconnect.',
+            },
+          });
+          return;
         }
 
         const account = await fetchGitHubUser(credentials.accessToken);
