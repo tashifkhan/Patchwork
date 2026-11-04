@@ -1,6 +1,0 @@
-export const ANDROID_WIDGET_BG = '#0B0B0F';
-export const ANDROID_WIDGET_BG_ALT = '#1A1B1F';
-export const ANDROID_WIDGET_TEXT = '#FFFFFF';
-export const ANDROID_WIDGET_MUTED = '#9BA1A6';
-export const ANDROID_WIDGET_ACCENT = '#208AEF';
-export const ANDROID_WIDGET_DANGER = '#E5484D';
