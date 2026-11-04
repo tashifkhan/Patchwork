@@ -31,13 +31,13 @@ type TabBarState = {
   routes: { key: string; name: string }[];
 };
 
-type TabBarNavigation = {
+/** The tab navigator's event emitter (Expo Router 58 passes this, not `navigation`). */
+type TabBarEmitter = {
   emit: (event: {
     type: string;
     target?: string;
     canPreventDefault?: boolean;
   }) => { defaultPrevented: boolean };
-  navigate: (name: string) => void;
 };
 
 const MAIN_TABS: {
@@ -48,7 +48,6 @@ const MAIN_TABS: {
 }[] = [
   { route: '(tasks)', label: 'Tasks', icon: 'checkbox-marked-outline', iconFocused: 'format-list-checks' },
   { route: 'deck', label: 'Boards', icon: 'view-column-outline', iconFocused: 'view-column' },
-  { route: 'ai', label: 'AI', icon: 'creation-outline', iconFocused: 'creation' },
   { route: 'settings', label: 'Settings', icon: 'cog-outline', iconFocused: 'cog' },
 ];
 
@@ -57,18 +56,20 @@ const TIMING = { duration: 280, easing: Easing.out(Easing.cubic) };
 /** Pill resize + label reveal when the selection moves between tabs. */
 const SELECT_DURATION = 240;
 
-export type IosFloatingTabBarProps = {
+export type FloatingTabBarProps = {
   state: TabBarState;
-  navigation: TabBarNavigation;
+  emitter: TabBarEmitter;
+  navigateToTab: (routeKey: string) => void;
 };
 
 /**
- * iOS 26–style floating tab chrome for Android:
- * - Expanded: capsule with main tabs + separate search circle
+ * Google Photos–style floating tab chrome for Android:
+ * - Expanded: tonal capsule with labeled tabs + separate search circle.
+ *   The selected tab gets a pill with icon + label, the others are text only.
  * - Search focused: mini home circle + search field pill
  * - Scroll minimized: mini active-tab circle + search circle
  */
-export function IosFloatingTabBar({ state, navigation }: IosFloatingTabBarProps) {
+export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBarProps) {
   const { colors, scheme } = useTheme();
   const isDark = scheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -104,11 +105,12 @@ export function IosFloatingTabBar({ state, navigation }: IosFloatingTabBarProps)
     const lift = Math.max(0, keyboard.height.value - insets.bottom);
     return { transform: [{ translateY: -lift }] };
   });
-  const surface = isDark ? 'rgba(44,44,46,0.92)' : 'rgba(242,242,247,0.94)';
-  const surfaceBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
-  const selectionFill = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)';
-  const inactive = isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.72)';
-  const accent = colors.accent;
+  // Google Photos style: a tonal (accent-tinted) container, a stronger tonal
+  // pill behind the selected tab, and plain on-surface text for the rest.
+  const surface = colors.primaryContainer;
+  const selectionFill = colors.selectionBg;
+  const onSelection = colors.onSelectionBg;
+  const inactive = colors.text;
 
   const activeMain = useMemo(() => {
     const match = MAIN_TABS.find((t) => t.route === activeRoute);
@@ -149,22 +151,20 @@ export function IosFloatingTabBar({ state, navigation }: IosFloatingTabBarProps)
     // user re-presses the tab they are already on.
     if (routeName === activeRoute) haptics.tap();
     else haptics.selection();
-    const event = navigation.emit({
+    const event = emitter.emit({
       type: 'tabPress',
       target: route.key,
       canPreventDefault: true,
     });
-    if (!event.defaultPrevented) {
-      navigation.navigate(routeName);
+    if (routeName !== activeRoute && !event.defaultPrevented) {
+      navigateToTab(route.key);
     }
     if (routeName !== SEARCH_ROUTE) expand();
   };
 
   const shell = {
     backgroundColor: surface,
-    borderColor: surfaceBorder,
-    borderWidth: StyleSheet.hairlineWidth,
-    boxShadow: isDark ? '0 10px 28px rgba(0,0,0,0.5)' : '0 10px 28px rgba(0,0,0,0.14)',
+    boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.45)' : '0 8px 24px rgba(0,0,0,0.12)',
   } as const;
 
   return (
@@ -192,8 +192,8 @@ export function IosFloatingTabBar({ state, navigation }: IosFloatingTabBarProps)
             {MAIN_TABS.map((tab) => {
               const focused = activeRoute === tab.route;
               return (
-                // Only the selected tab is labeled; the pill grows to fit the
-                // label and the siblings shrink back to bare icons.
+                // Every tab is labeled. The selected one gains its icon and a
+                // tonal pill; the siblings are bare labels.
                 <Animated.View key={tab.route} layout={LinearTransition.duration(SELECT_DURATION)}>
                   <Pressable
                     onPress={() => goTo(tab.route)}
@@ -203,36 +203,36 @@ export function IosFloatingTabBar({ state, navigation }: IosFloatingTabBarProps)
                     style={({ pressed }) => ({
                       opacity: pressed ? 0.75 : 1,
                       transform: [{ scale: pressed ? 0.94 : 1 }],
-                      height: 40,
-                      paddingHorizontal: focused ? 14 : 12,
+                      height: FLOATING_TAB_BAR_HEIGHT - 16,
+                      paddingHorizontal: focused ? 18 : 12,
                       borderRadius: 999,
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: focused ? 6 : 0,
+                      gap: 8,
                       backgroundColor: focused ? selectionFill : 'transparent',
                     })}>
-                    <MaterialCommunityIcons
-                      name={focused ? tab.iconFocused : tab.icon}
-                      size={22}
-                      color={focused ? accent : inactive}
-                    />
                     {focused ? (
                       <Animated.View
                         entering={FadeIn.duration(SELECT_DURATION)}
                         exiting={FadeOut.duration(120)}>
-                        <Text
-                          style={{
-                            fontSize: 13,
-                            fontWeight: '600',
-                            color: accent,
-                            includeFontPadding: false,
-                          }}
-                          numberOfLines={1}>
-                          {tab.label}
-                        </Text>
+                        <MaterialCommunityIcons
+                          name={tab.iconFocused}
+                          size={22}
+                          color={onSelection}
+                        />
                       </Animated.View>
                     ) : null}
+                    <Text
+                      style={{
+                        fontSize: 15,
+                        fontWeight: '500',
+                        color: focused ? onSelection : inactive,
+                        includeFontPadding: false,
+                      }}
+                      numberOfLines={1}>
+                      {tab.label}
+                    </Text>
                   </Pressable>
                 </Animated.View>
               );
@@ -333,11 +333,11 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-evenly',
+    justifyContent: 'space-between',
     height: FLOATING_TAB_BAR_HEIGHT,
     borderRadius: FLOATING_TAB_BAR_HEIGHT / 2,
     borderCurve: 'continuous',
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
   },
   circle: {
     width: FLOATING_TAB_CIRCLE,

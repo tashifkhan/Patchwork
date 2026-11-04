@@ -17,7 +17,6 @@ import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 const TABS = [
   { name: 'tasks', href: '/', label: 'Tasks' },
   { name: 'deck', href: '/deck', label: 'Deck' },
-  { name: 'ai', href: '/ai', label: 'Import' },
   { name: 'search', href: '/search', label: 'Search' },
   { name: 'settings', href: '/settings', label: 'Settings' },
 ] as const;

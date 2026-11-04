@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /**
- * Chrome state for the Android iOS-style floating tab bar:
+ * Chrome state for the Android floating navbar:
  * scroll-driven minimize + search field text when Search is active.
  */
 interface TabBarChromeState {
