@@ -12,6 +12,8 @@ Android APK releases are built with EAS, attached to GitHub Releases, and mirror
 | F-Droid repo URL | https://tashif.codes/fdroid/repo |
 | Direct APK | GitHub Releases → latest |
 
+Release notes live in [CHANGELOG.md](CHANGELOG.md). The release workflow reads the matching version section from that file when it publishes the GitHub Release.
+
 ### Cut a release
 
 ```bash
