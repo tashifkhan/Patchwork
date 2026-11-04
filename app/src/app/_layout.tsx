@@ -43,6 +43,9 @@ export default function RootLayout() {
   const hydrated = useSettingsStore((state) => state.hydrated);
   const [hydrationTimedOut, setHydrationTimedOut] = useState(false);
   const ready = hydrated || hydrationTimedOut;
+  // The native splash may only go once the JS overlay is actually on screen,
+  // otherwise its fade-out reveals a blank window for a frame or two.
+  const [overlayShown, setOverlayShown] = useState(false);
 
   useEffect(() => {
     if (hydrated) return;
@@ -51,8 +54,17 @@ export default function RootLayout() {
   }, [hydrated]);
 
   useEffect(() => {
-    if (ready) SplashScreen.hideAsync().catch(() => {});
-  }, [ready]);
+    if (ready && overlayShown) SplashScreen.hideAsync().catch(() => {});
+  }, [ready, overlayShown]);
+
+  // Never leave the native splash up because the overlay failed to lay out.
+  useEffect(() => {
+    const timer = setTimeout(
+      () => SplashScreen.hideAsync().catch(() => {}),
+      HYDRATION_TIMEOUT + 1000
+    );
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -83,16 +95,20 @@ export default function RootLayout() {
               name="new-task"
               options={sheetScreenOptions([0.72, 1.0], 'New Task')}
             />
-            <Stack.Screen
-              name="new-github-issue"
-              options={sheetScreenOptions([0.72, 1.0], 'New GitHub Issue')}
-            />
             {/*
               Root-level so it can be presented over the `new-task` sheet. While
               it lived in `(tabs)/(tasks)` the push targeted a navigator sitting
               below the sheet, which made the picker unreachable while creating.
             */}
             <Stack.Screen name="tags" options={sheetScreenOptions([0.72, 1.0], 'Tags')} />
+            {/*
+              AI import review. Pushed from the add dialog (natural language or a
+              photo); nothing is written until the user taps Create.
+            */}
+            <Stack.Screen
+              name="ai-review"
+              options={{ headerShown: true, headerLargeTitle: false, title: 'Review tasks' }}
+            />
             <Stack.Screen
               name="new-card"
               options={sheetScreenOptions([0.72, 1.0], 'New Card')}
@@ -110,7 +126,7 @@ export default function RootLayout() {
               options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
             />
           </Stack>
-          <AnimatedSplash ready={ready} />
+          <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

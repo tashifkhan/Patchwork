@@ -2,7 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModel } from 'ai';
+import type { JSONValue, LanguageModel } from 'ai';
 import { generateText } from 'ai';
 
 import { ApiError } from './client';
@@ -67,6 +67,7 @@ async function generateModelJson(prompt: string, image?: ImageInput) {
       const model = await languageModelFor(selection, settings.aiBaseUrlOverrides, providers);
       const result = await generateText({
         model,
+        providerOptions: reasoningOptions(selection, providers),
         messages: [
           {
             role: 'user',
@@ -87,6 +88,23 @@ async function generateModelJson(prompt: string, image?: ImageInput) {
   }
 
   throw new ApiError(502, `All selected AI models failed. ${failures.join(' | ')}`);
+}
+
+/**
+ * Map the selection's reasoning effort onto each provider's own option.
+ * Gemini 3 takes a `thinkingLevel`; OpenAI (and compatible endpoints that
+ * accept it) take `reasoningEffort`. Unset leaves the provider default.
+ */
+function reasoningOptions(
+  selection: AiModelSelection,
+  providers: ReturnType<typeof buildProvidersWithCustom>
+): Record<string, Record<string, JSONValue>> | undefined {
+  const effort = selection.reasoningEffort;
+  if (!effort) return undefined;
+  const kind = providerById(selection.providerId, providers)?.kind;
+  if (kind === 'google') return { google: { thinkingConfig: { thinkingLevel: effort } } };
+  if (kind === 'openai') return { openai: { reasoningEffort: effort } };
+  return undefined;
 }
 
 async function languageModelFor(
@@ -118,7 +136,7 @@ function buildOcrPrompt(availableLists: TaskList[], availableTags: string[]) {
   return `You are an OCR and task parsing assistant for Patchwork, a Nextcloud CalDAV task app.
 Read the uploaded handwritten note, photo, or screenshot and extract actionable tasks.
 
-Current date/time: ${new Date().toISOString()}
+${localTimeContext()}
 Available lists: ${listContext(availableLists)}
 Available tags: ${JSON.stringify(availableTags)}
 
@@ -153,7 +171,7 @@ function buildRefinePrompt(request: AiRefineRequest) {
   return `You are editing staged tasks before they are saved to Nextcloud.
 Apply the user's instruction to the current staged tasks and return the full updated task list.
 
-Current date/time: ${new Date().toISOString()}
+${localTimeContext()}
 Instruction: ${request.instruction}
 Available lists: ${listContext(request.available_lists ?? [])}
 Available tags: ${JSON.stringify(request.available_tags ?? [])}
@@ -174,7 +192,7 @@ function buildDraftPrompt(request: AiDraftRequest) {
   return `You are a task planning assistant for Patchwork, a Nextcloud CalDAV task app.
 Turn the user's natural-language request into staged tasks for review.
 
-Current date/time: ${new Date().toISOString()}
+${localTimeContext()}
 Instruction: ${request.instruction}
 Available lists: ${listContext(request.available_lists ?? [])}
 Available tags: ${JSON.stringify(request.available_tags ?? [])}
@@ -311,4 +329,26 @@ function base64ToBytes(value: string) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+/**
+ * The user's local "now", with its UTC offset and weekday. Giving the model a
+ * bare UTC timestamp made "Friday at 10am" come back as 10:00 UTC (3:30 PM in
+ * India), so spell out the local zone and require the offset on every date.
+ */
+function localTimeContext(now: Date = new Date()): string {
+  const pad = (n: number) => String(Math.abs(n)).padStart(2, '0');
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const offset = `${sign}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
+  const local =
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+    `T${pad(now.getHours())}:${pad(now.getMinutes())}:00${offset}`;
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return [
+    `Current local date/time: ${local} (${weekday}, time zone ${zone}).`,
+    `Interpret every date and time the user mentions in this time zone, and write every datetime as ISO-8601 with the ${offset} offset (for example ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T10:00:00${offset}).`,
+    'When only a day is given with no time, use 23:59 local time on that day.',
+  ].join('\n');
 }
