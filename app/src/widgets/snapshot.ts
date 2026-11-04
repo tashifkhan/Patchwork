@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { requestWidgetUpdate } from 'react-native-android-widget';
 
 import type { Task } from '@/api/types';
 import { bucketOf, byManualOrder, flattenTasks } from '@/lib/task-buckets';
@@ -10,10 +9,6 @@ import ListWidget from './ListWidget';
 import LockWidget from './LockWidget';
 import TodayWidget from './TodayWidget';
 import UpcomingWidget from './UpcomingWidget';
-import { ListAndroidWidget } from './android/ListWidget';
-import { TodayAndroidWidget } from './android/TodayWidget';
-import { UpcomingAndroidWidget } from './android/UpcomingWidget';
-import { saveSnapshot } from './android/storage';
 import type {
   ListProps,
   LockProps,
@@ -109,10 +104,13 @@ export async function pushAllWidgets(tasks: Task[]): Promise<void> {
   const lastListId = await AsyncStorage.getItem(LAST_LIST_STORAGE_KEY).catch(() => null);
   const snaps = buildSnapshots({ tasks, lastListId });
 
+  // On Android these resolve to the *.android.tsx Jetpack Compose widgets.
+  TodayWidget.updateSnapshot(snaps.today);
+  UpcomingWidget.updateSnapshot(snaps.upcoming);
+  ListWidget.updateSnapshot(snaps.list);
+
+  // Lock Screen widgets and timelines exist only on iOS.
   if (isIOS) {
-    TodayWidget.updateSnapshot(snaps.today);
-    UpcomingWidget.updateSnapshot(snaps.upcoming);
-    ListWidget.updateSnapshot(snaps.list);
     LockWidget.updateSnapshot(snaps.lock);
 
     // Schedule bucket rollover at next midnight so the widget recomputes Today/Tomorrow on its own.
@@ -126,28 +124,5 @@ export async function pushAllWidgets(tasks: Task[]): Promise<void> {
       { date: new Date(), props: snaps.upcoming },
       { date: rollover, props: rolloverSnaps.upcoming },
     ]);
-  }
-
-  if (isAndroid) {
-    // Persist for the background widgetTaskHandler (system-driven updates / resizes).
-    await saveSnapshot(snaps);
-    // Push immediately so foreground updates feel instant.
-    await Promise.all([
-      requestWidgetUpdate({
-        widgetName: 'Today',
-        renderWidget: () => <TodayAndroidWidget props={snaps.today} />,
-        widgetNotFound: () => {},
-      }),
-      requestWidgetUpdate({
-        widgetName: 'Upcoming',
-        renderWidget: () => <UpcomingAndroidWidget props={snaps.upcoming} />,
-        widgetNotFound: () => {},
-      }),
-      requestWidgetUpdate({
-        widgetName: 'List',
-        renderWidget: () => <ListAndroidWidget props={snaps.list} />,
-        widgetNotFound: () => {},
-      }),
-    ]).catch(() => {});
   }
 }
