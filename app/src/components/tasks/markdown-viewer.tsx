@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { memo, useMemo } from 'react';
-import { Linking, Platform, ScrollView, StyleSheet } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { parseMarkdown, type Block, type InlineNode } from '@/lib/markdown';
 import { Text, View, useCSSVariable } from '@/tw';
 
 /**
@@ -19,32 +20,6 @@ const ANDROID = Platform.OS === 'android';
 
 /** Fixed table column width so header and body rows stay aligned. */
 const TABLE_COLUMN_WIDTH = 150;
-
-type InlineNode =
-  | { type: 'text'; value: string }
-  | { type: 'code'; value: string }
-  | { type: 'link'; url: string; children: InlineNode[] }
-  | { type: 'image'; url: string; alt: string }
-  | { type: 'bold'; children: InlineNode[] }
-  | { type: 'italic'; children: InlineNode[] }
-  | { type: 'strike'; children: InlineNode[] }
-  | { type: 'break' };
-
-type ListItem = {
-  text: string;
-  checked: boolean | null;
-  children: Block[];
-};
-
-type Block =
-  | { type: 'paragraph'; text: string }
-  | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
-  | { type: 'blockquote'; children: Block[] }
-  | { type: 'code'; text: string; lang: string | null }
-  | { type: 'list'; ordered: boolean; items: ListItem[] }
-  | { type: 'table'; header: string[]; rows: string[][] }
-  | { type: 'image'; url: string; alt: string }
-  | { type: 'hr' };
 
 /** Tasks.org–style smart typography (Markwon extras). */
 const SMART_REPLACEMENTS: [RegExp, string][] = [
@@ -70,291 +45,10 @@ const SMART_REPLACEMENTS: [RegExp, string][] = [
   [/\(tm\)/gi, '™'],
 ];
 
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)(\?.*)?$/i;
-
 function applySmartText(value: string): string {
   let out = value;
   for (const [re, sub] of SMART_REPLACEMENTS) out = out.replace(re, sub);
   return out;
-}
-
-function looksLikeImageUrl(url: string): boolean {
-  try {
-    const path = new URL(url).pathname;
-    return IMAGE_EXT.test(path);
-  } catch {
-    return IMAGE_EXT.test(url);
-  }
-}
-
-function parseInline(text: string): InlineNode[] {
-  const nodes: InlineNode[] = [];
-  let i = 0;
-  while (i < text.length) {
-    const rest = text.slice(i);
-    let m: RegExpExecArray | null;
-
-    if ((m = /^`([^`\n]+)`/.exec(rest))) {
-      nodes.push({ type: 'code', value: m[1] });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/.exec(rest))) {
-      // Treat non-image URLs as regular links (common when people misuse ![alt](url)).
-      if (looksLikeImageUrl(m[2])) {
-        nodes.push({ type: 'image', alt: m[1], url: m[2] });
-      } else {
-        nodes.push({
-          type: 'link',
-          url: m[2],
-          children: [{ type: 'text', value: m[1] || m[2] }],
-        });
-      }
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/.exec(rest))) {
-      nodes.push({ type: 'link', url: m[2], children: parseInline(m[1]) });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^<((?:https?|mailto):[^>\s]+)>/.exec(rest))) {
-      nodes.push({ type: 'link', url: m[1], children: [{ type: 'text', value: m[1] }] });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^\*\*\*([^\s*][^*]*?)\*\*\*/.exec(rest))) {
-      nodes.push({ type: 'bold', children: [{ type: 'italic', children: parseInline(m[1]) }] });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^\*\*([^\s*][^*]*?)\*\*/.exec(rest) ?? /^__([^\s_][^_]*?)__/.exec(rest))) {
-      nodes.push({ type: 'bold', children: parseInline(m[1]) });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^\*([^\s*][^*]*?)\*/.exec(rest) ?? /^_([^\s_][^_]*?)_/.exec(rest))) {
-      nodes.push({ type: 'italic', children: parseInline(m[1]) });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^~~([^~]+)~~/.exec(rest))) {
-      nodes.push({ type: 'strike', children: parseInline(m[1]) });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^(https?:\/\/[^\s<>)\]]+)/.exec(rest))) {
-      nodes.push({ type: 'link', url: m[1], children: [{ type: 'text', value: m[1] }] });
-      i += m[0].length;
-      continue;
-    }
-    if ((m = /^(?:\\\n|  \n)/.exec(rest))) {
-      nodes.push({ type: 'break' });
-      i += m[0].length;
-      continue;
-    }
-
-    const next = rest.slice(1).search(/[`*_~\[!<\\]|https?:\/\//);
-    const take = next === -1 ? rest.length : next + 1;
-    nodes.push({ type: 'text', value: rest.slice(0, take) });
-    i += take;
-  }
-
-  const merged: InlineNode[] = [];
-  for (const n of nodes) {
-    const last = merged[merged.length - 1];
-    if (n.type === 'text' && last && last.type === 'text') last.value += n.value;
-    else merged.push(n);
-  }
-  return merged;
-}
-
-function leadingSpaces(line: string): number {
-  let n = 0;
-  while (n < line.length && line[n] === ' ') n += 1;
-  return n;
-}
-
-function parseBlocks(markdown: string): Block[] {
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
-  return parseBlocksFromLines(lines);
-}
-
-function parseBlocksFromLines(lines: string[]): Block[] {
-  const blocks: Block[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      i += 1;
-      continue;
-    }
-
-    // Fenced code
-    const fence = /^(\s*)(```|~~~)\s*([\w-]+)?\s*$/.exec(line);
-    if (fence) {
-      const marker = fence[2];
-      const lang = fence[3] ?? null;
-      const code: string[] = [];
-      i += 1;
-      while (i < lines.length && !new RegExp(`^\\s*${marker}\\s*$`).test(lines[i])) {
-        code.push(lines[i]);
-        i += 1;
-      }
-      blocks.push({ type: 'code', text: code.join('\n'), lang });
-      if (i < lines.length) i += 1;
-      continue;
-    }
-
-    if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line) || /^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      blocks.push({ type: 'hr' });
-      i += 1;
-      continue;
-    }
-
-    const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if (heading) {
-      blocks.push({
-        type: 'heading',
-        level: heading[1].length as 1 | 2 | 3 | 4 | 5 | 6,
-        text: heading[2],
-      });
-      i += 1;
-      continue;
-    }
-
-    // Image-only line → block image (or link if URL isn't an image)
-    const imgOnly = /^\s*!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/.exec(line);
-    if (imgOnly) {
-      if (looksLikeImageUrl(imgOnly[2])) {
-        blocks.push({ type: 'image', alt: imgOnly[1], url: imgOnly[2] });
-      } else {
-        blocks.push({
-          type: 'paragraph',
-          text: `[${imgOnly[1] || imgOnly[2]}](${imgOnly[2]})`,
-        });
-      }
-      i += 1;
-      continue;
-    }
-
-    if (/^\s*>/.test(line)) {
-      const quoted: string[] = [];
-      while (i < lines.length && (/^\s*>/.test(lines[i]) || (lines[i].trim() && quoted.length > 0 && !isBlockStart(lines[i])))) {
-        if (/^\s*>/.test(lines[i])) {
-          quoted.push(lines[i].replace(/^\s*>\s?/, ''));
-        } else if (!lines[i].trim()) {
-          break;
-        } else {
-          quoted.push(lines[i]);
-        }
-        i += 1;
-      }
-      blocks.push({ type: 'blockquote', children: parseBlocksFromLines(quoted) });
-      continue;
-    }
-
-    // GFM table
-    if (i + 1 < lines.length && /\|/.test(line) && /^\s*\|?[\s:-]+\|[\s:|-]+$/.test(lines[i + 1])) {
-      const header = splitTableRow(line);
-      i += 2;
-      const rows: string[][] = [];
-      while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) {
-        rows.push(splitTableRow(lines[i]));
-        i += 1;
-      }
-      blocks.push({ type: 'table', header, rows });
-      continue;
-    }
-
-    const listMatch = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
-    if (listMatch) {
-      const baseIndent = listMatch[1].length;
-      const ordered = /\d/.test(listMatch[2]);
-      const items: ListItem[] = [];
-
-      while (i < lines.length) {
-        const cur = lines[i];
-        const cm = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(cur);
-        if (!cm || cm[1].length !== baseIndent || /\d/.test(cm[2]) !== ordered) break;
-
-        let rest = cm[3];
-        let checked: boolean | null = null;
-        const task = /^\[([ xX])\]\s*(.*)$/.exec(rest);
-        if (task) {
-          checked = task[1].toLowerCase() === 'x';
-          rest = task[2];
-        }
-
-        const itemLines: string[] = [rest];
-        i += 1;
-        // Collect continuation lines (indented further than baseIndent)
-        while (i < lines.length) {
-          const nxt = lines[i];
-          if (!nxt.trim()) {
-            if (
-              i + 1 < lines.length &&
-              lines[i + 1].length > baseIndent &&
-              leadingSpaces(lines[i + 1]) > baseIndent
-            ) {
-              itemLines.push('');
-              i += 1;
-              continue;
-            }
-            break;
-          }
-          const indent = leadingSpaces(nxt);
-          if (indent > baseIndent) {
-            itemLines.push(nxt.slice(Math.min(indent, baseIndent + 2)));
-            i += 1;
-            continue;
-          }
-          break;
-        }
-
-        const [firstLine, ...moreLines] = itemLines;
-        const children = moreLines.length ? parseBlocksFromLines(moreLines) : [];
-        items.push({ text: firstLine, checked, children });
-      }
-
-      blocks.push({ type: 'list', ordered, items });
-      continue;
-    }
-
-    // Paragraph — soft-join consecutive non-empty lines
-    const paragraph: string[] = [];
-    while (i < lines.length && lines[i].trim()) {
-      if (isBlockStart(lines[i])) break;
-      paragraph.push(lines[i].trim());
-      i += 1;
-    }
-    blocks.push({ type: 'paragraph', text: paragraph.join('\n') });
-  }
-
-  return blocks;
-}
-
-function isBlockStart(line: string): boolean {
-  return (
-    /^\s{0,3}(#{1,6})\s+/.test(line) ||
-    /^\s*>/.test(line) ||
-    /^\s*([-*+]|\d+[.)])\s+/.test(line) ||
-    /^(\s*)(```|~~~)/.test(line) ||
-    /^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line) ||
-    /^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)
-  );
-}
-
-function splitTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((c) => c.trim());
 }
 
 type CompactProp = boolean | undefined;
@@ -363,10 +57,13 @@ export const MarkdownViewer = memo(function MarkdownViewer({
   markdown,
   compact,
   allowRemoteImages = false,
+  onToggleTask,
 }: {
   markdown: string;
   compact?: CompactProp;
   allowRemoteImages?: boolean;
+  /** Makes `- [ ]` boxes tappable; receives the task's index in the document. */
+  onToggleTask?: (taskIndex: number) => void;
 }) {
   const text = useCSSVariable('--sf-text');
   const textSecondary = useCSSVariable('--sf-text-2');
@@ -378,7 +75,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
   const bg3 = useCSSVariable('--sf-bg-3');
   const separator = useCSSVariable('--sf-separator');
 
-  const blocks = useMemo(() => parseBlocks(markdown), [markdown]);
+  const blocks = useMemo(() => parseMarkdown(markdown), [markdown]);
 
   // Tasks.org / Markwon feel: readable body, tight list rhythm, modest headings.
   // Android uses the M3 bodyMedium/bodyLarge metrics so notes match the rest of
@@ -564,10 +261,6 @@ export const MarkdownViewer = memo(function MarkdownViewer({
 
   if (!markdown.trim()) return null;
 
-  function renderInline(value: string): React.ReactNode {
-    return renderNodes(parseInline(value));
-  }
-
   function renderNodes(nodes: InlineNode[]): React.ReactNode {
     return nodes.map((node, idx) => {
       if (node.type === 'text') return applySmartText(node.value);
@@ -662,7 +355,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
           return (
             <View key={index} style={bottom}>
               <Text style={style} selectable>
-                {renderInline(block.text)}
+                {renderNodes(block.inline)}
               </Text>
               <View style={styles.headingRule} />
             </View>
@@ -670,7 +363,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
         }
         return (
           <Text key={index} style={[style, bottom]} selectable>
-            {renderInline(block.text)}
+            {renderNodes(block.inline)}
           </Text>
         );
       }
@@ -681,7 +374,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
               if (child.type === 'paragraph') {
                 return (
                   <Text key={ci} style={styles.blockquoteText} selectable>
-                    {renderInline(child.text)}
+                    {renderNodes(child.inline)}
                   </Text>
                 );
               }
@@ -717,22 +410,28 @@ export const MarkdownViewer = memo(function MarkdownViewer({
               <View key={ii}>
                 <View style={styles.listItem}>
                   {item.checked !== null ? (
-                    <View style={styles.checkbox}>
+                    <Pressable
+                      disabled={!onToggleTask || item.taskIndex == null}
+                      onPress={() => item.taskIndex != null && onToggleTask?.(item.taskIndex)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: item.checked }}
+                      hitSlop={10}
+                      style={styles.checkbox}>
                       <MaterialCommunityIcons
                         name={item.checked ? 'checkbox-marked' : 'checkbox-blank-outline'}
                         size={base + 2}
                         color={item.checked ? accent : textSecondary}
                       />
-                    </View>
+                    </Pressable>
                   ) : (
                     <Text style={block.ordered ? styles.listOrderedMarker : styles.listMarker}>
-                      {block.ordered ? `${ii + 1}.` : '•'}
+                      {block.ordered ? `${block.start + ii}.` : '•'}
                     </Text>
                   )}
                   <Text
                     style={[styles.listText, item.checked ? styles.strike : null]}
                     selectable>
-                    {renderInline(item.text)}
+                    {renderNodes(item.inline)}
                   </Text>
                 </View>
                 {item.children.length > 0 ? (
@@ -785,7 +484,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
               {block.header.map((cell, ci) => (
                 <View key={ci} style={styles.tableCell}>
                   <Text style={styles.tableHeader} selectable>
-                    {renderInline(cell)}
+                    {renderNodes(cell)}
                   </Text>
                 </View>
               ))}
@@ -795,7 +494,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
                 {row.map((cell, ci) => (
                   <View key={ci} style={styles.tableCell}>
                     <Text style={styles.tableText} selectable>
-                      {renderInline(cell)}
+                      {renderNodes(cell)}
                     </Text>
                   </View>
                 ))}
@@ -807,7 +506,7 @@ export const MarkdownViewer = memo(function MarkdownViewer({
       }
       return (
         <Text key={index} style={[styles.body, bottom]} selectable>
-          {renderInline(block.text)}
+          {renderNodes(block.inline)}
         </Text>
       );
     });

@@ -18,6 +18,7 @@ import Animated, {
 
 import type { Task, TaskCreate, TaskList, TaskUpdate } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
+import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING, SPRING } from '@/lib/motion';
@@ -286,24 +287,12 @@ export function TaskCard({
         />
       </View>
 
-      {/* Notes */}
-      <TextInput
+      {/* Notes: rendered Markdown, tap to edit */}
+      <MarkdownNotes
         value={notes}
         onChangeText={setNotes}
-        placeholder="Notes"
-        placeholderTextColor={colors.text3}
-        multiline
-        accessibilityLabel="Notes"
-        className="text-sf-text"
-        style={{
-          fontSize: 16,
-          lineHeight: 22,
-          marginLeft: 44,
-          marginRight: 16,
-          paddingVertical: 4,
-          minHeight: 32,
-          textAlignVertical: 'top',
-        }}
+        style={{ marginLeft: 44, marginRight: 16 }}
+        inputStyle={{ fontSize: 16, lineHeight: 22 }}
       />
 
       {/* Checklist */}
