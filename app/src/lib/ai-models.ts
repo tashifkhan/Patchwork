@@ -9,6 +9,12 @@ export interface AiModelInfo {
   input: string[];
   output: string[];
   reasoning?: boolean;
+  /**
+   * Effort levels the provider accepts for this model, from models.dev
+   * `reasoning_options`. Undefined means the catalog didn't say (older cache
+   * or fallback data); an empty array means thinking isn't configurable.
+   */
+  reasoningEfforts?: ReasoningEffort[];
   toolCall?: boolean;
   contextWindow?: number;
 }
@@ -34,7 +40,61 @@ export interface AiCustomProvider {
 }
 
 /** How hard a reasoning model should think. Unset uses the provider default. */
-export type ReasoningEffort = 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+const EFFORT_ORDER: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+const EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  none: 'Off',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra High',
+  max: 'Max',
+};
+
+/** Used when the catalog doesn't list a reasoning model's levels. */
+const FALLBACK_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high'];
+
+export function effortLabel(effort: ReasoningEffort | null | undefined): string {
+  return effort ? EFFORT_LABELS[effort] : 'Auto';
+}
+
+/**
+ * The thinking choices to offer for a model: Auto (provider default) plus
+ * exactly the levels the provider lists. Returns an empty array when the
+ * model doesn't reason or its thinking can't be tuned.
+ */
+export function reasoningChoices(
+  model: Pick<AiModelInfo, 'reasoning' | 'reasoningEfforts'> | null | undefined
+): { label: string; value: ReasoningEffort | null }[] {
+  if (!model?.reasoning) return [];
+  const efforts = model.reasoningEfforts ?? FALLBACK_EFFORTS;
+  if (efforts.length === 0) return [];
+  return [
+    { label: 'Auto', value: null },
+    ...efforts.map((value) => ({ label: EFFORT_LABELS[value], value })),
+  ];
+}
+
+function parseReasoningEfforts(value: unknown): ReasoningEffort[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const found = new Set<ReasoningEffort>();
+  for (const option of value) {
+    if (typeof option !== 'object' || option === null) continue;
+    const entry = option as Record<string, unknown>;
+    if (entry.type === 'effort' && Array.isArray(entry.values)) {
+      for (const v of entry.values) {
+        if (typeof v === 'string' && (EFFORT_ORDER as string[]).includes(v)) found.add(v as ReasoningEffort);
+      }
+    } else if (entry.type === 'toggle') {
+      // On/off only: Auto keeps the default, Off disables thinking.
+      found.add('none');
+    }
+  }
+  return EFFORT_ORDER.filter((effort) => found.has(effort));
+}
 
 export interface AiModelSelection {
   providerId: AiProviderId;
@@ -43,6 +103,8 @@ export interface AiModelSelection {
   input?: string[];
   output?: string[];
   reasoning?: boolean;
+  /** Snapshot of the model's levels, used when the catalog isn't loaded. */
+  reasoningEfforts?: ReasoningEffort[];
   reasoningEffort?: ReasoningEffort;
 }
 
@@ -173,6 +235,15 @@ export function supportsImage(selection: AiModelSelection) {
   return selection.input?.includes('image') ?? true;
 }
 
+/**
+ * Whether a model takes spoken audio. Unknown capability counts as yes only
+ * for Gemini, which accepts audio across the family; others must say so.
+ */
+export function supportsAudio(selection: AiModelSelection) {
+  if (selection.input) return selection.input.includes('audio');
+  return selection.providerId === 'google';
+}
+
 export function capabilityLabel(model: AiModelInfo | AiModelSelection) {
   const input = model.input?.length ? model.input : ['text'];
   const output = model.output?.length ? model.output : ['text'];
@@ -236,6 +307,7 @@ function normalizeModel(value: unknown): AiModelInfo | null {
     input: Array.isArray(modalities.input) ? modalities.input.filter((item): item is string => typeof item === 'string') : ['text'],
     output: Array.isArray(modalities.output) ? modalities.output.filter((item): item is string => typeof item === 'string') : ['text'],
     reasoning: typeof raw.reasoning === 'boolean' ? raw.reasoning : undefined,
+    reasoningEfforts: parseReasoningEfforts(raw.reasoning_options),
     toolCall: typeof raw.tool_call === 'boolean' ? raw.tool_call : undefined,
     contextWindow: typeof limit.context === 'number' ? limit.context : undefined,
   };

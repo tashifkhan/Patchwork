@@ -20,17 +20,17 @@ import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useAiCatalog, useAiKeys } from '@/hooks/use-ai';
 import { useTaskLists } from '@/hooks/use-tasks';
-import { modelBadges, modelById, type ReasoningEffort } from '@/lib/ai-models';
+import {
+  effortLabel,
+  modelBadges,
+  modelById,
+  reasoningChoices,
+  type ReasoningEffort,
+} from '@/lib/ai-models';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
-/** Thinking budget for reasoning models; Auto leaves the provider default. */
-const REASONING_OPTIONS: { label: string; value: ReasoningEffort | null }[] = [
-  { label: 'Auto', value: null },
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-];
+type ReasoningChoice = ReturnType<typeof reasoningChoices>[number];
 
 export default function AiScreen() {
   const router = useRouter();
@@ -131,11 +131,17 @@ export default function AiScreen() {
             const model = modelById(selection, providers);
             const badges = modelBadges(model ?? selection);
             const name = model?.name ?? selection.modelName ?? selection.modelId;
-            const reasoning = Boolean((model ?? selection).reasoning);
+            // Only the levels this model's provider actually accepts (from
+            // models.dev); Auto leaves the provider default.
+            const choices = reasoningChoices(model ?? selection);
+            const reasoning = choices.length > 0;
+            // A level saved before the catalog changed may no longer exist.
+            const effort = choices.some((c) => c.value === selection.reasoningEffort)
+              ? (selection.reasoningEffort ?? null)
+              : null;
             if (SETTINGS_IOS) {
               // iOS: a plain row with its rank tile; reorder, thinking budget and
               // removal live in the native menu behind the ellipsis.
-              const effort = selection.reasoningEffort ?? null;
               return (
                 <Fragment key={`${selection.providerId}:${selection.modelId}:${index}`}>
                   {index > 0 ? <RowSeparator /> : null}
@@ -151,7 +157,7 @@ export default function AiScreen() {
                     trailing={
                       <ChainMenu
                         name={name}
-                        reasoning={reasoning}
+                        choices={choices}
                         effort={effort}
                         first={index === 0}
                         last={index === aiModelSelections.length - 1}
@@ -205,14 +211,28 @@ export default function AiScreen() {
                     onPress={() => removeSelection(selection.providerId, selection.modelId)}
                   />
                 </View>
-                {(model ?? selection).reasoning ? (
+                {reasoning ? (
                   <View className="gap-2 px-4 pb-3" style={{ paddingLeft: 56 }}>
                     <Text className="text-sf-text-2 text-sm">Thinking</Text>
-                    <SegmentedChoice
-                      options={REASONING_OPTIONS}
-                      value={selection.reasoningEffort ?? null}
-                      onChange={(effort) => setReasoningEffort(index, effort)}
-                    />
+                    {choices.length <= 4 ? (
+                      <SegmentedChoice
+                        options={choices}
+                        value={effort}
+                        onChange={(value) => setReasoningEffort(index, value)}
+                      />
+                    ) : (
+                      // Too many levels for one segmented row: wrap as chips.
+                      <View className="flex-row flex-wrap gap-2">
+                        {choices.map((choice) => (
+                          <ToggleChip
+                            key={choice.value ?? 'auto'}
+                            label={choice.label}
+                            selected={choice.value === effort}
+                            onPress={() => setReasoningEffort(index, choice.value)}
+                          />
+                        ))}
+                      </View>
+                    )}
                   </View>
                 ) : null}
               </View>
@@ -384,10 +404,6 @@ function relativeTime(timestamp: number) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function effortLabel(effort: ReasoningEffort | null): string {
-  return REASONING_OPTIONS.find((option) => option.value === effort)?.label ?? 'Auto';
-}
-
 /** Chain position on an accent tile, sized like the iOS settings icons. */
 function RankTile({ n }: { n: number }) {
   const { colors } = useTheme();
@@ -410,7 +426,7 @@ function RankTile({ n }: { n: number }) {
 /** Native iOS menu with the per-model chain actions. */
 function ChainMenu({
   name,
-  reasoning,
+  choices,
   effort,
   first,
   last,
@@ -419,7 +435,7 @@ function ChainMenu({
   onRemove,
 }: {
   name: string;
-  reasoning: boolean;
+  choices: ReasoningChoice[];
   effort: ReasoningEffort | null;
   first: boolean;
   last: boolean;
@@ -431,13 +447,13 @@ function ChainMenu({
   return (
     <MenuView
       actions={[
-        ...(reasoning
+        ...(choices.length > 0
           ? [
               {
                 id: 'thinking',
                 title: 'Thinking',
                 displayInline: true,
-                subactions: REASONING_OPTIONS.map((option) => ({
+                subactions: choices.map((option) => ({
                   id: `effort:${option.value ?? 'auto'}`,
                   title: option.label,
                   state: (option.value === effort ? 'on' : 'off') as 'on' | 'off',

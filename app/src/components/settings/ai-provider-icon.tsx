@@ -1,94 +1,73 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { type ComponentProps } from 'react';
+import { Image } from 'expo-image';
+import { useMemo } from 'react';
 import { Platform } from 'react-native';
 
+import { providerLogoSvg } from '@/components/settings/ai-provider-logos';
 import { useTheme } from '@/components/theme/context';
-import type { ThemeColors } from '@/lib/theme';
+import { base64Encode } from '@/lib/base64';
 import { View } from '@/tw';
-
-type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
-
-/**
- * Per-provider glyph + hue. Every provider used to render the same grey key,
- * which made the list impossible to scan; the icon now carries the identity and
- * the ring carries the "key saved" state.
- */
-const PROVIDER_ICONS: Record<string, { icon: IconName; tint: keyof ThemeColors }> = {
-  openai: { icon: 'robot-outline', tint: 'green' },
-  anthropic: { icon: 'creation', tint: 'orange' },
-  google: { icon: 'google', tint: 'accent' },
-  deepseek: { icon: 'dolphin', tint: 'purple' },
-  openrouter: { icon: 'transit-connection-variant', tint: 'accent' },
-  nvidia: { icon: 'chip', tint: 'green' },
-  opencode: { icon: 'memory', tint: 'purple' },
-  // Same family as OpenCode Zen — shared tint, faster glyph.
-  'opencode-go': { icon: 'run-fast', tint: 'purple' },
-};
-
-const CUSTOM = { icon: 'server-network' as IconName, tint: 'gray' as keyof ThemeColors };
-
-export function aiProviderIconName(providerId: string, custom?: boolean): IconName {
-  if (custom) return CUSTOM.icon;
-  return PROVIDER_ICONS[providerId]?.icon ?? 'api';
-}
-
-export function useAiProviderTint(providerId: string, custom?: boolean): string {
-  const { colors } = useTheme();
-  const entry = custom ? CUSTOM : PROVIDER_ICONS[providerId];
-  return colors[entry?.tint ?? 'accent'] as string;
-}
 
 export interface AiProviderIconProps {
   providerId: string;
   custom?: boolean;
-  /** A key is stored for this provider — fills the bubble with its tint. */
+  /** A key is stored for this provider. Android rings the avatar in the accent. */
   configured?: boolean;
   size?: number;
 }
 
-/** Circular provider avatar. Tinted-solid when configured, soft when not. */
-export function AiProviderIcon({
-  providerId,
-  custom,
-  configured,
-  size = 44,
-}: AiProviderIconProps) {
-  const { colors } = useTheme();
-  const tint = useAiProviderTint(providerId, custom);
-  if (Platform.OS === 'ios') {
-    // iOS Settings rows: a rounded tile in the accent color, like every other
-    // icon on the settings pages. "Key saved" is spelled out in the subtitle.
-    return (
-      <View
-        className="items-center justify-center"
-        style={{
-          width: size,
-          height: size,
-          borderRadius: Math.round(size * 0.23),
-          borderCurve: 'continuous',
-          backgroundColor: colors.accent,
-        }}>
-        <MaterialCommunityIcons
-          name={aiProviderIconName(providerId, custom)}
-          size={Math.round(size * 0.6)}
-          color={colors.onAccent}
-        />
-      </View>
-    );
-  }
+/**
+ * Provider avatar with the company's real logo. Colored marks (Google,
+ * DeepSeek, NVIDIA) keep their brand colors; monochrome marks (OpenAI,
+ * Anthropic, OpenRouter, OpenCode) draw in the theme's text color. Custom
+ * OpenAI-compatible servers have no logo and get a server glyph.
+ *
+ * iOS: a neutral rounded tile like an app icon in Settings.
+ * Android: a tonal circle, ringed in the accent once a key is saved.
+ */
+export function AiProviderIcon({ providerId, custom, configured, size = 44 }: AiProviderIconProps) {
+  const { colors, scheme } = useTheme();
+  const isIOS = Platform.OS === 'ios';
+  const dark = scheme === 'dark';
+
+  const glyphColor = colors.text;
+  const uri = useMemo(() => {
+    if (custom) return null;
+    const svg = providerLogoSvg(providerId, glyphColor);
+    return svg ? `data:image/svg+xml;base64,${base64Encode(svg)}` : null;
+  }, [custom, providerId, glyphColor]);
+
+  const background = isIOS ? (dark ? colors.bg3 : '#FFFFFF') : colors.bg3;
+  const glyph = Math.round(size * (isIOS ? 0.62 : 0.52));
+
   return (
     <View
-      className="items-center justify-center rounded-full"
+      className="items-center justify-center"
       style={{
         width: size,
         height: size,
-        backgroundColor: configured ? tint : colors.primaryContainer,
+        borderRadius: isIOS ? Math.round(size * 0.23) : size / 2,
+        borderCurve: 'continuous',
+        backgroundColor: background,
+        // A white tile on the white iOS grouped cell needs an edge.
+        borderWidth: isIOS ? 0.5 : configured ? 2 : 0,
+        borderColor: isIOS ? colors.separator : colors.accent,
       }}>
-      <MaterialCommunityIcons
-        name={aiProviderIconName(providerId, custom)}
-        size={Math.round(size * 0.5)}
-        color={configured ? colors.onAccent : colors.onPrimaryContainer}
-      />
+      {uri ? (
+        <Image
+          source={{ uri }}
+          style={{ width: glyph, height: glyph }}
+          contentFit="contain"
+          cachePolicy="memory"
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <MaterialCommunityIcons
+          name={custom ? 'server-network' : 'api'}
+          size={glyph}
+          color={colors.text2}
+        />
+      )}
     </View>
   );
 }

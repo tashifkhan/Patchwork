@@ -34,3 +34,15 @@ export function refineTasks(payload: AiRefineRequest) {
 export function draftTasks(payload: AiDraftRequest) {
   return api.post<AiTasksResponse>('/api/ai/draft-tasks', payload);
 }
+
+export interface DictationInput {
+  uri: string;
+  mimeType: string;
+  availableLists?: TaskList[];
+  availableTags?: string[];
+}
+
+/** Dictation runs against your own AI key, which only the iOS and Android apps hold. */
+export async function dictateTasks(_input: DictationInput): Promise<AiTasksResponse> {
+  throw new Error('Voice dictation is available in the iOS and Android apps.');
+}

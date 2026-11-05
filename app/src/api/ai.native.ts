@@ -7,12 +7,53 @@ import { generateText } from 'ai';
 
 import { ApiError } from './client';
 import type { AiDraftRequest, AiGeneratedTask, AiRefineRequest, AiTasksResponse, TaskList } from './types';
-import { DEFAULT_AI_MODELS, buildProvidersWithCustom, providerById, supportsImage, type AiModelSelection } from '@/lib/ai-models';
+import { DEFAULT_AI_MODELS, buildProvidersWithCustom, providerById, supportsAudio, supportsImage, type AiModelSelection } from '@/lib/ai-models';
 import { getAiApiKey } from '@/lib/credentials';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { useSettingsStore } from '@/stores/settings-store';
 
-type ImageInput = { mimeType: string; data: string };
+type Attachment = { kind: 'image' | 'audio'; mimeType: string; data: string };
+
+/** Voice notes are short; this keeps the request well under provider inline limits. */
+const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
+
+export interface DictationInput {
+  uri: string;
+  mimeType: string;
+  availableLists?: TaskList[];
+  availableTags?: string[];
+}
+
+/**
+ * Send a voice note to an audio-capable model, which listens, transcribes and
+ * returns staged to-dos in the same shape as text and photo imports.
+ */
+export async function dictateTasks(input: DictationInput): Promise<AiTasksResponse> {
+  const response = await fetch(input.uri);
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength === 0) throw new ApiError(400, 'The recording is empty. Try again and speak a little longer.');
+  if (bytes.byteLength > MAX_AUDIO_BYTES) {
+    throw new ApiError(413, 'That recording is too long. Keep voice notes under about five minutes.');
+  }
+  const prompt = buildDictationPrompt(input.availableLists ?? [], input.availableTags ?? []);
+  const responseText = await generateModelJson(prompt, {
+    kind: 'audio',
+    mimeType: input.mimeType,
+    data: bytesToBase64(bytes),
+  });
+  // Belt and braces against hallucinated to-dos: no heard speech, no tasks.
+  if (heardNothing(responseText)) return { tasks: [] };
+  return { tasks: parseTaskJson(responseText, input.availableLists, input.availableTags) };
+}
+
+function heardNothing(responseText: string) {
+  try {
+    const payload = JSON.parse(stripMarkdownFence(responseText)) as { transcript?: unknown };
+    return typeof payload.transcript === 'string' && payload.transcript.trim().length === 0;
+  } catch {
+    return false;
+  }
+}
 
 export interface OcrUploadInput {
   uri: string;
@@ -34,6 +75,7 @@ export async function ocrUploadImage(input: OcrUploadInput): Promise<AiTasksResp
 
   const prompt = buildOcrPrompt(input.availableLists ?? [], input.availableTags ?? []);
   const responseText = await generateModelJson(prompt, {
+    kind: 'image',
     mimeType: input.mimeType,
     data: bytesToBase64(imageBytes),
   });
@@ -50,14 +92,24 @@ export async function refineTasks(payload: AiRefineRequest): Promise<AiTasksResp
   return { tasks: parseTaskJson(responseText, payload.available_lists, payload.available_tags) };
 }
 
-async function generateModelJson(prompt: string, image?: ImageInput) {
+async function generateModelJson(prompt: string, attachment?: Attachment) {
   const settings = useSettingsStore.getState();
   const configured = settings.aiModelSelections.length > 0 ? settings.aiModelSelections : DEFAULT_AI_MODELS;
-  const selections = image ? configured.filter(supportsImage) : configured;
+  const selections =
+    attachment?.kind === 'image'
+      ? configured.filter(supportsImage)
+      : attachment?.kind === 'audio'
+        ? configured.filter(supportsAudio)
+        : configured;
   if (selections.length === 0) {
-    throw new ApiError(400, image
-      ? 'No selected AI model supports image input. Pick an image-capable model in Settings.'
-      : 'No AI model is selected. Pick at least one model in Settings.');
+    throw new ApiError(
+      400,
+      configured.length === 0
+        ? 'No AI model is selected. Pick at least one model in Settings.'
+        : attachment?.kind === 'audio'
+          ? 'None of your AI models can listen to audio. In Settings, AI import, add one marked Audio, such as Gemini Flash.'
+          : 'No selected AI model supports image input. Pick an image-capable model in Settings.'
+    );
   }
 
   const providers = buildProvidersWithCustom([], settings.aiCustomProviders);
@@ -71,12 +123,18 @@ async function generateModelJson(prompt: string, image?: ImageInput) {
         messages: [
           {
             role: 'user',
-            content: image
-              ? [
-                  { type: 'text', text: prompt },
-                  { type: 'image', image: base64ToBytes(image.data), mediaType: image.mimeType },
-                ]
-              : [{ type: 'text', text: prompt }],
+            content:
+              attachment?.kind === 'image'
+                ? [
+                    { type: 'text', text: prompt },
+                    { type: 'image', image: base64ToBytes(attachment.data), mediaType: attachment.mimeType },
+                  ]
+                : attachment?.kind === 'audio'
+                  ? [
+                      { type: 'text', text: prompt },
+                      { type: 'file', data: base64ToBytes(attachment.data), mediaType: attachment.mimeType },
+                    ]
+                  : [{ type: 'text', text: prompt }],
           },
         ],
       });
@@ -91,9 +149,10 @@ async function generateModelJson(prompt: string, image?: ImageInput) {
 }
 
 /**
- * Map the selection's reasoning effort onto each provider's own option.
- * Gemini 3 takes a `thinkingLevel`; OpenAI (and compatible endpoints that
- * accept it) take `reasoningEffort`. Unset leaves the provider default.
+ * Map the selection's reasoning effort onto each provider's own option. The
+ * chain only offers levels models.dev lists for the model, so values pass
+ * through as-is; the few the SDK types can't express are clamped. Unset
+ * leaves the provider default.
  */
 function reasoningOptions(
   selection: AiModelSelection,
@@ -101,10 +160,32 @@ function reasoningOptions(
 ): Record<string, Record<string, JSONValue>> | undefined {
   const effort = selection.reasoningEffort;
   if (!effort) return undefined;
-  const kind = providerById(selection.providerId, providers)?.kind;
-  if (kind === 'google') return { google: { thinkingConfig: { thinkingLevel: effort } } };
-  if (kind === 'openai') return { openai: { reasoningEffort: effort } };
-  return undefined;
+  const provider = providerById(selection.providerId, providers);
+  if (!provider) return undefined;
+  switch (provider.kind) {
+    case 'google':
+      if (effort === 'none') return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+      return {
+        google: {
+          thinkingConfig: {
+            thinkingLevel: effort === 'xhigh' || effort === 'max' ? 'high' : effort,
+          },
+        },
+      };
+    case 'openai':
+      return { openai: { reasoningEffort: effort === 'max' ? 'xhigh' : effort } };
+    case 'anthropic':
+      if (effort === 'none') return { anthropic: { thinking: { type: 'disabled' } } };
+      return {
+        anthropic: {
+          effort: effort === 'minimal' ? 'low' : effort,
+        },
+      };
+    default:
+      // OpenAI-compatible endpoints read `reasoning_effort`; the SDK keys
+      // provider options by the name passed to createOpenAICompatible.
+      return { [provider.id]: { reasoningEffort: effort } };
+  }
 }
 
 async function languageModelFor(
@@ -165,6 +246,48 @@ Rules:
 - Use subtasks for indented checklist items or clearly nested items.
 - Keep Markdown syntax from screenshots when useful.
 - The app will show these in a staging editor; optimize for editable draft tasks.`;
+}
+
+function buildDictationPrompt(availableLists: TaskList[], availableTags: string[]) {
+  return `You are a voice assistant for Patchwork, a Nextcloud CalDAV task app.
+Listen to the attached voice note, where the user dictates one or more to-dos, and turn it into tasks.
+
+${localTimeContext()}
+Available lists: ${listContext(availableLists)}
+Available tags: ${JSON.stringify(availableTags)}
+
+Return STRICT JSON only. Do not wrap it in markdown.
+
+Work in two steps. First write down exactly what was said in "transcript". Then build "tasks" from the transcript only.
+
+Schema:
+{
+  "transcript": "string, a verbatim transcription of the speech; empty string if there is no clear speech",
+  "tasks": [
+    {
+      "title": "string, required, concise action item in the user's words",
+      "description": "string or null, supports GitHub-flavored Markdown",
+      "list_id": "string or null, must match an available list id when the user names or clearly implies it",
+      "tags": ["strings matching existing tags when possible"],
+      "due_at": "ISO-8601 datetime string or null",
+      "reminder_at": "ISO-8601 datetime string or null",
+      "priority": "integer 0-9 or null (1 is highest)",
+      "subtasks": [{"title": "string", "description": "string or null"}]
+    }
+  ]
+}
+
+Rules:
+- Split separate requests into separate tasks ("call mum and book the dentist" is two tasks).
+- Resolve spoken dates and times ("tomorrow at 5", "next Friday", "in two hours") against the local time above.
+- When the user says "remind me", set reminder_at; set due_at only for deadlines or when a time is given.
+- Map "urgent" or "important" to priority 1, "low priority" to 9; otherwise null.
+- Drop filler words, false starts and self-corrections; keep the corrected version.
+- Put useful spoken detail that is not part of the title in description.
+- Steps the user lists under one task ("first..., then...") become subtasks.
+- Every task must come from words in the transcript. Never make up a task.
+- If the audio is silent, noise, music, unclear, or has no actionable request, return {"transcript": "", "tasks": []} (or the transcript with an empty tasks list).
+- Do not invent due dates, reminders, lists, or tags that were not said or clearly implied.`;
 }
 
 function buildRefinePrompt(request: AiRefineRequest) {
