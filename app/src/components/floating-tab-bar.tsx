@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { type ComponentProps, useEffect, useMemo } from 'react';
-import { Pressable, StyleSheet, TextInput as RNTextInput } from 'react-native';
+import { type ComponentProps, useEffect, useMemo, useState } from 'react';
+import { Keyboard, Pressable, StyleSheet, TextInput as RNTextInput } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -97,14 +97,34 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
   const bottom = Math.max(insets.bottom, 10) + FLOATING_TAB_BAR_MARGIN;
 
   // Android is edge-to-edge from API 35 on, so `adjustResize` no longer shrinks
-  // the window — an absolutely positioned bar would sit *under* the keyboard.
-  // Lift it by the keyboard height, minus the bottom inset we already pad by
-  // (the keyboard covers the gesture bar area it occupied).
+  // the window and an absolutely positioned bar would sit *under* the keyboard.
+  // On Search the bar holds the query field, so it rides on top of the
+  // keyboard. Everywhere else it gets out of the way while the user types,
+  // like Google Photos, instead of covering the field they're typing into.
   const keyboard = useAnimatedKeyboard();
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  const hideForKeyboard = keyboardOpen && !searchFocused;
   const keyboardStyle = useAnimatedStyle(() => {
-    const lift = Math.max(0, keyboard.height.value - insets.bottom);
-    return { transform: [{ translateY: -lift }] };
-  });
+    if (searchFocused) {
+      const lift = Math.max(0, keyboard.height.value - insets.bottom);
+      return { opacity: 1, transform: [{ translateY: -lift }] };
+    }
+    // Slide down and fade as the keyboard rises; this tracks the keyboard
+    // frame by frame, so there is no gap or jump.
+    const shown = keyboard.height.value > 1 ? 0 : 1;
+    return {
+      opacity: withTiming(shown, { duration: 160 }),
+      transform: [{ translateY: withTiming(shown ? 0 : 24, { duration: 160 }) }],
+    };
+  }, [searchFocused]);
   // Google Photos style: a tonal (accent-tinted) container, a stronger tonal
   // pill behind the selected tab, and plain on-surface text for the rest.
   const surface = colors.primaryContainer;
@@ -169,7 +189,9 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={hideForKeyboard ? 'none' : 'box-none'}
+      accessibilityElementsHidden={hideForKeyboard}
+      importantForAccessibility={hideForKeyboard ? 'no-hide-descendants' : 'auto'}
       style={[
         {
           position: 'absolute',

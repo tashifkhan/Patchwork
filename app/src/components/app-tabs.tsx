@@ -3,9 +3,12 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { Platform } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
+import { NavigationRail } from '@/components/navigation-rail';
 import { useTheme } from '@/components/theme/context';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { haptics } from '@/lib/haptics';
 import { useFloatingTabBar } from '@/lib/tab-bar';
+import { useSettingsStore } from '@/stores/settings-store';
 
 const FLOATING_SCREENS = ['(tasks)', 'deck', 'settings', 'search'] as const;
 
@@ -18,8 +21,14 @@ const NATIVE_TABS = [
 
 export default function AppTabs() {
   const floating = useFloatingTabBar();
+  const { navigationRail } = useAdaptiveLayout();
 
   // Switching navigators remounts tabs; key keeps state consistent per mode.
+  // Medium and wider Android windows (tablets, unfolded foldables, landscape)
+  // get a side rail; the bottom bar and the floating pill are for phones.
+  if (navigationRail) {
+    return <RailTabs key="rail-tabs" />;
+  }
   if (Platform.OS === 'android' && floating) {
     return <FloatingTabs key="floating-tabs" />;
   }
@@ -30,14 +39,19 @@ export default function AppTabs() {
 function MaterialNativeTabs() {
   const { colors, scheme } = useTheme();
   const inactiveColor = colors.text2;
+  const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
 
   return (
     <NativeTabs
       minimizeBehavior="onScrollDown"
-      // Only the selected destination is labeled: unselected tabs are bare
-      // icons and the label animates in under the pill as it slides across.
+      // iPad (and large iPhones in landscape on iOS 27): the tab bar can turn
+      // into the system sidebar, like Files and Music.
+      sidebarAdaptable
+      // By default only the selected destination is labeled: unselected tabs
+      // are bare icons and the label animates in under the pill. "Navbar
+      // labels" in Look and feel labels every tab.
       // (Android-only knob; iOS always labels its native tab bar.)
-      labelVisibilityMode="selected"
+      labelVisibilityMode={tabBarLabels ? 'labeled' : 'selected'}
       backgroundColor={colors.bg2}
       tintColor={colors.accent}
       iconColor={{ default: inactiveColor, selected: colors.onSelectionBg }}
@@ -97,6 +111,31 @@ function FloatingTabs() {
           elevation: 0,
           height: 0,
         },
+        sceneStyle: { backgroundColor: colors.bg },
+      }}>
+      {FLOATING_SCREENS.map((name) => (
+        <Tabs.Screen key={name} name={name} options={{ title: name }} />
+      ))}
+    </Tabs>
+  );
+}
+
+/** JS Tabs with the Material 3 navigation rail on the leading edge. */
+function RailTabs() {
+  const { colors } = useTheme();
+
+  return (
+    <Tabs
+      tabBar={(props) => (
+        <NavigationRail
+          state={props.state}
+          emitter={props.emitter}
+          navigateToTab={props.navigateToTab}
+        />
+      )}
+      screenOptions={{
+        headerShown: false,
+        tabBarPosition: 'left',
         sceneStyle: { backgroundColor: colors.bg },
       }}>
       {FLOATING_SCREENS.map((name) => (

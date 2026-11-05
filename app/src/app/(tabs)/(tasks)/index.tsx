@@ -10,6 +10,7 @@ import {
   Pressable,
   RefreshControl,
   type ScrollView as RNScrollView,
+  StyleSheet,
 } from 'react-native';
 
 import { ApiError } from '@/api/client';
@@ -27,13 +28,17 @@ import {
   type TaskCardResult,
 } from '@/components/tasks/task-card';
 import { TagFilterTabs } from '@/components/tasks/tag-chip-list';
+import { TaskDetailView, TaskPaneContext, type TaskPane } from '@/components/tasks/task-detail';
 import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Fab } from '@/components/ui/fab';
+import { DictateFab } from '@/components/tasks/dictate-fab';
+import { DictationSheet } from '@/components/tasks/dictation-sheet';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { READABLE_MAX_WIDTH, useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { haptics } from '@/lib/haptics';
 import {
   useTabBarContentPadding,
@@ -117,6 +122,25 @@ export default function TasksScreen() {
   const [pulling, setPulling] = useState(false);
   const insets = useSafeAreaInsets();
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  // Split view (iPad, unfolded foldables, tablets): the to-do open in the
+  // detail pane. Phones open to-dos in place and push the full editor.
+  const { twoPane, listPaneWidth, hingeGap } = useAdaptiveLayout();
+  const [paneUid, setPaneUid] = useState<string | null>(null);
+  const pane = useMemo<TaskPane>(
+    () => ({ open: setPaneUid, close: () => setPaneUid(null) }),
+    []
+  );
+  // Folding the device (or narrowing the iPad window) with a to-do open
+  // keeps it open: it moves from the pane to a pushed screen.
+  const handedOff = useRef<string | null>(null);
+  useEffect(() => {
+    if (twoPane) {
+      handedOff.current = null;
+    } else if (paneUid && handedOff.current !== paneUid) {
+      handedOff.current = paneUid;
+      router.push({ pathname: '/task/[uid]', params: { uid: paneUid } });
+    }
+  }, [twoPane, paneUid]);
   const cardRef = useRef<TaskCardHandle>(null);
   const scrollRef = useRef<RNScrollView>(null);
   const scrollY = useRef(0);
@@ -138,6 +162,7 @@ export default function TasksScreen() {
   const openTotal = useMemo(() => allTasks.filter((t) => !t.completed).length, [allTasks]);
   const visibleOpen = selectedListId ? (listCounts[selectedListId] ?? 0) : openTotal;
   const allTags = useMemo(() => collectTags(allTasks), [allTasks]);
+  const [dictating, setDictating] = useState(false);
 
   const githubQuery = useGitHubIssues();
   const toggleGitHubIssue = useToggleGitHubIssue();
@@ -236,9 +261,13 @@ export default function TasksScreen() {
   const handleOpen = useCallback(
     (task: Task) => {
       if (closeCard()) return;
+      if (twoPane) {
+        setPaneUid(task.uid);
+        return;
+      }
       setExpandedId(task.id);
     },
-    [closeCard]
+    [closeCard, twoPane]
   );
 
   const openNewCard = useCallback(() => {
@@ -466,7 +495,7 @@ export default function TasksScreen() {
     ? `${repoOpen} open issue${repoOpen === 1 ? '' : 's'} · ${repoFilter.split('/')[0]}`
     : `${visibleOpen} open${selectedList?.account_name ? ` · ${selectedList.account_name}` : ''}`;
 
-  return (
+  const listView = (
     <>
       {/* Things-style: the list name is the page title, so no nav header. */}
       <Stack.Screen options={{ headerShown: false }} />
@@ -484,6 +513,11 @@ export default function TasksScreen() {
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: 16,
+          // Medium windows that stay single-pane (an iPad in Split View, a
+          // landscape phone) keep rows at a readable width.
+          width: '100%',
+          maxWidth: READABLE_MAX_WIDTH,
+          alignSelf: 'center',
           // Room for the floating action bar so the last card can scroll clear of it.
           paddingBottom: contentBottom + (expandedId ? 140 : 0),
         }}
@@ -522,6 +556,7 @@ export default function TasksScreen() {
           <ListHero
             title={heroTitle}
             subtitle={heroSubtitle}
+            kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
             onPress={() => setListSwitcherOpen(true)}
           />
           {/* Background refresh: under the title, clear of the status bar and cutout. */}
@@ -648,6 +683,7 @@ export default function TasksScreen() {
                         onOpen={handleOpen}
                         showList={!selectedListId}
                         dimmed={expandedId != null}
+                        selected={twoPane && task.uid === paneUid}
                       />
                     )
                   }
@@ -684,6 +720,7 @@ export default function TasksScreen() {
                       onOpen={handleOpen}
                       showList={!selectedListId}
                       dimmed={expandedId != null}
+                      selected={twoPane && task.uid === paneUid}
                     />
                   )
                 )}
@@ -710,8 +747,18 @@ export default function TasksScreen() {
         </Pressable>
       </ScrollView>
       {process.env.EXPO_OS !== 'web' && expandedId == null ? (
-        <Fab onPress={openNewCard} accessibilityLabel="New to-do" />
+        <>
+          <DictateFab onPress={() => setDictating(true)} />
+          <Fab onPress={openNewCard} accessibilityLabel="New to-do" />
+        </>
       ) : null}
+      <DictationSheet
+        visible={dictating}
+        lists={lists}
+        availableTags={allTags}
+        defaultListId={selectedListId && !selectedListId.startsWith('gh:') ? selectedListId : lists[0]?.id}
+        onClose={() => setDictating(false)}
+      />
       <ListSwitcherSheet
         visible={listSwitcherOpen}
         lists={lists}
@@ -754,7 +801,13 @@ export default function TasksScreen() {
             }
             const task = visibleTasks.find((t) => t.id === expandedId);
             cardRef.current?.commit();
-            if (task) router.push({ pathname: '/task/[uid]', params: { uid: task.uid } });
+            if (!task) return;
+            if (twoPane) {
+              setExpandedId(null);
+              setPaneUid(task.uid);
+            } else {
+              router.push({ pathname: '/task/[uid]', params: { uid: task.uid } });
+            }
           }}
         />
       ) : null}
@@ -814,6 +867,36 @@ export default function TasksScreen() {
         </Pressable>
       </Modal>
     </>
+  );
+
+  if (!twoPane) return listView;
+
+  // List + detail. The list pane has its own FABs and action bar, so they
+  // stay over the list; on a foldable the panes meet at the hinge.
+  return (
+    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
+      <View style={{ width: listPaneWidth }}>{listView}</View>
+      <View
+        style={{
+          width: hingeGap || StyleSheet.hairlineWidth,
+          backgroundColor: hingeGap ? colors.bg : colors.separator,
+        }}
+      />
+      <View style={{ flex: 1 }}>
+        {paneUid ? (
+          <TaskPaneContext value={pane}>
+            <TaskDetailView key={paneUid} uid={paneUid} />
+          </TaskPaneContext>
+        ) : (
+          <View className="flex-1 items-center justify-center gap-3 px-10">
+            <MaterialCommunityIcons name="checkbox-marked-circle-outline" size={48} color={colors.text3} />
+            <Text className="text-sf-text-2 text-center text-base">
+              Select a to-do to see its notes, checklist and dates.
+            </Text>
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
