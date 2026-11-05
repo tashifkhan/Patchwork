@@ -168,21 +168,39 @@ function TabPill({
       accessibilityLabel={label === 'All' ? 'Show all tags' : `Filter by ${label}`}
       hitSlop={6}
       android_ripple={{ color: colors.separator }}
-      style={({ pressed }) => ({
-        height: 34,
-        paddingHorizontal: 14,
-        justifyContent: 'center',
-        borderRadius: 17,
-        borderCurve: 'continuous',
-        overflow: 'hidden',
-        backgroundColor: selected ? colors.selectionBg : 'transparent',
-        opacity: pressed && Platform.OS === 'ios' ? 0.6 : 1,
-      })}>
+      style={({ pressed }) =>
+        Platform.OS === 'ios'
+          ? {
+              // Things tag capsules: gray when idle, accent when picked.
+              height: 30,
+              paddingHorizontal: 12,
+              justifyContent: 'center',
+              borderRadius: 15,
+              backgroundColor: selected ? colors.accent : colors.bg2,
+              opacity: pressed ? 0.6 : 1,
+            }
+          : {
+              height: 34,
+              paddingHorizontal: 14,
+              justifyContent: 'center',
+              borderRadius: 17,
+              borderCurve: 'continuous',
+              overflow: 'hidden',
+              backgroundColor: selected ? colors.selectionBg : 'transparent',
+            }
+      }>
       <Text
         style={{
-          fontSize: 15,
+          fontSize: Platform.OS === 'ios' ? 14 : 15,
           fontWeight: selected ? '600' : '500',
-          color: selected ? colors.onSelectionBg : colors.text2,
+          color:
+            Platform.OS === 'ios'
+              ? selected
+                ? colors.onAccent
+                : colors.text2
+              : selected
+                ? colors.onSelectionBg
+                : colors.text2,
         }}>
         {label}
       </Text>

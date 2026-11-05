@@ -10,7 +10,7 @@ export interface LoadingStateProps {
   subtitle?: string;
   /** Fills the parent and centers content. Default true. */
   fullScreen?: boolean;
-  /** Show a linear progress track under the spinner. Default true on fullScreen. */
+  /** Also show a linear progress track under the spinner. Default false. */
   showBar?: boolean;
   style?: StyleProp<ViewStyle>;
 }
@@ -27,7 +27,9 @@ export function LoadingState({
   style,
 }: LoadingStateProps) {
   const { colors } = useTheme();
-  const bar = showBar ?? fullScreen;
+  // One loader at a time: the spinner already says "working", so the
+  // linear track is opt-in rather than stacked under every full-screen state.
+  const bar = showBar ?? false;
 
   return (
     <View

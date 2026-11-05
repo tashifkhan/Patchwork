@@ -27,6 +27,8 @@ interface TaskItemProps {
   showList?: boolean;
   /** Fade the row back while another to-do is open in place. */
   dimmed?: boolean;
+  /** Open in the split view's detail pane: tinted like a selected list row. */
+  selected?: boolean;
 }
 
 /**
@@ -42,6 +44,7 @@ function TaskItemComponent({
   showChildren = false,
   showList = true,
   dimmed = false,
+  selected = false,
 }: TaskItemProps) {
   const { colors } = useTheme();
   const when = describeWhen(task.due_at);
@@ -62,7 +65,22 @@ function TaskItemComponent({
       {/* Dimming lives on an inner view: the layout animation owns the outer opacity. */}
       <View
         className="flex-row items-center"
-        style={{ paddingLeft: depth * 28, minHeight: 48, opacity: dimmed ? 0.38 : 1 }}>
+        accessibilityState={selected ? { selected: true } : undefined}
+        style={{
+          paddingLeft: depth * 28,
+          minHeight: 48,
+          opacity: dimmed ? 0.38 : 1,
+          // Selection reaches into the page margin so the tint reads as a row.
+          ...(selected
+            ? {
+                backgroundColor: colors.selectionBg,
+                borderRadius: 14,
+                marginHorizontal: -8,
+                paddingRight: 8,
+                paddingLeft: depth * 28 + 8,
+              }
+            : null),
+        }}>
         <View style={{ marginLeft: -11 }}>
           <TaskCheckbox
             checked={task.completed}

@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -107,6 +108,9 @@ const SF_ICONS: Partial<Record<IconName, SFSymbol>> = {
   'bell-outline': 'bell.badge.fill',
   'clock-outline': 'clock.fill',
   github: 'chevron.left.forwardslash.chevron.right',
+  jira: 'square.grid.2x2.fill',
+  'account-multiple-outline': 'person.2.fill',
+  'view-column-outline': 'rectangle.split.3x1.fill',
   'star-four-points-outline': 'sparkles',
   refresh: 'arrow.clockwise',
   'source-repository': 'book.closed.fill',
@@ -199,11 +203,14 @@ export function SettingsScreen({ children }: { children: ReactNode }) {
   const { screen } = useSettingsColors();
   const paddingBottom = useTabBarContentPadding(48);
   const onTabBarScroll = useTabBarMinimizeOnScroll();
-  return (
+  const scroll = (
     <ScrollView
       className="flex-1"
       style={{ backgroundColor: screen }}
       contentInsetAdjustmentBehavior="automatic"
+      // iOS: inset the content by the keyboard and keep the focused field
+      // visible. Android gets the same from the KeyboardAvoidingView below.
+      automaticallyAdjustKeyboardInsets
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       scrollEventThrottle={16}
@@ -216,6 +223,16 @@ export function SettingsScreen({ children }: { children: ReactNode }) {
       }}>
       {children}
     </ScrollView>
+  );
+  if (Platform.OS !== 'android') return scroll;
+  // Android is edge-to-edge, so `adjustResize` no longer shrinks the window
+  // and the keyboard would cover the lower fields. Padding the container by
+  // the keyboard height shrinks the ScrollView, which then scrolls the
+  // focused field into view on its own.
+  return (
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: screen }}>
+      {scroll}
+    </KeyboardAvoidingView>
   );
 }
 

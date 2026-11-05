@@ -35,7 +35,9 @@ export function LoadingState({
   style,
 }: LoadingStateProps) {
   const { colors } = useTheme();
-  const bar = showBar ?? fullScreen;
+  // One loader at a time: the spinner already says "working", so the
+  // linear track is opt-in rather than stacked under every full-screen state.
+  const bar = showBar ?? false;
   const indicator = fullScreen ? 96 : 80;
 
   // Small spring "pop" on mount so the indicator arrives instead of blinking in.

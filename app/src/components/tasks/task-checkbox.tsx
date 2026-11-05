@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect } from 'react';
-import { Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 import Animated, {
   interpolate,
   interpolateColor,
@@ -21,6 +21,8 @@ import { DURATION, spring, timing } from '@/lib/motion';
  *
  * `variant="circle"` is the subtask/checklist style (Things uses circles there).
  */
+const IOS = Platform.OS === 'ios';
+
 export function TaskCheckbox({
   checked,
   onToggle,
@@ -45,7 +47,8 @@ export function TaskCheckbox({
   const boxStyle = useAnimatedStyle(() => {
     const restRadius = variant === 'circle' ? size / 2 : size * 0.27;
     return {
-      borderRadius: interpolate(progress.value, [0, 1], [restRadius, size / 2]),
+      // Android morphs toward a circle (M3 Expressive); iOS stays a Things square.
+      borderRadius: IOS ? restRadius : interpolate(progress.value, [0, 1], [restRadius, size / 2]),
       backgroundColor: interpolateColor(progress.value, [0, 1], ['transparent', colors.accent]),
       borderColor: interpolateColor(progress.value, [0, 1], [colors.gray2, colors.accent]),
       transform: [{ scale: squash.value }],

@@ -1,6 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Platform, Pressable } from 'react-native';
-import Animated, { FadeOut, SlideInDown } from 'react-native-reanimated';
+import { useEffect } from 'react';
+import { Keyboard, Platform, Pressable } from 'react-native';
+import Animated, {
+  Easing,
+  FadeOut,
+  SlideInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
@@ -30,6 +38,8 @@ export function TaskActionBar({
   deleteLabel?: string;
 }) {
   const { colors } = useTheme();
+  const lift = useKeyboardLift(bottom);
+  const position = useAnimatedStyle(() => ({ bottom: lift.value }));
 
   return (
     <Animated.View
@@ -38,7 +48,7 @@ export function TaskActionBar({
         .stiffness(SPRING.spatial.stiffness)}
       exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
       pointerEvents="box-none"
-      style={{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }}>
+      style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, position]}>
       <View
         className="flex-row items-center"
         style={{
@@ -128,4 +138,43 @@ function IconAction({
       <MaterialCommunityIcons name={icon} size={24} color={color} />
     </Pressable>
   );
+}
+
+/** Gap kept between the bar and the top of the keyboard. */
+const KEYBOARD_GAP = 10;
+
+/**
+ * Bottom offset that rides above the iOS keyboard. iOS overlays the keyboard
+ * on the screen, so a bar pinned to the bottom ends up hidden while you type
+ * a title or notes. The bar moves with the keyboard's own duration and curve.
+ * Android resizes the window for the keyboard, so it keeps the given offset.
+ */
+function useKeyboardLift(bottom: number) {
+  const lift = useSharedValue(bottom);
+
+  useEffect(() => {
+    lift.value = bottom;
+    if (Platform.OS !== 'ios') return;
+    const curve = Easing.bezier(0.38, 0.7, 0.125, 1);
+    const show = Keyboard.addListener('keyboardWillShow', (event) => {
+      lift.value = withTiming(Math.max(bottom, event.endCoordinates.height + KEYBOARD_GAP), {
+        duration: event.duration || 250,
+        easing: curve,
+      });
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', (event) => {
+      lift.value = withTiming(bottom, { duration: event.duration || 250, easing: curve });
+    });
+    // Opened while the keyboard is already up (e.g. tapping another card).
+    const metrics = Keyboard.metrics();
+    if (metrics && Keyboard.isVisible()) {
+      lift.value = Math.max(bottom, metrics.height + KEYBOARD_GAP);
+    }
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [bottom, lift]);
+
+  return lift;
 }

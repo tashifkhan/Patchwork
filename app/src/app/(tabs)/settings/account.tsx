@@ -220,7 +220,6 @@ export default function AccountEditor() {
           fullScreen={false}
           message="Loading account…"
           subtitle="Fetching saved credentials"
-          showBar
         />
       ) : (
         <>
