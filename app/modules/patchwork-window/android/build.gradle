@@ -1,0 +1,23 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'codes.tashhif.patchwork'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.patchworkwindow"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // Jetpack WindowManager: FoldingFeature (hinge bounds, posture) for
+  // Pixel Fold, Galaxy Z Fold and other foldables.
+  implementation 'androidx.window:window:1.4.0'
+  implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+}

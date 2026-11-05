@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { type NativeScrollEvent, type NativeSyntheticEvent, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useTabBarChromeStore } from '@/stores/tab-bar-chrome-store';
 
@@ -12,10 +13,14 @@ export const FLOATING_TAB_CIRCLE = 64;
 /** Horizontal / bottom margin around the floating chrome. */
 export const FLOATING_TAB_BAR_MARGIN = 14;
 
-/** True when Android is using the floating navbar. */
+/**
+ * True when Android is using the floating navbar. Wide windows use the
+ * navigation rail instead, whatever the setting says.
+ */
 export function useFloatingTabBar(): boolean {
   const floatingTabBar = useSettingsStore((s) => s.floatingTabBar);
-  return Platform.OS === 'android' && floatingTabBar;
+  const { navigationRail } = useAdaptiveLayout();
+  return Platform.OS === 'android' && floatingTabBar && !navigationRail;
 }
 
 /**
@@ -26,10 +31,14 @@ export function useFloatingTabBar(): boolean {
  */
 export function useTabBarFabOffset(gap = 12): number {
   const floating = useFloatingTabBar();
+  const { navigationRail } = useAdaptiveLayout();
   const insets = useSafeAreaInsets();
   if (floating) {
     return insets.bottom + FLOATING_TAB_BAR_MARGIN + FLOATING_TAB_BAR_HEIGHT + gap;
   }
+  // The rail leaves the screen running to the bottom edge, so clear the
+  // gesture bar instead of a tab bar.
+  if (navigationRail) return insets.bottom + 16;
   return 16;
 }
 
@@ -39,10 +48,12 @@ export function useTabBarFabOffset(gap = 12): number {
  */
 export function useTabBarContentPadding(base = 48): number {
   const floating = useFloatingTabBar();
+  const { navigationRail } = useAdaptiveLayout();
   const insets = useSafeAreaInsets();
   if (floating) {
     return base + insets.bottom + FLOATING_TAB_BAR_MARGIN + FLOATING_TAB_BAR_HEIGHT;
   }
+  if (navigationRail) return base + insets.bottom;
   return base;
 }
 

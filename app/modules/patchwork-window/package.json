@@ -1,0 +1,10 @@
+{
+  "name": "patchwork-window",
+  "version": "1.0.0",
+  "description": "Fold posture and hinge bounds from Jetpack WindowManager",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "author": "Patchwork",
+  "homepage": "https://github.com/tashifkhan/patchwork",
+  "private": true
+}
