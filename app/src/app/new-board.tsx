@@ -46,6 +46,8 @@ export default function NewBoardScreen() {
       });
       setSelectedBoardId(board.id);
       router.back();
+      // Open the new board, the way Jira lands you in a space you just made.
+      router.push({ pathname: '/deck/board/[ref]', params: { ref: `deck:${board.id}` } });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Please try again.');
     }
@@ -65,7 +67,6 @@ export default function NewBoardScreen() {
             message="Loading accounts…"
             subtitle="Preparing your CalDAV accounts"
             fullScreen={false}
-            showBar
           />
         </View>
       ) : (

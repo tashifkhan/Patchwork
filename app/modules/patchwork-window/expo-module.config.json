@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PatchworkWindowModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.patchworkwindow.PatchworkWindowModule"]
+  }
+}

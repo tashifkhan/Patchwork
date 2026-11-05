@@ -114,6 +114,7 @@ export default function AiProviderScreen() {
               input: model?.input,
               output: model?.output,
               reasoning: model?.reasoning,
+              reasoningEfforts: model?.reasoningEfforts,
             },
           ]
     );

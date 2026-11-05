@@ -26,6 +26,8 @@ export const queryKeys = {
   githubRepos: ['github', 'repos'] as const,
   githubIssue: (repo: string, issueNumber: number) =>
     ['github', 'issue', repo, issueNumber] as const,
+  jiraBoards: ['jira', 'boards'] as const,
+  jiraBoard: (boardId: number, scope: string) => ['jira', 'board', boardId, scope] as const,
   aiCatalog: ['ai', 'catalog'] as const,
   aiKeys: ['ai', 'keys'] as const,
 };

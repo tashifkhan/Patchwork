@@ -48,6 +48,8 @@ export default function AppearanceScreen() {
   const setHighContrast = useSettingsStore((s) => s.setHighContrast);
   const floatingTabBar = useSettingsStore((s) => s.floatingTabBar);
   const setFloatingTabBar = useSettingsStore((s) => s.setFloatingTabBar);
+  const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
+  const setTabBarLabels = useSettingsStore((s) => s.setTabBarLabels);
   const hapticsEnabled = useSettingsStore((s) => s.hapticsEnabled);
   const setHapticsEnabled = useSettingsStore((s) => s.setHapticsEnabled);
   const accentColor = useSettingsStore((s) => s.accentColor);
@@ -216,6 +218,18 @@ export default function AppearanceScreen() {
               value={floatingTabBar}
               onValueChange={setFloatingTabBar}
             />
+            {!floatingTabBar ? (
+              <>
+                <RowSeparator />
+                <SettingsToggleRow
+                  icon="label-outline"
+                  title="Navbar labels"
+                  subtitle="Show a label under every tab, not just the selected one"
+                  value={tabBarLabels}
+                  onValueChange={setTabBarLabels}
+                />
+              </>
+            ) : null}
           </>
         ) : null}
       </SettingsGroup>

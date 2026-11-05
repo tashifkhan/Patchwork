@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Stack, router } from 'expo-router';
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, SectionList } from 'react-native';
+import { Stack, router, useFocusEffect } from 'expo-router';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, SectionList, type TextInput as RNTextInput } from 'react-native';
+import type { SearchBarCommands } from 'react-native-screens';
 
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { FuseResultMatch } from 'fuse.js';
@@ -14,6 +15,7 @@ import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingBar, LoadingSpinner } from '@/components/ui/loading';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
+import { READABLE_MAX_WIDTH } from '@/hooks/use-adaptive-layout';
 import { useGitHubIssues } from '@/hooks/use-github';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
@@ -88,6 +90,23 @@ export default function SearchScreen() {
   // ANRs when opening Search with many boards.
   const [indexDeck, setIndexDeck] = useState(false);
   const deferredQuery = useDeferredValue(query);
+
+  // Opening the Search tab means the user wants to type: focus the field and
+  // raise the keyboard every time the tab gains focus, not just on first
+  // mount (tab screens stay mounted). The short delay lets the tab switch
+  // finish; focusing mid-transition is dropped on Android.
+  const iosSearchRef = useRef<SearchBarCommands>(null);
+  const androidSearchRef = useRef<RNTextInput>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (floatingTabBar) return; // the floating bar's field autofocuses itself
+      const timer = setTimeout(() => {
+        if (Platform.OS === 'ios') iosSearchRef.current?.focus();
+        else androidSearchRef.current?.focus();
+      }, 150);
+      return () => clearTimeout(timer);
+    }, [floatingTabBar])
+  );
 
   const tasksQuery = useTasks();
   const listsQuery = useTaskLists();
@@ -283,6 +302,7 @@ export default function SearchScreen() {
           headerSearchBarOptions:
             Platform.OS === 'ios'
               ? {
+                  ref: iosSearchRef,
                   placeholder: 'Search tasks, cards, issues',
                   onChangeText: (e) => setQuery(e.nativeEvent.text),
                   hideWhenScrolling: false,
@@ -309,6 +329,10 @@ export default function SearchScreen() {
           paddingHorizontal: 16,
           paddingBottom: contentBottom,
           flexGrow: 1,
+          // Big screens: results stay at a readable width, centered.
+          width: '100%',
+          maxWidth: READABLE_MAX_WIDTH,
+          alignSelf: 'center',
         }}
         ListHeaderComponent={
           <View className="gap-3 pb-1 pt-2">
@@ -321,6 +345,7 @@ export default function SearchScreen() {
                 </Text>
               ) : (
                 <M3SearchBar
+                  inputRef={androidSearchRef}
                   value={query}
                   onChangeText={setQuery}
                   onSubmit={() => persistRecent(query)}
@@ -459,11 +484,13 @@ function FilterBar({
  * search icon, trailing clear. Replaces the Android title header on this tab.
  */
 function M3SearchBar({
+  inputRef,
   value,
   onChangeText,
   onSubmit,
   topInset,
 }: {
+  inputRef: React.RefObject<RNTextInput | null>;
   value: string;
   onChangeText: (q: string) => void;
   onSubmit: () => void;
@@ -484,6 +511,7 @@ function M3SearchBar({
         }}>
         <MaterialCommunityIcons name="magnify" size={24} color={colors.text} />
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           placeholder="Search tasks, lists, tags"

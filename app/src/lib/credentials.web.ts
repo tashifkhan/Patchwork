@@ -8,7 +8,7 @@ import type { CalDavAccount } from './credentials-types';
 import type { AiProviderId } from './ai-models';
 
 export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
-export type { GitHubCredentials } from './credentials-types';
+export type { GitHubCredentials, JiraAccount, JiraCredentials } from './credentials-types';
 
 export async function getAccounts(): Promise<CalDavAccount[]> {
   return [];
@@ -49,3 +49,14 @@ export async function getGitHubCredentials(): Promise<import('./credentials-type
 export async function saveGitHubCredentials(_creds: import('./credentials-types').GitHubCredentials): Promise<void> {}
 
 export async function clearGitHubCredentials(): Promise<void> {}
+
+// Jira Cloud blocks browser (CORS) requests, so Jira is mobile-only.
+export async function getJiraCredentials(): Promise<import('./credentials-types').JiraCredentials | null> {
+  return null;
+}
+
+export async function saveJiraCredentials(_creds: import('./credentials-types').JiraCredentials): Promise<void> {
+  throw new Error('Jira is available in the iOS and Android apps.');
+}
+
+export async function clearJiraCredentials(): Promise<void> {}

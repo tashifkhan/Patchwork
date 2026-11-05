@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Pressable, View, type ColorValue } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { haptics } from '@/lib/haptics';
 
 /** M3 standard icon-button container (40dp). */
@@ -28,15 +29,25 @@ export function HeaderBackButtonLeft({
   backgroundColor?: ColorValue;
 }): ReactNode {
   const router = useRouter();
+  const pathname = usePathname();
   const { colors } = useTheme();
 
-  if (!canGoBack) return null;
+  const { twoPane } = useAdaptiveLayout();
+  // A page opened straight from a link or notification can sit alone in its
+  // stack. Still offer a way out: back to the tab's main screen. Not in the
+  // Settings split view: the hub is already on screen beside the page.
+  const splitSettings = twoPane && pathname.startsWith('/settings');
+  const fallback = canGoBack || splitSettings ? null : tabRootFor(pathname);
+  if (!canGoBack && !fallback) return null;
 
   return (
     <Pressable
       onPress={() => {
         haptics.tap();
-        if (router.canGoBack()) router.back();
+        // `canGoBack` is this stack's answer; router.canGoBack() also counts
+        // tab history and would jump to another tab.
+        if (canGoBack) router.back();
+        else if (fallback) router.replace(fallback);
       }}
       accessibilityRole="button"
       accessibilityLabel="Go back"
@@ -57,4 +68,13 @@ export function HeaderBackButtonLeft({
       </View>
     </Pressable>
   );
+}
+
+const TAB_ROOTS = ['/deck', '/settings', '/search'];
+
+/** The main screen of the tab that owns `pathname`, or null if it is one. */
+function tabRootFor(pathname: string): Href | null {
+  if (pathname === '/' || TAB_ROOTS.includes(pathname)) return null;
+  const root = TAB_ROOTS.find((candidate) => pathname.startsWith(`${candidate}/`));
+  return (root ?? '/') as Href;
 }

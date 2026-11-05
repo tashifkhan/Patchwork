@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
@@ -15,9 +15,11 @@ import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingSpinner, LoadingState } from '@/components/ui/loading';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
+import { DictationSheet } from '@/components/tasks/dictation-sheet';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { SheetSurface } from '@/components/ui/sheet-surface';
+import { HeaderTextButton } from '@/components/settings/settings-list';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
 import { useCreateGitHubIssue, useGitHubIssues } from '@/hooks/use-github';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
@@ -60,6 +62,8 @@ type AiBusy = 'text' | 'photo' | null;
  * row turns what you typed (or a photo) into staged to-dos for review; it
  * replaces the old AI tab.
  */
+const IOS = Platform.OS === 'ios';
+
 export default function NewTaskScreen() {
   const { colors } = useTheme();
   const listsQuery = useTaskLists();
@@ -141,6 +145,7 @@ export default function NewTaskScreen() {
   const [aiDone, setAiDone] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [dictating, setDictating] = useState(false);
   const [createdWithWarnings, setCreatedWithWarnings] = useState(false);
   const [warningTaskUid, setWarningTaskUid] = useState<string | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -374,7 +379,7 @@ export default function NewTaskScreen() {
       <SheetSurface title="New To-Do" skipPartiallyExpanded={false}>
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1, justifyContent: 'center' }}>
-            <LoadingState message="Loading lists…" fullScreen={false} showBar />
+            <LoadingState message="Loading lists…" fullScreen={false} />
           </View>
         </View>
       </SheetSurface>
@@ -421,6 +426,23 @@ export default function NewTaskScreen() {
 
   return (
     <SheetSurface title={isIssue ? 'New Issue' : 'New To-Do'}>
+      {Platform.OS === 'ios' ? (
+        // iOS: the Reminders / Things pattern. Cancel on the left, the
+        // primary action on the right of the sheet's own navigation bar.
+        <Stack.Screen
+          options={{
+            headerLeft: () => <HeaderTextButton label="Cancel" bold={false} onPress={() => router.back()} />,
+            headerRight: () => (
+              <HeaderTextButton
+                label={isIssue ? 'Create' : 'Add'}
+                onPress={handleSubmit}
+                disabled={!canSubmit}
+                loading={isSubmitting}
+              />
+            ),
+          }}
+        />
+      ) : null}
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
@@ -501,6 +523,14 @@ export default function NewTaskScreen() {
                   onPress={generateFromText}
                 />
                 <AiChip
+                  icon="microphone-outline"
+                  label="Dictate"
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setDictating(true);
+                  }}
+                />
+                <AiChip
                   icon="camera-outline"
                   label="Camera"
                   onPress={() => generateFromPhoto('camera')}
@@ -545,16 +575,30 @@ export default function NewTaskScreen() {
             onPress={pickTags}
             accessibilityRole="button"
             accessibilityLabel={tags.length ? 'Edit tags' : 'Add tags'}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 4,
-              height: 32,
-              paddingHorizontal: 12,
-              borderRadius: pressed ? 16 : 8,
-              borderWidth: 1,
-              borderColor: colors.gray2,
-            })}>
+            style={({ pressed }) =>
+              IOS
+                ? {
+                    // iOS bordered button: gray capsule, no outline.
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    height: 32,
+                    paddingHorizontal: 12,
+                    borderRadius: 16,
+                    backgroundColor: colors.bg3,
+                    opacity: pressed ? 0.6 : 1,
+                  }
+                : {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    height: 32,
+                    paddingHorizontal: 12,
+                    borderRadius: pressed ? 16 : 8,
+                    borderWidth: 1,
+                    borderColor: colors.gray2,
+                  }
+            }>
             <MaterialCommunityIcons name="tag-plus-outline" size={16} color={colors.text2} />
             <Text style={{ color: colors.text2, fontSize: 14 }}>
               {tags.length ? 'Edit' : isIssue ? 'Add labels' : 'Add tags'}
@@ -703,7 +747,8 @@ export default function NewTaskScreen() {
           )}
         </View>
 
-        {/* Create */}
+        {/* Create (iOS uses the Add button in the sheet's navigation bar) */}
+        {Platform.OS !== 'ios' ? (
         <Pressable
           onPress={handleSubmit}
           disabled={!canSubmit}
@@ -742,6 +787,7 @@ export default function NewTaskScreen() {
                 : 'Add to-do'}
           </Text>
         </Pressable>
+        ) : null}
 
         <ListPicker
           visible={listPickerOpen}
@@ -792,6 +838,15 @@ export default function NewTaskScreen() {
           }}
         />
       </ScrollView>
+      <DictationSheet
+        visible={dictating}
+        lists={lists}
+        availableTags={availableTags}
+        defaultListId={listId}
+        onClose={() => setDictating(false)}
+        // Close this dialog under the preview, like the other AI actions.
+        beforeReview={() => router.back()}
+      />
       <ProgressOverlay
         visible={aiBusy != null || aiDone != null}
         state={aiDone ? 'done' : 'working'}
@@ -823,7 +878,18 @@ function AiChip({
       accessibilityRole="button"
       accessibilityLabel={label}
       android_ripple={{ color: colors.separator }}
-      style={({ pressed }) => ({
+      style={({ pressed }) => IOS ? ({
+        // iOS: prominent capsule for the main action, gray bordered capsules for the rest.
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        height: 36,
+        paddingLeft: 12,
+        paddingRight: 14,
+        borderRadius: 18,
+        backgroundColor: emphasized ? colors.accent : colors.bg3,
+        opacity: pressed ? 0.7 : 1,
+      }) : ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
@@ -841,13 +907,13 @@ function AiChip({
       <MaterialCommunityIcons
         name={icon}
         size={18}
-        color={emphasized ? colors.onPrimaryContainer : colors.accent}
+        color={IOS ? (emphasized ? colors.onAccent : colors.accent) : emphasized ? colors.onPrimaryContainer : colors.accent}
       />
       <Text
         style={{
-          fontSize: 14,
+          fontSize: IOS ? 15 : 14,
           fontWeight: '600',
-          color: emphasized ? colors.onPrimaryContainer : colors.text,
+          color: IOS ? (emphasized ? colors.onAccent : colors.accent) : emphasized ? colors.onPrimaryContainer : colors.text,
         }}>
         {label}
       </Text>
@@ -857,6 +923,14 @@ function AiChip({
 
 function Heading({ title }: { title: string }) {
   const { colors } = useTheme();
+  if (IOS) {
+    // iOS grouped-list section header: small, uppercase, secondary.
+    return (
+      <Text style={{ marginTop: 28, paddingBottom: 8, paddingHorizontal: 4, fontSize: 13, color: colors.text2, textTransform: 'uppercase' }}>
+        {title}
+      </Text>
+    );
+  }
   return (
     <Text
       style={{
