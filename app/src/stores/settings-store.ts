@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { getApiBaseUrl, setApiBaseUrl } from '@/api/client';
 import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/lib/ai-models';
+import type { JiraIssueScope } from '@/api/jira';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import type {
   GitHubIssueScope,
@@ -32,6 +33,11 @@ interface SettingsState {
    * edge-to-edge Material 3 bottom navigation.
    */
   floatingTabBar: boolean;
+  /**
+   * Android only, Material bottom navigation: label every destination
+   * instead of only the selected one.
+   */
+  tabBarLabels: boolean;
   /** Master switch for all touch feedback (see `@/lib/haptics`). */
   hapticsEnabled: boolean;
   notificationsEnabled: boolean;
@@ -46,6 +52,15 @@ interface SettingsState {
   githubIssueScope: GitHubIssueScope;
   /** Open / closed / all issues. */
   githubIssueState: GitHubIssueState;
+  /** Starred boards (refs like `deck:12`, `jira:3`), shown first. */
+  favoriteBoards: string[];
+  /** Which Jira issues boards show: assigned to me, reported by me, or either. */
+  jiraIssueScope: JiraIssueScope;
+  setJiraIssueScope: (scope: JiraIssueScope) => void;
+  /** Most recently opened boards, newest first. */
+  recentBoards: string[];
+  toggleFavoriteBoard: (ref: string) => void;
+  markBoardViewed: (ref: string) => void;
   setProxyUrl: (url: string) => void;
   setThemeMode: (mode: ThemeMode) => void;
   setDynamicColor: (enabled: boolean) => void;
@@ -54,6 +69,7 @@ interface SettingsState {
   setPureBlack: (enabled: boolean) => void;
   setHighContrast: (enabled: boolean) => void;
   setFloatingTabBar: (enabled: boolean) => void;
+  setTabBarLabels: (enabled: boolean) => void;
   setHapticsEnabled: (enabled: boolean) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setDefaultReminderMinutes: (minutes: number) => void;
@@ -78,6 +94,7 @@ export const useSettingsStore = create<SettingsState>()(
       pureBlack: false,
       highContrast: false,
       floatingTabBar: false,
+      tabBarLabels: false,
       hapticsEnabled: true,
       notificationsEnabled: true,
       defaultReminderMinutes: 0,
@@ -89,6 +106,20 @@ export const useSettingsStore = create<SettingsState>()(
       githubRepositories: [],
       githubIssueScope: 'assigned',
       githubIssueState: 'all',
+      favoriteBoards: [],
+      recentBoards: [],
+      jiraIssueScope: 'assigned',
+      setJiraIssueScope: (jiraIssueScope) => set({ jiraIssueScope }),
+      toggleFavoriteBoard: (ref) =>
+        set((state) => ({
+          favoriteBoards: state.favoriteBoards.includes(ref)
+            ? state.favoriteBoards.filter((entry) => entry !== ref)
+            : [...state.favoriteBoards, ref],
+        })),
+      markBoardViewed: (ref) =>
+        set((state) => ({
+          recentBoards: [ref, ...state.recentBoards.filter((entry) => entry !== ref)].slice(0, 5),
+        })),
       setProxyUrl: (url) => {
         setApiBaseUrl(url);
         set({ proxyUrl: url });
@@ -106,6 +137,7 @@ export const useSettingsStore = create<SettingsState>()(
       setPureBlack: (pureBlack) => set({ pureBlack }),
       setHighContrast: (highContrast) => set({ highContrast }),
       setFloatingTabBar: (floatingTabBar) => set({ floatingTabBar }),
+      setTabBarLabels: (tabBarLabels) => set({ tabBarLabels }),
       setHapticsEnabled: (hapticsEnabled) => set({ hapticsEnabled }),
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
       setDefaultReminderMinutes: (defaultReminderMinutes) => set({ defaultReminderMinutes }),
@@ -150,6 +182,7 @@ export const useSettingsStore = create<SettingsState>()(
         pureBlack,
         highContrast,
         floatingTabBar,
+        tabBarLabels,
         hapticsEnabled,
         notificationsEnabled,
         defaultReminderMinutes,
@@ -160,6 +193,9 @@ export const useSettingsStore = create<SettingsState>()(
         githubRepositories,
         githubIssueScope,
         githubIssueState,
+        favoriteBoards,
+        recentBoards,
+        jiraIssueScope,
       }) => ({
         proxyUrl,
         themeMode,
@@ -169,6 +205,7 @@ export const useSettingsStore = create<SettingsState>()(
         pureBlack,
         highContrast,
         floatingTabBar,
+        tabBarLabels,
         hapticsEnabled,
         notificationsEnabled,
         defaultReminderMinutes,
@@ -179,6 +216,9 @@ export const useSettingsStore = create<SettingsState>()(
         githubRepositories,
         githubIssueScope,
         githubIssueState,
+        favoriteBoards,
+        recentBoards,
+        jiraIssueScope,
       }),
       version: 2,
       migrate: (persistedState, version) => {

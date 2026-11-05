@@ -15,6 +15,7 @@ export default function DeckLayout() {
   return (
     <Stack screenOptions={themedStackScreenOptions(colors)}>
       <Stack.Screen name="index" options={{ title: 'Boards' }} />
+      <Stack.Screen name="board/[ref]" options={{ title: 'Board', headerShown: false }} />
       <Stack.Screen name="card/[cardId]" options={{ title: 'Card' }} />
     </Stack>
   );

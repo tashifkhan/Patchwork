@@ -1,18 +1,46 @@
 import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { type Href, Redirect, useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RowSeparator, SettingsGroup, SettingsRow, SettingsScreen } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
+import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
-export default function SettingsHub() {
+/**
+ * The Settings tab's root route. In the split view (iPad, unfolded
+ * foldables, tablets) the hub is the leading pane drawn by the layout, so the
+ * stack on the right opens straight onto the first page instead.
+ */
+export default function SettingsIndexRoute() {
+  const { twoPane } = useAdaptiveLayout();
+  if (twoPane) return <Redirect href="/settings/appearance" />;
+  return <SettingsHub />;
+}
+
+/**
+ * The list of settings pages. `embedded` = drawn as the split view's leading
+ * pane: it gets its own title, and picking a page replaces whatever the
+ * trailing pane shows instead of pushing on top of it.
+ */
+export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const go = (href: Href) => {
+    if (!embedded) {
+      router.push(href);
+      return;
+    }
+    if (router.canDismiss()) router.dismissAll();
+    router.replace(href);
+  };
   const queryClient = useQueryClient();
   const { colors } = useTheme();
   const isWeb = Platform.OS === 'web';
@@ -23,6 +51,11 @@ export default function SettingsHub() {
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const githubConnection = useGitHubSessionStore((state) => state.state);
   const githubReposCount = useSettingsStore((s) => s.githubRepositories.length);
+  const jiraConnection = useJiraSessionStore((state) => state.state);
+  const initializeJira = useJiraSessionStore((state) => state.initialize);
+  useEffect(() => {
+    if (jiraConnection.status === 'initializing') void initializeJira();
+  }, [initializeJira, jiraConnection.status]);
 
   useFocusEffect(
     useCallback(() => {
@@ -42,6 +75,19 @@ export default function SettingsHub() {
 
   return (
     <SettingsScreen>
+      {embedded ? (
+        <Text
+          accessibilityRole="header"
+          style={{
+            paddingTop: insets.top + 12,
+            paddingHorizontal: 4,
+            fontSize: Platform.OS === 'ios' ? 34 : 28,
+            fontWeight: Platform.OS === 'ios' ? '700' : '500',
+            color: colors.text,
+          }}>
+          Settings
+        </Text>
+      ) : null}
       {!isWeb ? (
         <SettingsGroup>
           {accounts.map((account, index) => (
@@ -52,7 +98,7 @@ export default function SettingsHub() {
                 iconColor={colors.accent}
                 title={account.displayName}
                 subtitle={account.baseUrl.replace(/^https?:\/\//, '')}
-                onPress={() => router.push({ pathname: '/settings/account', params: { id: account.id } })}
+                onPress={() => go({ pathname: '/settings/account', params: { id: account.id } })}
               />
             </View>
           ))}
@@ -60,7 +106,7 @@ export default function SettingsHub() {
           <SettingsRow
             icon="plus"
             title="Add account"
-            onPress={() => router.push('/settings/account')}
+            onPress={() => go('/settings/account')}
           />
         </SettingsGroup>
       ) : null}
@@ -75,7 +121,7 @@ export default function SettingsHub() {
               : 'Theme, palettes, AMOLED, contrast'
           }
           showChevron
-          onPress={() => router.push('/settings/appearance')}
+          onPress={() => go('/settings/appearance')}
         />
         <RowSeparator />
         <SettingsRow
@@ -83,7 +129,7 @@ export default function SettingsHub() {
           title="Notifications"
           subtitle="Reminders and lead time"
           showChevron
-          onPress={() => router.push('/settings/notifications')}
+          onPress={() => go('/settings/notifications')}
         />
       </SettingsGroup>
 
@@ -101,7 +147,21 @@ export default function SettingsHub() {
                   : 'Connect GitHub or add a public repository'
           }
           showChevron
-          onPress={() => router.push('/settings/github')}
+          onPress={() => go('/settings/github')}
+        />
+        <RowSeparator />
+        <SettingsRow
+          icon="jira"
+          title="Jira"
+          subtitle={
+            jiraConnection.status === 'connected'
+              ? `${jiraConnection.credentials.account.displayName} · ${jiraConnection.credentials.site.replace(/^https:\/\//, '')}`
+              : jiraConnection.status === 'expired'
+                ? 'Connection needs attention'
+                : 'Bring your Jira boards into Boards'
+          }
+          showChevron
+          onPress={() => go('/settings/jira')}
         />
       </SettingsGroup>
 
@@ -111,7 +171,7 @@ export default function SettingsHub() {
           title="AI import"
           subtitle={hasGemini ? 'Gemini key saved' : 'Set up Gemini for image import'}
           showChevron
-          onPress={() => router.push('/settings/ai')}
+          onPress={() => go('/settings/ai')}
         />
         <RowSeparator />
         <SettingsRow
@@ -121,7 +181,7 @@ export default function SettingsHub() {
             setRefreshMessage(null);
             try {
               await queryClient.invalidateQueries({ predicate: (query) =>
-                ['tasks', 'task-lists', 'deck', 'github'].includes(String(query.queryKey[0]))
+                ['tasks', 'task-lists', 'deck', 'github', 'jira'].includes(String(query.queryKey[0]))
               });
               setRefreshMessage('Refresh completed.');
             } catch (error) {

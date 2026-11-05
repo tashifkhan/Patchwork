@@ -75,7 +75,6 @@ function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string 
           message="Loading board…"
           subtitle="Fetching stacks and columns"
           fullScreen={false}
-          showBar
         />
       </View>
     );

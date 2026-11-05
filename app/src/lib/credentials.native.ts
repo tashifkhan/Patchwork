@@ -1,12 +1,14 @@
 import * as SecureStore from 'expo-secure-store';
 
 import { aiCredentialId, type AiProviderId } from './ai-models';
-import type { CalDavAccount, GitHubCredentials } from './credentials-types';
+import type { CalDavAccount, GitHubCredentials, JiraCredentials } from './credentials-types';
 import { assertSafeAccountUrl, normalizeServiceUrl } from './secure-url';
 
 export type {
   CalDavAccount,
   GitHubCredentials,
+  JiraAccount,
+  JiraCredentials,
   NextcloudCredentials,
   ServerType,
 } from './credentials-types';
@@ -16,6 +18,7 @@ const KEYS = {
   geminiApiKey: 'patchwork.gemini.api-key',
   github: 'patchwork.github.credentials.v2',
   legacyGithub: 'patchwork.github.credentials',
+  jira: 'patchwork.jira.credentials.v1',
   // Legacy single-account keys (migrated on first read).
   legacyBaseUrl: 'patchwork.nextcloud.base-url',
   legacyUsername: 'patchwork.nextcloud.username',
@@ -255,5 +258,43 @@ function isGitHubCredentials(value: unknown): value is GitHubCredentials {
     typeof candidate.account.login === 'string' &&
     typeof candidate.account.avatarUrl === 'string' &&
     typeof candidate.validatedAt === 'string'
+  );
+}
+
+// ── Jira ───────────────────────────────────────────────────────────────
+
+export async function getJiraCredentials(): Promise<JiraCredentials | null> {
+  const raw = await SecureStore.getItemAsync(KEYS.jira, OPTIONS);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return isJiraCredentials(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveJiraCredentials(creds: JiraCredentials): Promise<void> {
+  if (!isJiraCredentials(creds)) throw new Error('Invalid Jira credentials.');
+  await SecureStore.setItemAsync(KEYS.jira, JSON.stringify(creds), OPTIONS);
+}
+
+export async function clearJiraCredentials(): Promise<void> {
+  await SecureStore.deleteItemAsync(KEYS.jira, OPTIONS);
+}
+
+function isJiraCredentials(value: unknown): value is JiraCredentials {
+  if (!value || typeof value !== 'object') return false;
+  const c = value as Partial<JiraCredentials>;
+  return (
+    c.schemaVersion === 1 &&
+    typeof c.site === 'string' &&
+    c.site.startsWith('https://') &&
+    typeof c.email === 'string' &&
+    typeof c.apiToken === 'string' &&
+    c.apiToken.length > 0 &&
+    !!c.account &&
+    typeof c.account.accountId === 'string' &&
+    typeof c.validatedAt === 'string'
   );
 }
