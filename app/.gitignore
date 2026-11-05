@@ -42,4 +42,9 @@ example
 /ios
 /android
 
+# local Expo modules: keep source, drop Gradle/CocoaPods output
+modules/**/android/build/
+modules/**/ios/build/
+modules/**/ios/Pods/
+
 .claude/
