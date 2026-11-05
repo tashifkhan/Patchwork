@@ -2,6 +2,42 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.5.0] - 2026-11-05
+
+Patchwork 1.5 turns Boards into one place for Nextcloud Deck and Jira, adds voice dictation, renders task notes as Markdown, and uses the extra room on tablets and foldables.
+
+### Added
+
+- Unified Boards list for Deck and Jira, with starred and recently opened boards, search, and a board switcher.
+- Jira Cloud connection with an Atlassian API token. Browse boards and active sprints, move issues through status transitions, create issues in a column, and show issues assigned to you, reported by you, or either.
+- Horizontal board view for both sources, with inline card creation, long-press moves, filters for type, priority, and label, and links to open a Jira issue or board in the browser.
+- Voice dictation from the Tasks FAB or the add dialog. Record a note, let an audio-capable model transcribe it, and review the staged to-dos before saving.
+- Rendered Markdown notes with headings, lists, quotes, tables, code, images, links, and GFM task boxes. Tap notes to edit and tick checkboxes from the rendered view.
+- Model-specific thinking levels from models.dev, including Off, Minimal, Low, Medium, High, Extra High, and Max where a provider supports them.
+- A Material 3 navigation rail on wide Android windows, the iPad sidebar, and two-pane Tasks and Settings layouts on tablets and unfolded foldables.
+- A Navbar labels option for Android's Material bottom navigation.
+
+### Changed
+
+- Task detail is shared by the pushed screen and the split-view pane. Folding the device moves an open to-do into a full screen.
+- Lists, search results, and board columns stay at a readable width and meet at the hinge on foldables.
+- Provider rows use real brand marks instead of generic glyphs.
+- iOS switches to system empty states, SF Symbols, a Liquid Glass FAB, native sheet titles, Things-style rows, and keyboard-aware action bars.
+- Loading states show one spinner by default instead of stacking a linear track.
+- `expo-audio` handles recording, `marked` handles Markdown, and a local `patchwork-window` module reads fold posture and hinge bounds.
+
+### Fixed
+
+- Jira boards refresh and mark the connection expired when a token is revoked.
+- The floating tab bar gets out of the way while typing, except when it holds the search field.
+- Android bottom sheets pin to the physical screen on edge-to-edge devices.
+- Tasks opened without stack history get a back button to their tab root.
+- Voice recordings that are silent, empty, or longer than 15 MB are rejected before a model call.
+
+### Removed
+
+- The old single-board kanban components and per-platform Deck cards.
+
 ## [1.4.0] - 2026-11-05
 
 Patchwork 1.4 is the Things-style redesign. Tasks, search, settings, GitHub issues, and AI import now share one to-do language, and home screen widgets arrive on Android.
