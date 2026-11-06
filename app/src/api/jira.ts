@@ -1,4 +1,6 @@
 import { base64Encode } from '@/lib/base64';
+import { jiraAccountKey } from '@/lib/account-keys';
+import { adfToMarkdown, markdownToAdf } from '@/lib/adf';
 import type { JiraAccount, JiraCredentials } from '@/lib/credentials-types';
 
 /**
@@ -37,6 +39,8 @@ export class JiraError extends Error {
 
 export interface JiraBoard {
   id: number;
+  /** Which connected Jira login the board was listed under. */
+  accountId: string;
   name: string;
   type: 'scrum' | 'kanban' | 'simple' | string;
   projectKey?: string;
@@ -68,20 +72,53 @@ export interface JiraColumn {
   issues: JiraIssue[];
 }
 
-/** Which issues on a board are yours: assigned to you, reported by you, or either. */
-export type JiraIssueScope = 'assigned' | 'reported' | 'either';
+/** Which issues on a board load: assigned to you, reported by you, either, or every issue. */
+export type JiraIssueScope = 'assigned' | 'reported' | 'either' | 'all';
 
 const SCOPE_JQL: Record<JiraIssueScope, string> = {
   assigned: 'assignee = currentUser()',
   reported: 'reporter = currentUser()',
   either: '(assignee = currentUser() OR reporter = currentUser())',
+  all: '',
 };
+
+export interface JiraSprint {
+  id: number;
+  name: string;
+  state: 'active' | 'future' | 'closed';
+  startDate?: string;
+  endDate?: string;
+  goal?: string;
+}
+
+/**
+ * Which slice of a board to show. Scrum boards default to the active sprint,
+ * like Jira's Board view; `backlog` is everything in no open sprint. `board`
+ * is every issue (kanban boards, or scrum boards without sprints).
+ */
+export type JiraBoardView = { kind: 'sprint'; sprintId: number } | { kind: 'backlog' } | { kind: 'board' };
+
+/** A stable string for a view, for query keys and saved choices. */
+export function jiraViewKey(view: JiraBoardView | undefined): string {
+  if (!view) return 'default';
+  return view.kind === 'sprint' ? `sprint:${view.sprintId}` : view.kind;
+}
+
+export function parseJiraViewKey(key: string | undefined): JiraBoardView | undefined {
+  if (key === 'backlog' || key === 'board') return { kind: key };
+  const match = key ? /^sprint:(\d+)$/.exec(key) : null;
+  return match ? { kind: 'sprint', sprintId: Number(match[1]) } : undefined;
+}
 
 export interface JiraBoardDetail {
   board: JiraBoard;
   columns: JiraColumn[];
-  /** Active sprint the board shows, if it is a scrum board. */
-  sprint?: { id: number; name: string };
+  /** The sprint shown, when the view is a sprint. */
+  sprint?: JiraSprint;
+  /** The view actually shown (the default resolved). */
+  view: JiraBoardView;
+  /** Open sprints, active first (scrum boards only). */
+  sprints: JiraSprint[];
 }
 
 /** Normalize what people type ("acme", "acme.atlassian.net/jira/…") into a site root. */
@@ -203,7 +240,15 @@ export async function validateJiraCredentials(input: {
     emailAddress: me.emailAddress,
     avatarUrl: avatar(me.avatarUrls),
   };
-  return { schemaVersion: 1, site, email, apiToken, account, validatedAt: new Date().toISOString() };
+  return {
+    schemaVersion: 1,
+    id: jiraAccountKey({ site, account }),
+    site,
+    email,
+    apiToken,
+    account,
+    validatedAt: new Date().toISOString(),
+  };
 }
 
 /** Headers for loading Jira-hosted images (project avatars need auth). */
@@ -229,10 +274,12 @@ interface ApiBoard {
   };
 }
 
-function toBoard(site: string, raw: ApiBoard): JiraBoard {
+function toBoard(creds: JiraCredentials, raw: ApiBoard): JiraBoard {
+  const site = creds.site;
   const avatarUri = raw.location?.avatarURI;
   return {
     id: raw.id,
+    accountId: creds.id,
     name: raw.name,
     type: raw.type,
     projectKey: raw.location?.projectKey,
@@ -255,7 +302,7 @@ export async function fetchJiraBoards(creds: JiraCredentials): Promise<JiraBoard
       `/rest/agile/1.0/board?startAt=${startAt}&maxResults=50`
     );
     const values = data?.values ?? [];
-    boards.push(...values.map((value) => toBoard(creds.site, value)));
+    boards.push(...values.map((value) => toBoard(creds, value)));
     if (data?.isLast !== false || values.length === 0) break;
     startAt += values.length;
   }
@@ -319,6 +366,14 @@ async function pagedIssues(client: JiraClient, basePath: string): Promise<JiraIs
   return issues;
 }
 
+/** The JQL a board loads with. Kanban boards drop work finished over two weeks ago. */
+export function jiraBoardJql(scope: JiraIssueScope, sprint: boolean): string {
+  const mine = SCOPE_JQL[scope];
+  if (sprint) return mine;
+  const recent = '(statusCategory != Done OR updated >= -14d)';
+  return mine ? `${mine} AND ${recent}` : recent;
+}
+
 /**
  * A board as columns of your issues (see `JiraIssueScope`). Scrum boards show
  * their active sprint, like the Jira app; kanban boards hide work that has
@@ -327,12 +382,16 @@ async function pagedIssues(client: JiraClient, basePath: string): Promise<JiraIs
 export async function fetchJiraBoardDetail(
   creds: JiraCredentials,
   board: JiraBoard,
-  scope: JiraIssueScope = 'assigned'
+  scope: JiraIssueScope = 'assigned',
+  requested?: JiraBoardView
 ): Promise<JiraBoardDetail> {
   const client = new JiraClient(creds);
-  const config = await client.request<{
-    columnConfig?: { columns?: { name: string; statuses?: { id: string }[] }[] };
-  }>('GET', `/rest/agile/1.0/board/${board.id}/configuration`);
+  const [config, sprints] = await Promise.all([
+    client.request<{
+      columnConfig?: { columns?: { name: string; statuses?: { id: string }[] }[] };
+    }>('GET', `/rest/agile/1.0/board/${board.id}/configuration`),
+    board.type === 'scrum' ? fetchJiraSprints(creds, board.id) : Promise.resolve([] as JiraSprint[]),
+  ]);
   const columns = (config?.columnConfig?.columns ?? [])
     .map((column) => ({
       name: column.name,
@@ -341,36 +400,127 @@ export async function fetchJiraBoardDetail(
     // Jira's hidden "Backlog" column on kanban boards has no statuses mapped.
     .filter((column) => column.statusIds.length > 0);
 
-  let sprint: JiraBoardDetail['sprint'];
-  if (board.type === 'scrum') {
-    try {
-      const sprints = await client.request<{ values?: { id: number; name: string }[] }>(
-        'GET',
-        `/rest/agile/1.0/board/${board.id}/sprint?state=active`
-      );
-      const active = sprints?.values?.[0];
-      if (active) sprint = { id: active.id, name: active.name };
-    } catch {
-      // Boards without sprints enabled answer 400; fall back to all issues.
-    }
-  }
+  const view = resolveJiraView(board, sprints, requested);
+  const sprint = view.kind === 'sprint' ? sprints.find((candidate) => candidate.id === view.sprintId) : undefined;
 
-  // Jira does the filtering, so other people's issues are never downloaded.
-  const mine = SCOPE_JQL[scope];
-  const jql = sprint ? mine : `${mine} AND (statusCategory != Done OR updated >= -14d)`;
-  const base = sprint
-    ? `/rest/agile/1.0/board/${board.id}/sprint/${sprint.id}/issue`
-    : `/rest/agile/1.0/board/${board.id}/issue`;
-  const issues = await pagedIssues(client, `${base}?jql=${encodeURIComponent(jql)}`);
+  // Jira does the filtering, so other people's issues are never downloaded
+  // unless you ask for all of them. A sprint or the backlog is already
+  // bounded; the whole board also hides work done over two weeks ago.
+  const jql = jiraBoardJql(scope, view.kind !== 'board');
+  const base =
+    view.kind === 'sprint'
+      ? `/rest/agile/1.0/board/${board.id}/sprint/${view.sprintId}/issue`
+      : view.kind === 'backlog'
+        ? `/rest/agile/1.0/board/${board.id}/backlog`
+        : `/rest/agile/1.0/board/${board.id}/issue`;
+  const issues = await pagedIssues(client, jql ? `${base}?jql=${encodeURIComponent(jql)}` : base);
 
   return {
     board,
     sprint,
+    view,
+    sprints,
     columns: columns.map((column) => ({
       ...column,
       issues: issues.filter((issue) => column.statusIds.includes(issue.statusId)),
     })),
   };
+}
+
+/**
+ * The view to load. A requested sprint that has since closed falls back to
+ * the default: the first active sprint, else the backlog when the board has
+ * upcoming sprints, else every issue.
+ */
+export function resolveJiraView(
+  board: Pick<JiraBoard, 'type'>,
+  sprints: JiraSprint[],
+  requested?: JiraBoardView
+): JiraBoardView {
+  if (board.type !== 'scrum' || sprints.length === 0) {
+    return requested?.kind === 'backlog' && board.type === 'scrum' ? requested : { kind: 'board' };
+  }
+  if (requested?.kind === 'backlog' || requested?.kind === 'board') return requested;
+  if (requested?.kind === 'sprint' && sprints.some((sprint) => sprint.id === requested.sprintId)) return requested;
+  const active = sprints.find((sprint) => sprint.state === 'active');
+  if (active) return { kind: 'sprint', sprintId: active.id };
+  return { kind: 'backlog' };
+}
+
+/** Open sprints on a scrum board: active first, then upcoming, each in Jira's order. */
+export async function fetchJiraSprints(creds: JiraCredentials, boardId: number): Promise<JiraSprint[]> {
+  const client = new JiraClient(creds);
+  const sprints: JiraSprint[] = [];
+  let startAt = 0;
+  try {
+    for (let page = 0; page < 4; page += 1) {
+      const data = await client.request<{
+        values?: { id: number; name: string; state: string; startDate?: string; endDate?: string; goal?: string }[];
+        isLast?: boolean;
+      }>('GET', `/rest/agile/1.0/board/${boardId}/sprint?state=active,future&startAt=${startAt}&maxResults=50`);
+      const values = data?.values ?? [];
+      sprints.push(
+        ...values.map((value) => ({
+          id: value.id,
+          name: value.name,
+          state: (value.state === 'active' || value.state === 'closed' ? value.state : 'future') as JiraSprint['state'],
+          startDate: value.startDate,
+          endDate: value.endDate,
+          goal: value.goal || undefined,
+        }))
+      );
+      if (data?.isLast !== false || values.length === 0) break;
+      startAt += values.length;
+    }
+  } catch (error) {
+    // Boards with sprints turned off answer 400.
+    if (error instanceof JiraError && error.status === 400) return [];
+    throw error;
+  }
+  return [...sprints.filter((s) => s.state === 'active'), ...sprints.filter((s) => s.state !== 'active')];
+}
+
+/** Move issues into a sprint, or back to the backlog (null). */
+export async function moveJiraIssuesToSprint(
+  creds: JiraCredentials,
+  keys: string[],
+  sprintId: number | null
+): Promise<void> {
+  const client = new JiraClient(creds);
+  if (sprintId == null) {
+    await client.request('POST', '/rest/agile/1.0/backlog/issue', { issues: keys });
+  } else {
+    await client.request('POST', `/rest/agile/1.0/sprint/${sprintId}/issue`, { issues: keys });
+  }
+}
+
+/** The open sprint an issue is in, or null when it sits in the backlog. */
+export async function fetchJiraIssueSprint(creds: JiraCredentials, key: string): Promise<JiraSprint | null> {
+  const data = await new JiraClient(creds).request<{
+    fields?: { sprint?: { id: number; name: string; state: string } | null };
+  }>('GET', `/rest/agile/1.0/issue/${encodeURIComponent(key)}?fields=sprint`);
+  const sprint = data?.fields?.sprint;
+  return sprint && sprint.state !== 'closed'
+    ? { id: sprint.id, name: sprint.name, state: sprint.state === 'active' ? 'active' : 'future' }
+    : null;
+}
+
+/** "5 days left", "Ends today", "Starts Mon 10 Nov" for a sprint chip or subtitle. */
+export function sprintTiming(sprint: JiraSprint, now = Date.now()): string | undefined {
+  const day = 86_400_000;
+  if (sprint.state === 'active' && sprint.endDate) {
+    const left = Math.ceil((Date.parse(sprint.endDate) - now) / day);
+    if (Number.isNaN(left)) return undefined;
+    if (left < 0) return 'Overdue';
+    if (left === 0) return 'Ends today';
+    return `${left} day${left === 1 ? '' : 's'} left`;
+  }
+  if (sprint.state === 'future' && sprint.startDate) {
+    const start = new Date(sprint.startDate);
+    if (Number.isNaN(start.getTime())) return undefined;
+    return `Starts ${start.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`;
+  }
+  return sprint.state === 'future' ? 'Not started' : undefined;
 }
 
 // ── Changes ────────────────────────────────────────────────────────────
@@ -397,36 +547,85 @@ export async function transitionJiraIssue(
   });
 }
 
-/** Create a Task (or the project's first standard type) in a board's column. */
-export async function createJiraIssue(
-  creds: JiraCredentials,
-  input: { board: JiraBoard; summary: string; column?: JiraColumn; firstColumn?: JiraColumn; sprintId?: number }
-): Promise<{ id: string; key: string }> {
-  const project = input.board.projectKey;
-  if (!project) throw new JiraError('This board is not tied to one project, so Patchwork cannot add to it.');
-  const client = new JiraClient(creds);
-  const meta = await client.request<{
-    issueTypes?: { id: string; name: string; subtask?: boolean }[];
-    values?: { id: string; name: string; subtask?: boolean }[];
-  }>('GET', `/rest/api/3/issue/createmeta/${encodeURIComponent(project)}/issuetypes`);
-  const types = (meta?.issueTypes ?? meta?.values ?? []).filter((type) => !type.subtask);
-  const type =
+export interface JiraIssueType {
+  id: string;
+  name: string;
+  iconUrl?: string;
+}
+
+/** Issue types you can create in a project, without sub-tasks. */
+export async function fetchJiraIssueTypes(creds: JiraCredentials, projectKey: string): Promise<JiraIssueType[]> {
+  const meta = await new JiraClient(creds).request<{
+    issueTypes?: { id: string; name: string; subtask?: boolean; iconUrl?: string }[];
+    values?: { id: string; name: string; subtask?: boolean; iconUrl?: string }[];
+  }>('GET', `/rest/api/3/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes`);
+  return (meta?.issueTypes ?? meta?.values ?? [])
+    .filter((type) => !type.subtask)
+    .map(({ id, name, iconUrl }) => ({ id, name, iconUrl }));
+}
+
+/** Task when the project has it, else the first standard type that is not an Epic. */
+export function defaultIssueType(types: JiraIssueType[]): JiraIssueType | undefined {
+  return (
     types.find((candidate) => candidate.name.toLowerCase() === 'task') ??
     types.find((candidate) => candidate.name.toLowerCase() !== 'epic') ??
-    types[0];
-  if (!type) throw new JiraError('Jira lists no issue types you can create in this project.');
+    types[0]
+  );
+}
 
-  const fields = { project: { key: project }, summary: input.summary.trim(), issuetype: { id: type.id } };
+export interface JiraIssueCreate {
+  board: JiraBoard;
+  summary: string;
+  /** Markdown. */
+  description?: string;
+  issueTypeId?: string;
+  priorityId?: string;
+  labels?: string[];
+  /** YYYY-MM-DD. */
+  duedate?: string | null;
+  /** Assign to the connected user (default true), so it shows on "assigned to me" boards. */
+  assignToMe?: boolean;
+  column?: JiraColumn;
+  firstColumn?: JiraColumn;
+  sprintId?: number;
+}
+
+/** Create an issue in a board's project, sprint and column. */
+export async function createJiraIssue(creds: JiraCredentials, input: JiraIssueCreate): Promise<{ id: string; key: string }> {
+  const project = input.board.projectKey;
+  if (!project) throw new JiraError('This board is not tied to one project, so Patchwork cannot add to it.');
+  const summary = input.summary.trim();
+  if (!summary) throw new JiraError('An issue needs a summary.');
+  const client = new JiraClient(creds);
+  let issueTypeId = input.issueTypeId;
+  if (!issueTypeId) {
+    const type = defaultIssueType(await fetchJiraIssueTypes(creds, project));
+    if (!type) throw new JiraError('Jira lists no issue types you can create in this project.');
+    issueTypeId = type.id;
+  }
+
+  const description = input.description?.trim() ? markdownToAdf(input.description) : null;
+  const labels = [...new Set((input.labels ?? []).map((label) => label.trim().replace(/\s+/g, '-')).filter(Boolean))];
+  const fields: Record<string, unknown> = {
+    project: { key: project },
+    summary,
+    issuetype: { id: issueTypeId },
+    ...(description ? { description } : {}),
+    ...(labels.length ? { labels } : {}),
+    ...(input.priorityId ? { priority: { id: input.priorityId } } : {}),
+    ...(input.duedate ? { duedate: input.duedate } : {}),
+  };
+  const assign = input.assignToMe !== false;
   let created: { id: string; key: string };
   try {
-    // Assign to you so the issue shows up on boards filtered to your work.
     created = await client.request('POST', '/rest/api/3/issue', {
-      fields: { ...fields, assignee: { accountId: creds.account.accountId } },
+      fields: assign ? { ...fields, assignee: { accountId: creds.account.accountId } } : fields,
     });
   } catch (error) {
-    // Some projects don't let you set the assignee on create; try without.
-    if (!(error instanceof JiraError) || error.status !== 400) throw error;
+    // Some projects don't let you set the assignee (or priority) on create.
+    if (!(error instanceof JiraError) || error.status !== 400 || !assign) throw error;
     created = await client.request('POST', '/rest/api/3/issue', { fields });
+    await assignJiraIssue(creds, created.key, creds.account.accountId).catch(() => {});
   }
   if (input.sprintId != null) {
     await client.request('POST', `/rest/agile/1.0/sprint/${input.sprintId}/issue`, {
@@ -438,4 +637,166 @@ export async function createJiraIssue(
     await transitionJiraIssue(creds, created.key, input.column);
   }
   return created;
+}
+
+// ── One issue ──────────────────────────────────────────────────────────
+
+/** An issue with everything the in-app editor shows. */
+export interface JiraIssueDetail {
+  id: string;
+  key: string;
+  summary: string;
+  /** Description as Markdown (converted from Jira's document format). */
+  description: string;
+  /** False when the description holds things Markdown can't (images, tables). */
+  descriptionEditable: boolean;
+  status: { id: string; name: string; category: string };
+  type?: { name: string; iconUrl?: string };
+  priority?: { id: string; name: string; iconUrl?: string };
+  assignee?: { accountId: string; displayName: string; avatarUrl?: string };
+  reporter?: { accountId: string; displayName: string; avatarUrl?: string };
+  labels: string[];
+  duedate: string | null;
+  created?: string;
+  updated?: string;
+  /** Fields this user may change, from Jira's edit metadata. */
+  editable: { summary: boolean; description: boolean; duedate: boolean; labels: boolean; priority: boolean };
+}
+
+interface ApiUser {
+  accountId?: string;
+  displayName?: string;
+  avatarUrls?: unknown;
+}
+
+function toUser(raw: ApiUser | null | undefined) {
+  return raw?.accountId
+    ? { accountId: raw.accountId, displayName: raw.displayName ?? 'Someone', avatarUrl: avatar(raw.avatarUrls) }
+    : undefined;
+}
+
+export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promise<JiraIssueDetail> {
+  const client = new JiraClient(creds);
+  const raw = await client.request<{
+    id: string;
+    key: string;
+    fields?: {
+      summary?: string;
+      description?: unknown;
+      status?: { id?: string; name?: string; statusCategory?: { key?: string } };
+      issuetype?: { name?: string; iconUrl?: string };
+      priority?: { id?: string; name?: string; iconUrl?: string } | null;
+      assignee?: ApiUser | null;
+      reporter?: ApiUser | null;
+      labels?: string[];
+      duedate?: string | null;
+      created?: string;
+      updated?: string;
+    };
+    editmeta?: { fields?: Record<string, unknown> };
+  }>(
+    'GET',
+    `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,issuetype,priority,assignee,reporter,labels,duedate,created,updated&expand=editmeta`
+  );
+  const f = raw.fields ?? {};
+  const { markdown, lossless } = adfToMarkdown(f.description);
+  const meta = raw.editmeta?.fields ?? {};
+  return {
+    id: raw.id,
+    key: raw.key,
+    summary: f.summary ?? raw.key,
+    description: markdown,
+    descriptionEditable: lossless && 'description' in meta,
+    status: { id: f.status?.id ?? '', name: f.status?.name ?? '', category: f.status?.statusCategory?.key ?? 'new' },
+    type: f.issuetype?.name ? { name: f.issuetype.name, iconUrl: f.issuetype.iconUrl } : undefined,
+    priority: f.priority?.id
+      ? { id: f.priority.id, name: f.priority.name ?? '', iconUrl: f.priority.iconUrl }
+      : undefined,
+    assignee: toUser(f.assignee),
+    reporter: toUser(f.reporter),
+    labels: f.labels ?? [],
+    duedate: f.duedate ?? null,
+    created: f.created,
+    updated: f.updated,
+    editable: {
+      summary: 'summary' in meta,
+      description: 'description' in meta,
+      duedate: 'duedate' in meta,
+      labels: 'labels' in meta,
+      priority: 'priority' in meta,
+    },
+  };
+}
+
+export interface JiraIssuePatch {
+  summary?: string;
+  /** Markdown; empty clears the description. */
+  description?: string;
+  duedate?: string | null;
+  labels?: string[];
+  priorityId?: string;
+}
+
+/** Save edited fields. Only the fields present in `patch` are sent. */
+export async function updateJiraIssue(creds: JiraCredentials, key: string, patch: JiraIssuePatch): Promise<void> {
+  const fields: Record<string, unknown> = {};
+  if (patch.summary !== undefined) {
+    const summary = patch.summary.trim();
+    if (!summary) throw new JiraError('An issue needs a summary.');
+    fields.summary = summary;
+  }
+  if (patch.description !== undefined) fields.description = markdownToAdf(patch.description);
+  if (patch.duedate !== undefined) fields.duedate = patch.duedate;
+  if (patch.labels !== undefined) {
+    // Jira labels cannot contain spaces.
+    fields.labels = [...new Set(patch.labels.map((label) => label.trim().replace(/\s+/g, '-')).filter(Boolean))];
+  }
+  if (patch.priorityId !== undefined) fields.priority = { id: patch.priorityId };
+  if (Object.keys(fields).length === 0) return;
+  await new JiraClient(creds).request('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields });
+}
+
+export interface JiraTransition {
+  id: string;
+  name: string;
+  to: { id: string; name: string; category: string };
+}
+
+/** The statuses an issue can move to from where it is now. */
+export async function fetchJiraTransitions(creds: JiraCredentials, key: string): Promise<JiraTransition[]> {
+  const data = await new JiraClient(creds).request<{
+    transitions?: { id: string; name: string; to?: { id?: string; name?: string; statusCategory?: { key?: string } } }[];
+  }>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`);
+  return (data?.transitions ?? []).map((transition) => ({
+    id: transition.id,
+    name: transition.name,
+    to: {
+      id: transition.to?.id ?? '',
+      name: transition.to?.name ?? transition.name,
+      category: transition.to?.statusCategory?.key ?? 'new',
+    },
+  }));
+}
+
+export async function applyJiraTransition(creds: JiraCredentials, key: string, transitionId: string): Promise<void> {
+  await new JiraClient(creds).request('POST', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, {
+    transition: { id: transitionId },
+  });
+}
+
+export async function fetchJiraPriorities(
+  creds: JiraCredentials
+): Promise<{ id: string; name: string; iconUrl?: string }[]> {
+  const data = await new JiraClient(creds).request<{ id: string; name: string; iconUrl?: string }[]>(
+    'GET',
+    '/rest/api/3/priority'
+  );
+  return Array.isArray(data) ? data.map(({ id, name, iconUrl }) => ({ id, name, iconUrl })) : [];
+}
+
+/** Assign an issue to the connected user, or unassign it (null). */
+export async function assignJiraIssue(creds: JiraCredentials, key: string, accountId: string | null): Promise<void> {
+  await new JiraClient(creds).request('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, {
+    accountId,
+  });
 }

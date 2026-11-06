@@ -1,4 +1,4 @@
-import { Platform, type ViewStyle } from 'react-native';
+import { Dimensions, Platform, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
@@ -49,4 +49,20 @@ export function useSheetPanel(extraBottom = 12): { style: ViewStyle; background:
     },
     background: null,
   };
+}
+
+/**
+ * Style for the root view inside a sheet's `Modal` (with
+ * `statusBarTranslucent` and `navigationBarTranslucent`).
+ *
+ * Android lays the modal's root out at the old window size (above the
+ * navigation bar) and only learns the full edge-to-edge size a few frames
+ * later, so a `flex: 1` sheet parks above the tab bar, leaving a gap, and then
+ * drops. Sizing the overlay to the physical screen up front pins the sheet to
+ * the bottom edge from the first frame.
+ */
+export function sheetOverlayStyle(): ViewStyle {
+  if (Platform.OS !== 'android') return { flex: 1 };
+  const screen = Dimensions.get('screen');
+  return { position: 'absolute', top: 0, left: 0, width: screen.width, height: screen.height };
 }

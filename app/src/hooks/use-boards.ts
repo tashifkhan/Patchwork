@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 
 import {
@@ -6,7 +6,12 @@ import {
   fetchJiraBoardDetail,
   fetchJiraBoards,
   transitionJiraIssue,
+  jiraViewKey,
+  parseJiraViewKey,
+  type JiraBoard,
   type JiraBoardDetail,
+  type JiraBoardView,
+  type JiraSprint,
 } from '@/api/jira';
 import {
   deckBoardSummary,
@@ -14,32 +19,71 @@ import {
   jiraBoardSummary,
   jiraColumns,
   parseBoardRef,
+  parseJiraBoardId,
   type BoardColumnItem,
   type BoardSummary,
 } from '@/features/boards/model';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards, useReorderDeckCard } from '@/hooks/use-deck';
 import { queryKeys } from '@/lib/query-client';
 import { useSettingsStore } from '@/stores/settings-store';
-import { handleJiraError, useJiraCredentials, useJiraSessionStore } from '@/stores/jira-session-store';
+import type { JiraCredentials } from '@/lib/credentials-types';
+import { handleJiraError, useJiraAccounts, useJiraSessionStore } from '@/stores/jira-session-store';
 
-export function useJiraBoards() {
-  const credentials = useJiraCredentials();
+export interface JiraBoardsState {
+  /** Boards from every working login, each tagged with its `accountId`. */
+  data: JiraBoard[] | undefined;
+  accounts: JiraCredentials[];
+  isLoading: boolean;
+  isFetching: boolean;
+  /** The first failure, when some login could not list its boards. */
+  error: unknown;
+  refetch: () => Promise<unknown>;
+}
+
+/** Boards from every connected Jira login. One failing login leaves the rest. */
+export function useJiraBoards(): JiraBoardsState {
+  const accounts = useJiraAccounts();
   const initialize = useJiraSessionStore((store) => store.initialize);
   const status = useJiraSessionStore((store) => store.state.status);
   useEffect(() => {
     if (status === 'initializing') void initialize();
   }, [initialize, status]);
 
-  const query = useQuery({
-    queryKey: queryKeys.jiraBoards,
-    queryFn: () => fetchJiraBoards(credentials!),
-    enabled: credentials != null,
-    staleTime: 5 * 60_000,
+  const client = useQueryClient();
+  const combined = useQueries({
+    queries: accounts.map((account) => ({
+      queryKey: queryKeys.jiraBoards(account.id),
+      // A revoked token marks just that login expired.
+      queryFn: () =>
+        fetchJiraBoards(account).catch((error: unknown) => {
+          handleJiraError(error, account.id);
+          throw error;
+        }),
+      staleTime: 5 * 60_000,
+    })),
+    combine: (results) => ({
+      data: results.some((result) => result.data)
+        ? results.flatMap((result) => result.data ?? [])
+        : undefined,
+      isLoading: results.some((result) => result.isLoading),
+      isFetching: results.some((result) => result.isFetching),
+      error: results.find((result) => result.error)?.error ?? null,
+    }),
   });
-  useEffect(() => {
-    if (query.error) handleJiraError(query.error);
-  }, [query.error]);
-  return query;
+
+  return {
+    ...combined,
+    accounts,
+    refetch: () => client.refetchQueries({ queryKey: ['jira', 'boards'] }),
+  };
+}
+
+/** A short name for a login, used only when more than one is connected. */
+export function jiraAccountLabel(account: JiraCredentials, all: JiraCredentials[]): string | undefined {
+  if (all.length < 2) return undefined;
+  const host = account.site.replace(/^https:\/\//, '').replace(/\.atlassian\.net$/, '');
+  const sameSite = all.filter((candidate) => candidate.site === account.site).length > 1;
+  return sameSite ? `${host} · ${account.account.displayName}` : host;
 }
 
 /** Every board from every source, for the Boards list. */
@@ -52,11 +96,14 @@ export function useBoardSummaries() {
     const deckBoards = deck.data ?? [];
     const multiAccount = new Set(deckBoards.map((board) => board.account_id)).size > 1;
     const list: BoardSummary[] = [
-      ...(jira.data ?? []).map(jiraBoardSummary),
+      ...(jira.data ?? []).map((board) => {
+        const account = jira.accounts.find((candidate) => candidate.id === board.accountId);
+        return jiraBoardSummary(board, account ? jiraAccountLabel(account, jira.accounts) : undefined);
+      }),
       ...deckBoards.map((board) => deckBoardSummary(board, multiAccount)),
     ];
     return list;
-  }, [deck.data, jira.data]);
+  }, [deck.data, jira.data, jira.accounts]);
 
   return {
     boards,
@@ -65,7 +112,7 @@ export function useBoardSummaries() {
     deckError: deck.error,
     jiraError: jira.error,
     jiraStatus,
-    refetch: () => Promise.allSettled([deck.refetch(), jiraStatus === 'connected' ? jira.refetch() : null]),
+    refetch: () => Promise.allSettled([deck.refetch(), jira.refetch()]),
   };
 }
 
@@ -81,8 +128,17 @@ export interface BoardDetailState {
   moveCard: (input: { cardId: string; fromColumnId: string; toColumnId: string; toIndex: number }) => Promise<void>;
   createCard: (columnId: string, title: string) => Promise<void>;
   canCreate: boolean;
-  /** Jira site, for opening an issue in the browser. */
-  jiraSite?: string;
+  /** The Jira login the board belongs to: opening issues, loading avatars. */
+  jiraCredentials?: JiraCredentials;
+  /** Jira scrum boards: which sprint (or the backlog) is shown, and the choices. */
+  jira?: {
+    view: JiraBoardView;
+    sprint?: JiraSprint;
+    sprints: JiraSprint[];
+    /** True while a newly picked sprint loads over the previous one. */
+    switching: boolean;
+    setView: (view: JiraBoardView) => void;
+  };
 }
 
 /** Columns, cards and actions for one board, whichever source it comes from. */
@@ -90,9 +146,9 @@ export function useBoardDetail(ref: string): BoardDetailState {
   const parsed = parseBoardRef(ref);
   const source = parsed?.source;
   const numericId = parsed && source === 'deck' ? Number(parsed.id) : null;
-  const jiraId = parsed && source === 'jira' ? Number(parsed.id) : null;
+  const jiraRef = parsed && source === 'jira' ? parseJiraBoardId(parsed.id) : null;
+  const jiraId = jiraRef?.boardId ?? null;
   const client = useQueryClient();
-  const credentials = useJiraCredentials();
 
   // Deck
   const deckBoards = useDeckBoards();
@@ -102,17 +158,30 @@ export function useBoardDetail(ref: string): BoardDetailState {
 
   // Jira
   const jiraBoards = useJiraBoards();
-  const jiraBoard = jiraBoards.data?.find((board) => board.id === jiraId) ?? null;
+  // Refs saved before multiple logins name no login; they mean the first one.
+  const jiraBoard =
+    jiraBoards.data?.find(
+      (board) =>
+        board.id === jiraId && (jiraRef?.accountId ? board.accountId === jiraRef.accountId : true)
+    ) ?? null;
+  const credentials = jiraBoards.accounts.find((account) => account.id === jiraBoard?.accountId) ?? null;
+  const jiraAccountId = credentials?.id;
   const jiraScope = useSettingsStore((store) => store.jiraIssueScope);
-  const jiraKey = queryKeys.jiraBoard(jiraId ?? -1, jiraScope);
+  const savedView = useSettingsStore((store) => store.jiraBoardViews[ref]);
+  const setSavedView = useSettingsStore((store) => store.setJiraBoardView);
+  const requestedView = parseJiraViewKey(savedView);
+  const jiraKey = queryKeys.jiraBoard(jiraAccountId ?? '', jiraId ?? -1, jiraScope, jiraViewKey(requestedView));
   const jiraDetail = useQuery({
     queryKey: jiraKey,
-    queryFn: () => fetchJiraBoardDetail(credentials!, jiraBoard!, jiraScope),
+    queryFn: () => fetchJiraBoardDetail(credentials!, jiraBoard!, jiraScope, requestedView),
     enabled: credentials != null && jiraBoard != null,
+    // Switching sprint keeps this board's columns up while the next one loads.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === jiraAccountId && previousQuery?.queryKey[3] === jiraId ? previous : undefined,
   });
   useEffect(() => {
-    if (jiraDetail.error) handleJiraError(jiraDetail.error);
-  }, [jiraDetail.error]);
+    if (jiraDetail.error) handleJiraError(jiraDetail.error, jiraAccountId);
+  }, [jiraDetail.error, jiraAccountId]);
 
   const jiraMove = useMutation({
     mutationFn: async (input: { key: string; toColumn: string }) => {
@@ -128,7 +197,7 @@ export function useBoardDetail(ref: string): BoardDetailState {
       return { previous };
     },
     onError: (error, _input, context) => {
-      handleJiraError(error);
+      handleJiraError(error, jiraAccountId);
       if (context?.previous) client.setQueryData(jiraKey, context.previous);
     },
     onSettled: () => client.invalidateQueries({ queryKey: jiraKey }),
@@ -143,18 +212,30 @@ export function useBoardDetail(ref: string): BoardDetailState {
         summary: input.title,
         column: detail?.columns.find((column) => column.name === input.columnId),
         firstColumn: detail?.columns[0],
-        sprintId: detail?.sprint?.id,
+        // Lands in the sprint being viewed; viewing the backlog leaves it there.
+        sprintId: detail?.view.kind === 'sprint' ? detail.view.sprintId : undefined,
       });
     },
-    onError: handleJiraError,
+    onError: (error) => handleJiraError(error, jiraAccountId),
     onSettled: () => client.invalidateQueries({ queryKey: jiraKey }),
   });
 
   if (source === 'jira') {
     return {
-      summary: jiraBoard ? jiraBoardSummary(jiraBoard) : null,
+      summary: jiraBoard
+        ? jiraBoardSummary(jiraBoard, credentials ? jiraAccountLabel(credentials, jiraBoards.accounts) : undefined)
+        : null,
       columns: jiraDetail.data ? jiraColumns(jiraDetail.data) : [],
       sprintName: jiraDetail.data?.sprint?.name,
+      jira: jiraDetail.data
+        ? {
+            view: jiraDetail.data.view,
+            sprint: jiraDetail.data.sprint,
+            sprints: jiraDetail.data.sprints,
+            switching: jiraDetail.isPlaceholderData,
+            setView: (view: JiraBoardView) => setSavedView(ref, jiraViewKey(view)),
+          }
+        : undefined,
       isLoading: jiraBoards.isLoading || jiraDetail.isLoading,
       isFetching: jiraDetail.isFetching,
       error: jiraBoards.error ?? jiraDetail.error ?? (jiraBoards.data && !jiraBoard ? new Error('This Jira board is no longer available.') : null),
@@ -166,7 +247,7 @@ export function useBoardDetail(ref: string): BoardDetailState {
         await jiraCreate.mutateAsync({ columnId, title });
       },
       canCreate: !!jiraBoard?.projectKey,
-      jiraSite: credentials?.site,
+      jiraCredentials: credentials ?? undefined,
     };
   }
 

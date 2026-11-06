@@ -1,11 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, RefreshControl } from 'react-native';
+import { Platform, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiError } from '@/api/client';
-import { jiraImageHeaders } from '@/api/jira';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 
 import { BoardTile } from '@/components/boards/board-tile';
@@ -19,7 +18,7 @@ import type { BoardSummary } from '@/features/boards/model';
 import { useBoardSummaries } from '@/hooks/use-boards';
 import { haptics } from '@/lib/haptics';
 import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
-import { useJiraCredentials, useJiraSessionStore } from '@/stores/jira-session-store';
+import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
@@ -63,11 +62,6 @@ export default function BoardsScreen() {
   const recents = useSettingsStore((s) => s.recentBoards);
   const toggleFavorite = useSettingsStore((s) => s.toggleFavoriteBoard);
   const jiraState = useJiraSessionStore((s) => s.state);
-  const jiraCredentials = useJiraCredentials();
-  const imageHeaders = useMemo(
-    () => (jiraCredentials ? jiraImageHeaders(jiraCredentials) : undefined),
-    [jiraCredentials]
-  );
 
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -89,6 +83,8 @@ export default function BoardsScreen() {
   const bothSources = jiraBoards.length > 0 && deckBoards.length > 0;
 
   const deckNeedsAccount = needsCalDavAccount(summaries.deckError);
+  // iOS shows a failed Deck load as the empty state itself, not a banner above it.
+  const deckUnreachable = IOS && !!summaries.deckError && !deckNeedsAccount;
   const noBoards = summaries.boards.length === 0;
 
   function open(board: BoardSummary) {
@@ -96,8 +92,10 @@ export default function BoardsScreen() {
     router.push({ pathname: '/deck/board/[ref]', params: { ref: board.ref } });
   }
 
-  const header = (
-    <View style={{ paddingTop: Platform.OS === 'android' ? insets.top + 16 : 8, gap: 16 }}>
+  // iOS: the native large title, search bar and + menu (see `iosHeader`);
+  // Android keeps the in-content Material header.
+  const header = IOS ? null : (
+    <View style={{ paddingTop: insets.top + 16, gap: 16 }}>
       <View className="flex-row items-center" style={{ minHeight: 48 }}>
         <Text
           style={
@@ -136,10 +134,87 @@ export default function BoardsScreen() {
     </View>
   );
 
+  const emptyState = (
+    <EmptyState
+      icon={deckUnreachable ? 'cloud-alert-outline' : 'view-column-outline'}
+      title={deckUnreachable ? (IOS ? "Can't Reach Deck" : "Can't reach Deck") : IOS ? 'No Boards' : 'No boards yet'}
+      subtitle={
+        deckUnreachable
+          ? jiraState.status === 'connected'
+            ? 'Check that your Nextcloud server is reachable.'
+            : 'Check that your Nextcloud server is reachable, or connect Jira to see your projects.'
+          : deckNeedsAccount && jiraState.status !== 'connected'
+            ? 'Connect Jira, or a Nextcloud account for Deck, to see your boards here.'
+            : 'Create a Deck board, or connect Jira to bring in your projects.'
+      }
+      actions={[
+        ...(deckUnreachable
+          ? [{ label: IOS ? 'Try Again' : 'Retry', onPress: () => void summaries.refetch(), variant: 'filled' as const }]
+          : []),
+        ...(jiraState.status !== 'connected'
+          ? [{ label: 'Connect Jira', onPress: () => router.push('/settings/jira'), variant: 'filled' as const }]
+          : []),
+        ...(deckUnreachable
+          ? []
+          : [
+              deckNeedsAccount
+                ? {
+                    label: 'Connect Nextcloud',
+                    onPress: () => router.push('/settings/account'),
+                    variant: 'tonal' as const,
+                  }
+                : {
+                    label: IOS ? 'New Deck Board' : 'New Deck board',
+                    onPress: () => router.push('/new-board'),
+                    variant: 'tonal' as const,
+                  },
+            ]),
+      ]}
+    />
+  );
+
+  const jiraConnected = jiraState.status === 'connected';
+  const iosHeader = IOS ? (
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: 'Boards',
+          headerSearchBarOptions: {
+            placeholder: 'Search boards',
+            onChangeText: (event) => setQuery(event.nativeEvent.text),
+            onCancelButtonPress: () => setQuery(''),
+            hideWhenScrolling: true,
+            obscureBackground: false,
+          },
+        }}
+      />
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Menu icon="plus" accessibilityLabel="New">
+          <Stack.Toolbar.MenuAction icon="rectangle.split.3x1" onPress={() => router.push('/new-board')}>
+            New Deck Board
+          </Stack.Toolbar.MenuAction>
+          {deckBoards.length > 0 ? (
+            <Stack.Toolbar.MenuAction icon="rectangle.stack.badge.plus" onPress={() => router.push('/new-card')}>
+              New Card
+            </Stack.Toolbar.MenuAction>
+          ) : null}
+          {jiraConnected ? (
+            <Stack.Toolbar.MenuAction icon="square.and.pencil" onPress={() => router.push('/new-issue')}>
+              New Jira Issue
+            </Stack.Toolbar.MenuAction>
+          ) : null}
+        </Stack.Toolbar.Menu>
+      </Stack.Toolbar>
+    </>
+  ) : (
+    <Stack.Screen options={{ headerShown: false }} />
+  );
+
   if (summaries.isLoading && noBoards) {
     return (
       <>
-        <Stack.Screen options={{ headerShown: false }} />
+        {iosHeader}
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
           <LoadingState message="Loading boards…" subtitle="Syncing Deck and Jira" />
         </View>
@@ -149,7 +224,7 @@ export default function BoardsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
+      {iosHeader}
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: IOS ? grouped.screen : colors.bg }}
@@ -183,10 +258,14 @@ export default function BoardsScreen() {
         }>
         {header}
 
-        {jiraState.status === 'expired' ? (
+        {jiraState.status === 'connected' && Object.keys(jiraState.expired).length > 0 ? (
           <Notice
             icon="jira"
-            text="Jira needs a new API token."
+            text={
+              Object.keys(jiraState.expired).length === jiraState.accounts.length
+                ? 'Jira needs a new API token.'
+                : 'One of your Jira accounts needs a new API token.'
+            }
             action="Fix"
             onPress={() => router.push('/settings/jira')}
           />
@@ -199,7 +278,8 @@ export default function BoardsScreen() {
             onPress={() => summaries.refetch()}
           />
         ) : null}
-        {summaries.deckError && !deckNeedsAccount ? (
+        {/* iOS folds this into the empty state when there is nothing else on screen. */}
+        {summaries.deckError && !deckNeedsAccount && !(IOS && noBoards) ? (
           <Notice
             icon="cloud-alert-outline"
             text="Deck boards could not load. Check that your Nextcloud server is reachable."
@@ -212,31 +292,15 @@ export default function BoardsScreen() {
         ) : null}
 
         {noBoards ? (
-          <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 48 }}>
-            <EmptyState
-              icon="view-column-outline"
-              title="No boards yet"
-              subtitle={
-                deckNeedsAccount && jiraState.status !== 'connected'
-                  ? 'Connect Jira, or a Nextcloud account for Deck, to see your boards here.'
-                  : 'Create a Deck board, or connect Jira to bring in your projects.'
-              }
-              actions={[
-                ...(jiraState.status !== 'connected'
-                  ? [{ label: 'Connect Jira', onPress: () => router.push('/settings/jira'), variant: 'filled' as const }]
-                  : []),
-                deckNeedsAccount
-                  ? { label: 'Connect Nextcloud', onPress: () => router.push('/settings/account'), variant: 'tonal' as const }
-                  : { label: 'New Deck board', onPress: () => router.push('/new-board'), variant: 'tonal' as const },
-              ]}
-            />
-          </View>
+          // iOS draws it over the list instead (see below), centred on screen.
+          IOS ? null : (
+            <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 48 }}>{emptyState}</View>
+          )
         ) : query.trim() ? (
           <BoardGroup
             title={filtered.length === 0 ? 'No boards match' : 'Results'}
             boards={filtered}
             favorites={favorites}
-            imageHeaders={imageHeaders}
             onOpen={open}
             onToggleFavorite={toggleFavorite}
           />
@@ -247,7 +311,6 @@ export default function BoardsScreen() {
                 title="Starred"
                 boards={starred}
                 favorites={favorites}
-                imageHeaders={imageHeaders}
                 onOpen={open}
                 onToggleFavorite={toggleFavorite}
               />
@@ -257,7 +320,6 @@ export default function BoardsScreen() {
                 title="Recently viewed"
                 boards={recent}
                 favorites={favorites}
-                imageHeaders={imageHeaders}
                 onOpen={open}
                 onToggleFavorite={toggleFavorite}
               />
@@ -267,7 +329,6 @@ export default function BoardsScreen() {
                 title={bothSources ? 'Jira' : 'All boards'}
                 boards={jiraBoards}
                 favorites={favorites}
-                imageHeaders={imageHeaders}
                 onOpen={open}
                 onToggleFavorite={toggleFavorite}
               />
@@ -277,7 +338,6 @@ export default function BoardsScreen() {
                 title={bothSources ? 'Deck' : 'All boards'}
                 boards={deckBoards}
                 favorites={favorites}
-                imageHeaders={imageHeaders}
                 onOpen={open}
                 onToggleFavorite={toggleFavorite}
               />
@@ -293,6 +353,13 @@ export default function BoardsScreen() {
           </>
         )}
       </ScrollView>
+      {IOS && noBoards ? (
+        // Like SwiftUI's `.overlay { ContentUnavailableView }`: centred on
+        // the screen, above the (empty) list.
+        <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
+          {emptyState}
+        </View>
+      ) : null}
     </>
   );
 }
@@ -301,14 +368,12 @@ function BoardGroup({
   title,
   boards,
   favorites,
-  imageHeaders,
   onOpen,
   onToggleFavorite,
 }: {
   title: string;
   boards: BoardSummary[];
   favorites: string[];
-  imageHeaders?: Record<string, string>;
   onOpen: (board: BoardSummary) => void;
   onToggleFavorite: (ref: string) => void;
 }) {
@@ -342,7 +407,7 @@ function BoardGroup({
                     paddingRight: 6,
                     backgroundColor: pressed ? grouped.pressed : 'transparent',
                   })}>
-                  <BoardTile board={board} size={42} imageHeaders={imageHeaders} />
+                  <BoardTile board={board} size={42} />
                   <View style={{ flex: 1, gap: 1 }}>
                     <Text numberOfLines={1} style={{ fontSize: 17, letterSpacing: -0.4, color: colors.text }}>
                       {board.title}
@@ -414,7 +479,7 @@ function BoardGroup({
                   paddingRight: 8,
                   opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
                 })}>
-                <BoardTile board={board} imageHeaders={imageHeaders} />
+                <BoardTile board={board} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text numberOfLines={1} style={{ fontSize: 17, color: colors.text }}>
                     {board.title}

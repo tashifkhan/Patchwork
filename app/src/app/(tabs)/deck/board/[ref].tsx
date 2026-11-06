@@ -5,14 +5,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Platform, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { jiraImageHeaders, jiraIssueUrl } from '@/api/jira';
-import type { SFSymbol } from 'expo-symbols';
+import { jiraImageHeaders, sprintTiming } from '@/api/jira';
+import { SymbolView, type SFSymbol } from 'expo-symbols';
 
 import { BoardColumn } from '@/components/boards/board-column';
 import { GlassIconButton } from '@/components/ui/glass-button';
 import { BoardTile } from '@/components/boards/board-tile';
 import { FilterSheet, JIRA_SCOPES } from '@/components/boards/filter-sheet';
 import { PickerSheet } from '@/components/boards/picker-sheet';
+import { SprintBar } from '@/components/boards/sprint-bar';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
@@ -23,6 +24,7 @@ import {
   EMPTY_FILTERS,
   filterFacets,
   parseBoardRef,
+  parseJiraBoardId,
   type BoardCardItem,
   type BoardColumnItem,
   type BoardFilters,
@@ -30,7 +32,6 @@ import {
 import { useBoardDetail, useBoardSummaries } from '@/hooks/use-boards';
 import { haptics } from '@/lib/haptics';
 import { useTabBarContentPadding } from '@/lib/tab-bar';
-import { useJiraCredentials } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -68,7 +69,7 @@ export default function BoardScreen() {
   const detail = useBoardDetail(ref);
   const summaries = useBoardSummaries();
   const markViewed = useSettingsStore((s) => s.markBoardViewed);
-  const credentials = useJiraCredentials();
+  const credentials = detail.jiraCredentials ?? null;
   const source = parseBoardRef(ref)?.source;
   const imageHeaders = useMemo(
     () => (source === 'jira' && credentials ? jiraImageHeaders(credentials) : undefined),
@@ -119,12 +120,47 @@ export default function BoardScreen() {
       )
     : Math.min(boardWidth - SIDE * 2 - 40, 420);
 
+  /** The full create form: New Issue for Jira, New Card for Deck, starting in `columnId` if given. */
+  function openNewItem(columnId?: string) {
+    haptics.tap();
+    const parsed = parseBoardRef(ref);
+    if (!parsed) return;
+    if (parsed.source === 'jira') {
+      const jiraId = parseJiraBoardId(parsed.id);
+      router.push({
+        pathname: '/new-issue',
+        params: {
+          ...(jiraId ? { board: String(jiraId.boardId) } : {}),
+          ...(credentials ? { account: credentials.id } : {}),
+          ...(columnId ? { column: columnId } : {}),
+          // New issues land in the sprint (or backlog) being viewed.
+          ...(detail.jira?.sprints.length
+            ? {
+                sprint:
+                  detail.jira.view.kind === 'sprint' ? String(detail.jira.view.sprintId) : 'backlog',
+              }
+            : {}),
+        },
+      });
+      return;
+    }
+    router.push({ pathname: '/new-card', params: { boardId: parsed.id, ...(columnId ? { stackId: columnId } : {}) } });
+  }
+
   function openCard(column: BoardColumnItem, card: BoardCardItem) {
     haptics.tap();
     const parsed = parseBoardRef(ref);
     if (!parsed) return;
     if (parsed.source === 'jira') {
-      if (credentials) void WebBrowser.openBrowserAsync(jiraIssueUrl(credentials, card.id));
+      router.push({
+        pathname: '/deck/issue/[key]',
+        params: {
+          key: card.id,
+          ...(credentials ? { account: credentials.id } : {}),
+          // Lets the issue screen offer this board's sprints.
+          ...(detail.jira?.sprints.length ? { board: String(parseJiraBoardId(parsed.id)?.boardId ?? '') } : {}),
+        },
+      });
       return;
     }
     router.push({
@@ -172,10 +208,95 @@ export default function BoardScreen() {
 
   const title = detail.summary?.title ?? (detail.isLoading ? '' : 'Board');
   const scopeLabel = source === 'jira' ? JIRA_SCOPES.find((option) => option.value === jiraScope)?.title : undefined;
+  // What is on screen: the sprint (with time left) or the backlog, then whose issues.
+  const sliceLabel = detail.jira?.sprint
+    ? [detail.jira.sprint.name, sprintTiming(detail.jira.sprint)].filter(Boolean).join(' · ')
+    : detail.jira?.view.kind === 'backlog'
+      ? 'Backlog'
+      : undefined;
   const subtitle =
     filterCount > 0
       ? `${shownCards} of ${totalCards} shown · ${filterCount} filter${filterCount === 1 ? '' : 's'}`
-      : [detail.sprintName ?? detail.summary?.subtitle, scopeLabel].filter(Boolean).join(' · ');
+      : [sliceLabel ?? detail.summary?.subtitle, scopeLabel].filter(Boolean).join(' · ');
+  // Scrum boards with sprints get the switcher; kanban boards have none.
+  const showSprints = source === 'jira' && (detail.jira?.sprints.length ?? 0) > 0;
+
+  function openInJira() {
+    if (!credentials) return;
+    const id = parseJiraBoardId(parseBoardRef(ref)?.id ?? '')?.boardId;
+    void WebBrowser.openBrowserAsync(`${credentials.site}/secure/RapidBoard.jspa?rapidView=${id}`);
+  }
+
+  // iOS: the system navigation bar. The title doubles as the board switcher
+  // (like the title menus in Files and Mail); filter and the options menu are
+  // native glass bar buttons. Android keeps the Material top bar below.
+  const iosHeader = (
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title,
+          headerLargeTitle: false,
+          // The board scrolls sideways under its own columns, so a solid bar
+          // keeps the columns from sliding under the glass.
+          headerTransparent: false,
+          headerStyle: { backgroundColor: colors.bg },
+          headerShadowVisible: false,
+          headerTitle: () => (
+            <Pressable
+              onPress={() => {
+                haptics.tap();
+                setSwitcherOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${title}. Switch board`}
+              style={({ pressed }) => ({ alignItems: 'center', maxWidth: 240, opacity: pressed ? 0.6 : 1 })}>
+              <View className="flex-row items-center" style={{ gap: 4 }}>
+                <Text numberOfLines={1} style={{ fontSize: 17, fontWeight: '600', color: colors.text, flexShrink: 1 }}>
+                  {title}
+                </Text>
+                <SymbolView name="chevron.down" size={11} weight="bold" tintColor={colors.text2} />
+              </View>
+              {subtitle ? (
+                <Text numberOfLines={1} style={{ fontSize: 12, color: colors.text2 }}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </Pressable>
+          ),
+        }}
+      />
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon={filterCount > 0 ? 'line.3.horizontal.decrease.circle.fill' : 'line.3.horizontal.decrease'}
+          accessibilityLabel={filterCount > 0 ? `Filters, ${filterCount} on` : 'Filter'}
+          onPress={() => setFilterOpen(true)}
+        />
+        <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Board options">
+          {[
+            detail.canCreate ? (
+              <Stack.Toolbar.MenuAction key="new" icon="plus" onPress={() => openNewItem()}>
+                {source === 'jira' ? 'New Issue' : 'New Card'}
+              </Stack.Toolbar.MenuAction>
+            ) : null,
+            source === 'deck' ? (
+              <Stack.Toolbar.MenuAction key="column" icon="rectangle.badge.plus" onPress={addColumn}>
+                Add Column
+              </Stack.Toolbar.MenuAction>
+            ) : null,
+            <Stack.Toolbar.MenuAction key="switch" icon="rectangle.2.swap" onPress={() => setSwitcherOpen(true)}>
+              Switch Board
+            </Stack.Toolbar.MenuAction>,
+            source === 'jira' && credentials ? (
+              <Stack.Toolbar.MenuAction key="jira" icon="arrow.up.right.square" onPress={openInJira}>
+                Open in Jira
+              </Stack.Toolbar.MenuAction>
+            ) : null,
+          ].filter(Boolean)}
+        </Stack.Toolbar.Menu>
+      </Stack.Toolbar>
+    </>
+  );
 
   const topBar = (
     <View
@@ -214,18 +335,18 @@ export default function BoardScreen() {
         badge={filterCount}
         onPress={() => setFilterOpen(true)}
       />
+      {detail.canCreate ? (
+        <IconButton
+          icon="plus"
+          label={source === 'jira' ? 'New issue' : 'New card'}
+          onPress={() => openNewItem()}
+        />
+      ) : null}
       {source === 'deck' ? (
         <IconButton icon="table-column-plus-after" label="Add column" onPress={addColumn} />
       ) : null}
       {source === 'jira' && credentials && detail.summary ? (
-        <IconButton
-          icon="open-in-new"
-          label="Open board in Jira"
-          onPress={() => {
-            const id = parseBoardRef(ref)?.id;
-            void WebBrowser.openBrowserAsync(`${credentials.site}/secure/RapidBoard.jspa?rapidView=${id}`);
-          }}
-        />
+        <IconButton icon="open-in-new" label="Open board in Jira" onPress={openInJira} />
       ) : null}
     </View>
   );
@@ -276,7 +397,15 @@ export default function BoardScreen() {
             imageHeaders={imageHeaders}
             refreshing={pulling}
             canCreate={detail.canCreate}
-            emptyLabel={filterCount > 0 ? 'No cards match your filters' : undefined}
+            emptyLabel={
+              filterCount > 0
+                ? 'No cards match your filters'
+                : detail.jira?.view.kind === 'backlog'
+                  ? 'Nothing in the backlog here'
+                  : detail.jira?.sprint?.state === 'future'
+                    ? 'Nothing planned here yet'
+                    : undefined
+            }
             bottomInset={bottomInset}
             onRefresh={() => {
               setPulling(true);
@@ -285,6 +414,7 @@ export default function BoardScreen() {
             onOpenCard={(card) => openCard(column, card)}
             onMoveCard={(card) => setMoving({ card, column })}
             onCreate={(cardTitle) => detail.createCard(column.id, cardTitle)}
+            onCreateDetailed={() => openNewItem(column.id)}
             onMenu={source === 'deck' ? () => editColumn(column) : undefined}
           />
         )}
@@ -294,10 +424,13 @@ export default function BoardScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
+      {IOS ? iosHeader : <Stack.Screen options={{ headerShown: false }} />}
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        {topBar}
-        {body}
+        {IOS ? null : topBar}
+        {showSprints && detail.jira ? (
+          <SprintBar sprints={detail.jira.sprints} view={detail.jira.view} onSelect={detail.jira.setView} />
+        ) : null}
+        <View style={{ flex: 1, opacity: detail.jira?.switching ? 0.5 : 1 }}>{body}</View>
       </View>
 
       <PickerSheet
@@ -308,7 +441,7 @@ export default function BoardScreen() {
           label: board.title,
           subtitle: board.subtitle,
           selected: board.ref === ref,
-          leading: <BoardTile board={board} size={40} imageHeaders={credentials ? jiraImageHeaders(credentials) : undefined} />,
+          leading: <BoardTile board={board} size={40} />,
           onPress: () => {
             setSwitcherOpen(false);
             if (board.ref !== ref) router.setParams({ ref: board.ref });
