@@ -114,23 +114,20 @@ describe('sprint views', () => {
   const active: JiraSprint = { id: 1, name: 'Sprint 12', state: 'active', endDate: '2026-11-11T00:00:00Z' };
   const next: JiraSprint = { id: 2, name: 'Sprint 13', state: 'future', startDate: '2026-11-11T00:00:00Z' };
 
-  test('scrum boards open on the active sprint; a closed saved sprint falls back to it', () => {
-    expect(resolveJiraView({ type: 'scrum' }, [active, next])).toEqual({ kind: 'sprint', sprintId: 1 });
+  test('boards open on every issue; a saved open sprint or the backlog is kept', () => {
+    expect(resolveJiraView({ type: 'scrum' }, [active, next])).toEqual({ kind: 'board' });
+    expect(resolveJiraView({ type: 'simple' }, [active])).toEqual({ kind: 'board' });
     expect(resolveJiraView({ type: 'scrum' }, [active, next], { kind: 'sprint', sprintId: 2 })).toEqual({
       kind: 'sprint',
       sprintId: 2,
     });
-    expect(resolveJiraView({ type: 'scrum' }, [active], { kind: 'sprint', sprintId: 99 })).toEqual({
-      kind: 'sprint',
-      sprintId: 1,
-    });
-    expect(resolveJiraView({ type: 'scrum' }, [active], { kind: 'backlog' })).toEqual({ kind: 'backlog' });
+    expect(resolveJiraView({ type: 'scrum' }, [active], { kind: 'sprint', sprintId: 99 })).toEqual({ kind: 'board' });
+    expect(resolveJiraView({ type: 'simple' }, [active], { kind: 'backlog' })).toEqual({ kind: 'backlog' });
   });
 
-  test('no active sprint opens the backlog; kanban and sprint-less boards show everything', () => {
-    expect(resolveJiraView({ type: 'scrum' }, [next])).toEqual({ kind: 'backlog' });
-    expect(resolveJiraView({ type: 'scrum' }, [])).toEqual({ kind: 'board' });
+  test('kanban boards always show everything', () => {
     expect(resolveJiraView({ type: 'kanban' }, [], { kind: 'backlog' })).toEqual({ kind: 'board' });
+    expect(resolveJiraView({ type: 'kanban' }, [], { kind: 'sprint', sprintId: 1 })).toEqual({ kind: 'board' });
   });
 
   test('view keys round-trip', () => {

@@ -37,6 +37,17 @@ export interface BoardCardItem {
   labels: { title: string; color?: string }[];
   due?: string | null;
   hasDescription?: boolean;
+  /** Jira boards with sprints: the sprint the issue is in, or the backlog. */
+  sprint?: CardSprint;
+}
+
+export interface CardSprint {
+  /** `sprint:<id>` or `backlog`; what the Sprint filter stores. */
+  key: string;
+  label: string;
+  state: 'active' | 'future' | 'closed' | 'backlog';
+  /** Board order: active sprints, upcoming ones, finished ones, then the backlog. */
+  rank: number;
 }
 
 export interface BoardColumnItem {
@@ -114,7 +125,23 @@ export function deckColumns(detail: DeckBoardDetail): BoardColumnItem[] {
     }));
 }
 
-function jiraCardItem(issue: JiraIssue): BoardCardItem {
+const BACKLOG: CardSprint = { key: 'backlog', label: 'Backlog', state: 'backlog', rank: Number.MAX_SAFE_INTEGER };
+
+function jiraCardSprint(issue: JiraIssue, detail: JiraBoardDetail): CardSprint {
+  const sprint = issue.sprint;
+  if (!sprint) return BACKLOG;
+  const open = detail.sprints.findIndex((candidate) => candidate.id === sprint.id);
+  return {
+    key: `sprint:${sprint.id}`,
+    label: sprint.name,
+    state: sprint.state,
+    // Open sprints in Jira's order; a sprint the board did not list (a
+    // finished one) after them, newest id first.
+    rank: open >= 0 ? open : 10_000 - (sprint.id % 10_000),
+  };
+}
+
+function jiraCardItem(issue: JiraIssue, sprint?: CardSprint): BoardCardItem {
   return {
     id: issue.key,
     key: issue.key,
@@ -129,14 +156,17 @@ function jiraCardItem(issue: JiraIssue): BoardCardItem {
     assigneeCount: issue.assignee ? 1 : 0,
     labels: issue.labels.map((title) => ({ title })),
     due: issue.duedate ?? null,
+    sprint,
   };
 }
 
 export function jiraColumns(detail: JiraBoardDetail): BoardColumnItem[] {
+  const hasSprints =
+    detail.sprints.length > 0 || detail.columns.some((column) => column.issues.some((issue) => issue.sprint));
   return detail.columns.map((column) => ({
     id: column.name,
     title: column.name,
-    cards: column.issues.map(jiraCardItem),
+    cards: column.issues.map((issue) => jiraCardItem(issue, hasSprints ? jiraCardSprint(issue, detail) : undefined)),
   }));
 }
 
@@ -159,12 +189,14 @@ export function nameColor(name: string): string {
 // ── Filters ────────────────────────────────────────────────────────────
 
 export interface BoardFilters {
+  /** Sprint keys (`sprint:<id>` or `backlog`). */
+  sprints: string[];
   types: string[];
   priorities: string[];
   labels: string[];
 }
 
-export const EMPTY_FILTERS: BoardFilters = { types: [], priorities: [], labels: [] };
+export const EMPTY_FILTERS: BoardFilters = { sprints: [], types: [], priorities: [], labels: [] };
 
 const PRIORITY_ORDER = ['highest', 'high', 'medium', 'low', 'lowest'];
 
@@ -183,7 +215,10 @@ function uniqueSorted(values: (string | undefined)[], order?: string[]) {
 /** The choices worth offering: only values that appear on this board. */
 export function filterFacets(columns: BoardColumnItem[]) {
   const cards = columns.flatMap((column) => column.cards);
+  const sprints = new Map<string, CardSprint>();
+  for (const card of cards) if (card.sprint) sprints.set(card.sprint.key, card.sprint);
   return {
+    sprints: [...sprints.values()].sort((a, b) => a.rank - b.rank),
     types: uniqueSorted(cards.map((card) => card.typeName)),
     priorities: uniqueSorted(cards.map((card) => card.priorityName), PRIORITY_ORDER),
     labels: uniqueSorted(cards.flatMap((card) => card.labels.map((label) => label.title))),
@@ -191,7 +226,7 @@ export function filterFacets(columns: BoardColumnItem[]) {
 }
 
 export function activeFilterCount(filters: BoardFilters) {
-  return filters.types.length + filters.priorities.length + filters.labels.length;
+  return filters.sprints.length + filters.types.length + filters.priorities.length + filters.labels.length;
 }
 
 /** A card passes when it matches every group that has a selection (any value within a group). */
@@ -201,10 +236,36 @@ export function applyFilters(columns: BoardColumnItem[], filters: BoardFilters):
     ...column,
     cards: column.cards.filter(
       (card) =>
+        (filters.sprints.length === 0 || (card.sprint != null && filters.sprints.includes(card.sprint.key))) &&
         (filters.types.length === 0 || (card.typeName != null && filters.types.includes(card.typeName))) &&
         (filters.priorities.length === 0 ||
           (card.priorityName != null && filters.priorities.includes(card.priorityName))) &&
         (filters.labels.length === 0 || card.labels.some((label) => filters.labels.includes(label.title)))
     ),
   }));
+}
+
+/**
+ * Group each column's cards by sprint when the cards on screen span more
+ * than one sprint (or a sprint and the backlog). Within a group the board's
+ * own order (Jira rank) is kept. Returns the columns unchanged otherwise.
+ */
+export function groupBySprint(columns: BoardColumnItem[]): { columns: BoardColumnItem[]; grouped: boolean } {
+  const keys = new Set<string>();
+  for (const column of columns) for (const card of column.cards) if (card.sprint) keys.add(card.sprint.key);
+  if (keys.size < 2) return { columns, grouped: false };
+  return {
+    grouped: true,
+    columns: columns.map((column) => ({
+      ...column,
+      cards: column.cards
+        .map((card, index) => ({ card, index }))
+        .sort(
+          (a, b) =>
+            (a.card.sprint?.rank ?? Number.MAX_SAFE_INTEGER) - (b.card.sprint?.rank ?? Number.MAX_SAFE_INTEGER) ||
+            a.index - b.index
+        )
+        .map(({ card }) => card),
+    })),
+  };
 }

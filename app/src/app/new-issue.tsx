@@ -115,13 +115,15 @@ export default function NewIssueScreen() {
 
   const columns = detail.data?.columns ?? [];
   const sprints = detail.data?.sprints ?? [];
-  // A chosen sprint, else what the board loads by default (its active sprint).
+  // A chosen sprint, else the sprint the board shows, else (the All view)
+  // the active sprint, where Jira's own board puts new work.
   const sprint =
     sprintChoice === null
       ? undefined
       : sprintChoice !== undefined
         ? sprints.find((candidate) => candidate.id === sprintChoice)
-        : detail.data?.sprint;
+        : (detail.data?.sprint ??
+          (detail.data?.view.kind === 'board' ? sprints.find((candidate) => candidate.state === 'active') : undefined));
   const column = columns.find((candidate) => candidate.name === columnName) ?? columns[0];
   const type = types.data?.find((candidate) => candidate.id === typeId) ?? defaultIssueType(types.data ?? []);
   const priority = priorities.data?.find((candidate) => candidate.id === priorityId);

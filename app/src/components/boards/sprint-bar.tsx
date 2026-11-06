@@ -10,9 +10,9 @@ import { ScrollView, Text, View } from '@/tw';
 const IOS = Platform.OS === 'ios';
 
 /**
- * The sprint switcher under a scrum board's title: each active sprint, then
- * the upcoming ones, then the Backlog. It mirrors Jira's Board (active
- * sprint) and Backlog views in one row, so planning work is a tap away.
+ * The sprint switcher under a board's title: All (every issue, grouped by
+ * sprint), each active sprint, the upcoming ones, then the Backlog. It mirrors
+ * Jira's Board and Backlog views in one row, so planning work is a tap away.
  */
 export function SprintBar({
   sprints,
@@ -29,6 +29,12 @@ export function SprintBar({
       showsHorizontalScrollIndicator={false}
       style={{ flexGrow: 0 }}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 10, gap: 8 }}>
+      <Chip
+        label="All"
+        icon="view-sequential-outline"
+        selected={view.kind === 'board'}
+        onPress={() => onSelect({ kind: 'board' })}
+      />
       {sprints.map((sprint) => (
         <Chip
           key={sprint.id}

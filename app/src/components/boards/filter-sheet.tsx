@@ -3,7 +3,7 @@ import { Modal, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 
 import type { JiraIssueScope } from '@/api/jira';
-import { activeFilterCount, type BoardFilters } from '@/features/boards/model';
+import { activeFilterCount, EMPTY_FILTERS, type BoardFilters, type CardSprint } from '@/features/boards/model';
 import { useTheme } from '@/components/theme/context';
 import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { haptics } from '@/lib/haptics';
@@ -21,8 +21,9 @@ export const JIRA_SCOPES: { value: JiraIssueScope; title: string; subtitle: stri
 
 /**
  * Board filters in a Material 3 bottom sheet. Jira boards get a "Show" group
- * that picks whose issues load; every board can narrow by type, priority and
- * label. One row per choice, so nothing wraps.
+ * that picks whose issues load, and boards with sprints can narrow to some
+ * sprints or the backlog. Every board can narrow by type, priority and label.
+ * One row per choice, so nothing wraps.
  */
 export function FilterSheet({
   visible,
@@ -37,7 +38,7 @@ export function FilterSheet({
   /** Jira only: whose issues load. Omit for Deck boards. */
   scope?: JiraIssueScope;
   onScopeChange?: (scope: JiraIssueScope) => void;
-  facets: { types: string[]; priorities: string[]; labels: string[] };
+  facets: { sprints: CardSprint[]; types: string[]; priorities: string[]; labels: string[] };
   filters: BoardFilters;
   onChange: (filters: BoardFilters) => void;
   onClose: () => void;
@@ -45,6 +46,13 @@ export function FilterSheet({
   const { colors } = useTheme();
   const panel = useSheetPanel(12);
   const count = activeFilterCount(filters);
+
+  const sprintSubtitle: Record<CardSprint['state'], string | undefined> = {
+    active: 'Active sprint',
+    future: 'Upcoming sprint',
+    closed: 'Finished sprint',
+    backlog: 'Not in a sprint',
+  };
 
   function toggle(group: keyof BoardFilters, value: string) {
     haptics.selection();
@@ -55,12 +63,14 @@ export function FilterSheet({
     });
   }
 
-  const groups: { key: keyof BoardFilters; title: string; values: string[]; icon: IconName }[] = [
+  const groups: { key: Exclude<keyof BoardFilters, 'sprints'>; title: string; values: string[]; icon: IconName }[] = [
     { key: 'types', title: 'Type', values: facets.types, icon: 'shape-outline' },
     { key: 'priorities', title: 'Priority', values: facets.priorities, icon: 'flag-outline' },
     { key: 'labels', title: 'Label', values: facets.labels, icon: 'tag-outline' },
   ];
-  const hasFacets = groups.some((group) => group.values.length > 0);
+  // One sprint is not a choice; the board subtitle already names it.
+  const showSprints = facets.sprints.length > 1;
+  const hasFacets = showSprints || groups.some((group) => group.values.length > 0);
 
   return (
     <Modal
@@ -92,7 +102,7 @@ export function FilterSheet({
                 <Pressable
                   onPress={() => {
                     haptics.tap();
-                    onChange({ types: [], priorities: [], labels: [] });
+                    onChange(EMPTY_FILTERS);
                   }}
                   accessibilityRole="button"
                   hitSlop={8}>
@@ -120,6 +130,31 @@ export function FilterSheet({
                     />
                   ))}
                 </>
+              ) : null}
+
+              {showSprints ? (
+                <View>
+                  <GroupTitle title="Sprint" />
+                  {facets.sprints.map((sprint) => (
+                    <Row
+                      key={sprint.key}
+                      icon={
+                        sprint.state === 'backlog'
+                          ? 'tray-full'
+                          : sprint.state === 'active'
+                            ? 'run-fast'
+                            : sprint.state === 'closed'
+                              ? 'flag-checkered'
+                              : 'calendar-clock'
+                      }
+                      label={sprint.label}
+                      subtitle={sprintSubtitle[sprint.state]}
+                      selected={filters.sprints.includes(sprint.key)}
+                      kind="check"
+                      onPress={() => toggle('sprints', sprint.key)}
+                    />
+                  ))}
+                </View>
               ) : null}
 
               {groups.map((group) =>
