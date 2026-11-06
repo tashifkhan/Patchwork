@@ -1,16 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import { useEffect } from 'react';
-import { Keyboard, Platform, Pressable } from 'react-native';
+import { useCallback, useRef } from 'react';
+import { Platform, Pressable, useWindowDimensions, type View as RNView } from 'react-native';
 import Animated, {
-  Easing,
   FadeOut,
   SlideInDown,
+  useAnimatedKeyboard,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
@@ -43,64 +43,64 @@ export function TaskActionBar({
 }) {
   const { colors } = useTheme();
   const lift = useKeyboardLift(bottom);
-  const position = useAnimatedStyle(() => ({ bottom: lift.value }));
 
   return (
-    <Animated.View
-      entering={SlideInDown.springify()
-        .damping(SPRING.spatial.damping)
-        .stiffness(SPRING.spatial.stiffness)}
-      exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
-      pointerEvents="box-none"
-      style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, position]}>
-      <BarSurface>
-        <Pressable
-          onPress={() => {
-            haptics.tap();
-            onMove();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Move"
-          android_ripple={{ color: colors.separator }}
-          style={({ pressed }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            height: 48,
-            paddingLeft: 16,
-            paddingRight: 20,
-            // Expressive shape morph: the pill squares off while held.
-            borderRadius: pressed ? 12 : 24,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-            backgroundColor: colors.accent,
-            opacity: pressed && Platform.OS === 'ios' ? 0.85 : 1,
-          })}>
-          {GLASS ? (
-            <SymbolView name="arrow.right" size={18} tintColor={colors.onAccent} weight="semibold" />
-          ) : (
-            <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
-          )}
-          <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>Move</Text>
-        </Pressable>
-        <IconAction
-          icon="trash-can-outline"
-          sf="trash"
-          label={deleteLabel}
-          color={GLASS ? colors.danger : colors.onPrimaryContainer}
-          onPress={onDelete}
-        />
-        {onDetails ? (
+    <>
+      {lift.marker}
+      <Animated.View
+        entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
+        exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
+        pointerEvents="box-none"
+        style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
+        <BarSurface>
+          <Pressable
+            onPress={() => {
+              haptics.tap();
+              onMove();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Move"
+            android_ripple={{ color: colors.separator }}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              height: 48,
+              paddingLeft: 16,
+              paddingRight: 20,
+              // Expressive shape morph: the pill squares off while held.
+              borderRadius: pressed ? 12 : 24,
+              borderCurve: 'continuous',
+              overflow: 'hidden',
+              backgroundColor: colors.accent,
+              opacity: pressed && Platform.OS === 'ios' ? 0.85 : 1,
+            })}>
+            {GLASS ? (
+              <SymbolView name="arrow.right" size={18} tintColor={colors.onAccent} weight="semibold" />
+            ) : (
+              <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
+            )}
+            <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>Move</Text>
+          </Pressable>
           <IconAction
-            icon="arrow-expand"
-            sf="arrow.up.left.and.arrow.down.right"
-            label="Details"
-            color={GLASS ? colors.text : colors.onPrimaryContainer}
-            onPress={onDetails}
+            icon="trash-can-outline"
+            sf="trash"
+            label={deleteLabel}
+            color={GLASS ? colors.danger : colors.onPrimaryContainer}
+            onPress={onDelete}
           />
-        ) : null}
-      </BarSurface>
-    </Animated.View>
+          {onDetails ? (
+            <IconAction
+              icon="arrow-expand"
+              sf="arrow.up.left.and.arrow.down.right"
+              label="Details"
+              color={GLASS ? colors.text : colors.onPrimaryContainer}
+              onPress={onDetails}
+            />
+          ) : null}
+        </BarSurface>
+      </Animated.View>
+    </>
   );
 }
 
@@ -185,37 +185,50 @@ function IconAction({
 const KEYBOARD_GAP = 10;
 
 /**
- * Bottom offset that rides above the iOS keyboard. iOS overlays the keyboard
- * on the screen, so a bar pinned to the bottom ends up hidden while you type
- * a title or notes. The bar moves with the keyboard's own duration and curve.
- * Android resizes the window for the keyboard, so it keeps the given offset.
+ * Bottom offset that rides above the keyboard, frame by frame with it.
+ *
+ * Neither platform shrinks the screen for the keyboard any more: iOS overlays
+ * it, and Android draws edge-to-edge (API 35+), so `adjustResize` no longer
+ * resizes the window. A bar pinned to the bottom would sit behind the keys.
+ *
+ * The keyboard height counts from the bottom of the window, but the screen
+ * this bar sits in can end higher up, above Android's bottom navigation bar.
+ * `belowScreen` is that distance, measured, so the bar lands right on top of
+ * the keyboard either way.
  */
 function useKeyboardLift(bottom: number) {
-  const lift = useSharedValue(bottom);
+  const keyboard = useAnimatedKeyboard();
+  const insets = useSafeAreaInsets();
+  const anchor = useRef<RNView>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const belowScreen = useSharedValue(0);
+  // Reanimated's Android height starts above the gesture/nav bar; add it back
+  // so both platforms count from the window's bottom edge.
+  const navBar = Platform.OS === 'android' ? insets.bottom : 0;
 
-  useEffect(() => {
-    lift.value = bottom;
-    if (Platform.OS !== 'ios') return;
-    const curve = Easing.bezier(0.38, 0.7, 0.125, 1);
-    const show = Keyboard.addListener('keyboardWillShow', (event) => {
-      lift.value = withTiming(Math.max(bottom, event.endCoordinates.height + KEYBOARD_GAP), {
-        duration: event.duration || 250,
-        easing: curve,
-      });
+  const measure = useCallback(() => {
+    anchor.current?.measureInWindow((_x, y) => {
+      belowScreen.set(Math.max(0, windowHeight - y));
     });
-    const hide = Keyboard.addListener('keyboardWillHide', (event) => {
-      lift.value = withTiming(bottom, { duration: event.duration || 250, easing: curve });
-    });
-    // Opened while the keyboard is already up (e.g. tapping another card).
-    const metrics = Keyboard.metrics();
-    if (metrics && Keyboard.isVisible()) {
-      lift.value = Math.max(bottom, metrics.height + KEYBOARD_GAP);
-    }
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [bottom, lift]);
+  }, [belowScreen, windowHeight]);
 
-  return lift;
+  const style = useAnimatedStyle(() => ({
+    bottom:
+      keyboard.height.value > 0
+        ? Math.max(bottom, keyboard.height.value + navBar - belowScreen.value + KEYBOARD_GAP)
+        : bottom,
+  }));
+
+  // A zero-height marker on the screen's bottom edge, for the measurement.
+  const marker = (
+    <View
+      ref={anchor}
+      collapsable={false}
+      pointerEvents="none"
+      onLayout={measure}
+      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 0 }}
+    />
+  );
+
+  return { style, marker };
 }
