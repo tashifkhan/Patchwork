@@ -21,7 +21,7 @@ import type { JiraAccount, JiraCredentials } from '@/lib/credentials-types';
 export const JIRA_NEW_TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
 
 const REQUEST_TIMEOUT_MS = 20_000;
-const ISSUE_FIELDS = 'summary,status,priority,assignee,issuetype,labels,duedate';
+const ISSUE_FIELDS = 'summary,status,priority,assignee,issuetype,labels,duedate,sprint,closedSprints';
 const MAX_BOARD_PAGES = 6;
 const MAX_ISSUE_PAGES = 4;
 
@@ -63,6 +63,16 @@ export interface JiraIssue {
   assignee?: { accountId: string; displayName: string; avatarUrl?: string };
   labels: string[];
   duedate?: string | null;
+  /**
+   * The sprint the issue is in; null when it sits in the backlog. Done work
+   * from a finished sprint keeps that sprint (state `closed`).
+   */
+  sprint?: { id: number; name: string; state: JiraSprint['state'] } | null;
+}
+
+/** Scrum boards and team-managed ("simple") boards can have sprints; kanban boards cannot. */
+export function boardHasSprints(board: Pick<JiraBoard, 'type'>): boolean {
+  return board.type !== 'kanban';
 }
 
 export interface JiraColumn {
@@ -320,7 +330,33 @@ interface ApiIssue {
     issuetype?: { name?: string; iconUrl?: string; subtask?: boolean };
     labels?: string[];
     duedate?: string | null;
+    sprint?: ApiSprintRef | null;
+    closedSprints?: (ApiSprintRef & { endDate?: string; completeDate?: string })[] | null;
   };
+}
+
+interface ApiSprintRef {
+  id: number;
+  name: string;
+  state?: string;
+}
+
+function sprintState(state: string | undefined): JiraSprint['state'] {
+  return state === 'active' || state === 'closed' ? state : 'future';
+}
+
+/** The open sprint, else the last finished one for done work, else the backlog (null). */
+function issueSprint(f: NonNullable<ApiIssue['fields']>): JiraIssue['sprint'] {
+  if (f.sprint) return { id: f.sprint.id, name: f.sprint.name, state: sprintState(f.sprint.state) };
+  if (f.status?.statusCategory?.key === 'done' && f.closedSprints?.length) {
+    const last = [...f.closedSprints].sort((a, b) =>
+      (b.completeDate ?? b.endDate ?? '').localeCompare(a.completeDate ?? a.endDate ?? '')
+    )[0];
+    return { id: last.id, name: last.name, state: 'closed' };
+  }
+  // Jira may leave the field out rather than send null; either way it is the
+  // backlog. Boards without sprints ignore this (see `boardHasSprints`).
+  return null;
 }
 
 function toIssue(raw: ApiIssue): JiraIssue {
@@ -345,6 +381,7 @@ function toIssue(raw: ApiIssue): JiraIssue {
       : undefined,
     labels: f.labels ?? [],
     duedate: f.duedate ?? null,
+    sprint: issueSprint(f),
   };
 }
 
@@ -390,7 +427,7 @@ export async function fetchJiraBoardDetail(
     client.request<{
       columnConfig?: { columns?: { name: string; statuses?: { id: string }[] }[] };
     }>('GET', `/rest/agile/1.0/board/${board.id}/configuration`),
-    board.type === 'scrum' ? fetchJiraSprints(creds, board.id) : Promise.resolve([] as JiraSprint[]),
+    boardHasSprints(board) ? fetchJiraSprints(creds, board.id) : Promise.resolve([] as JiraSprint[]),
   ]);
   const columns = (config?.columnConfig?.columns ?? [])
     .map((column) => ({
@@ -428,23 +465,19 @@ export async function fetchJiraBoardDetail(
 }
 
 /**
- * The view to load. A requested sprint that has since closed falls back to
- * the default: the first active sprint, else the backlog when the board has
- * upcoming sprints, else every issue.
+ * The view to load. Every board opens on all its issues (`board`), which the
+ * board screen groups by sprint. A saved sprint that has since closed falls
+ * back to that too.
  */
 export function resolveJiraView(
   board: Pick<JiraBoard, 'type'>,
   sprints: JiraSprint[],
   requested?: JiraBoardView
 ): JiraBoardView {
-  if (board.type !== 'scrum' || sprints.length === 0) {
-    return requested?.kind === 'backlog' && board.type === 'scrum' ? requested : { kind: 'board' };
-  }
-  if (requested?.kind === 'backlog' || requested?.kind === 'board') return requested;
+  if (!boardHasSprints(board)) return { kind: 'board' };
+  if (requested?.kind === 'backlog') return requested;
   if (requested?.kind === 'sprint' && sprints.some((sprint) => sprint.id === requested.sprintId)) return requested;
-  const active = sprints.find((sprint) => sprint.state === 'active');
-  if (active) return { kind: 'sprint', sprintId: active.id };
-  return { kind: 'backlog' };
+  return { kind: 'board' };
 }
 
 /** Open sprints on a scrum board: active first, then upcoming, each in Jira's order. */
@@ -544,6 +577,21 @@ export async function transitionJiraIssue(
   }
   await client.request('POST', `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`, {
     transition: { id: transition.id },
+  });
+}
+
+/**
+ * Re-rank an issue on its board: just above `before`, or just below `after`.
+ * Needs the board's ranking field, which every Jira Software board has.
+ */
+export async function rankJiraIssue(
+  creds: JiraCredentials,
+  issueKey: string,
+  position: { before: string } | { after: string }
+): Promise<void> {
+  await new JiraClient(creds).request('PUT', '/rest/agile/1.0/issue/rank', {
+    issues: [issueKey],
+    ...('before' in position ? { rankBeforeIssue: position.before } : { rankAfterIssue: position.after }),
   });
 }
 

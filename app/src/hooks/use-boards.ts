@@ -5,6 +5,7 @@ import {
   createJiraIssue,
   fetchJiraBoardDetail,
   fetchJiraBoards,
+  rankJiraIssue,
   transitionJiraIssue,
   jiraViewKey,
   parseJiraViewKey,
@@ -184,13 +185,27 @@ export function useBoardDetail(ref: string): BoardDetailState {
   }, [jiraDetail.error, jiraAccountId]);
 
   const jiraMove = useMutation({
-    mutationFn: async (input: { key: string; toColumn: string }) => {
+    mutationFn: async (input: { key: string; fromColumn: string; toColumn: string }) => {
+      // onMutate already moved the issue in the cache, so its new neighbours are there.
       const detail = client.getQueryData<JiraBoardDetail>(jiraKey);
       const column = detail?.columns.find((candidate) => candidate.name === input.toColumn);
       if (!credentials || !column) return;
-      await transitionJiraIssue(credentials, input.key, column);
+      const sameColumn = input.fromColumn === input.toColumn;
+      if (!sameColumn) await transitionJiraIssue(credentials, input.key, column);
+      const at = column.issues.findIndex((issue) => issue.key === input.key);
+      const below = column.issues[at + 1];
+      const above = column.issues[at - 1];
+      const position = below ? { before: below.key } : above ? { after: above.key } : null;
+      if (!position) return;
+      try {
+        await rankJiraIssue(credentials, input.key, position);
+      } catch (error) {
+        // A reorder is the whole point within a column; across columns the
+        // status change already landed, so a failed rank is not worth an error.
+        if (sameColumn) throw error;
+      }
     },
-    onMutate: async (input: { key: string; toColumn: string; toIndex: number }) => {
+    onMutate: async (input: { key: string; fromColumn: string; toColumn: string; toIndex: number }) => {
       await client.cancelQueries({ queryKey: jiraKey });
       const previous = client.getQueryData<JiraBoardDetail>(jiraKey);
       if (previous) client.setQueryData(jiraKey, moveJiraIssue(previous, input.key, input.toColumn, input.toIndex));
@@ -212,8 +227,14 @@ export function useBoardDetail(ref: string): BoardDetailState {
         summary: input.title,
         column: detail?.columns.find((column) => column.name === input.columnId),
         firstColumn: detail?.columns[0],
-        // Lands in the sprint being viewed; viewing the backlog leaves it there.
-        sprintId: detail?.view.kind === 'sprint' ? detail.view.sprintId : undefined,
+        // Lands in the sprint being viewed, or the active sprint when viewing
+        // all issues; viewing the backlog leaves it there.
+        sprintId:
+          detail?.view.kind === 'sprint'
+            ? detail.view.sprintId
+            : detail?.view.kind === 'board'
+              ? detail.sprints.find((sprint) => sprint.state === 'active')?.id
+              : undefined,
       });
     },
     onError: (error) => handleJiraError(error, jiraAccountId),
@@ -240,8 +261,8 @@ export function useBoardDetail(ref: string): BoardDetailState {
       isFetching: jiraDetail.isFetching,
       error: jiraBoards.error ?? jiraDetail.error ?? (jiraBoards.data && !jiraBoard ? new Error('This Jira board is no longer available.') : null),
       refetch: () => jiraDetail.refetch(),
-      moveCard: async ({ cardId, toColumnId, toIndex }) => {
-        await jiraMove.mutateAsync({ key: cardId, toColumn: toColumnId, toIndex });
+      moveCard: async ({ cardId, fromColumnId, toColumnId, toIndex }) => {
+        await jiraMove.mutateAsync({ key: cardId, fromColumn: fromColumnId, toColumn: toColumnId, toIndex });
       },
       createCard: async (columnId, title) => {
         await jiraCreate.mutateAsync({ columnId, title });

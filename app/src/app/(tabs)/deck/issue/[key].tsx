@@ -148,8 +148,10 @@ function IssueEditor({
   const [priority, setPriority] = useState(issue.priority);
   const [picker, setPicker] = useState<'status' | 'priority' | 'assignee' | 'sprint' | null>(null);
 
-  // Sprints come from the board the issue was opened on (scrum boards only).
-  const hasBoard = boardId != null && Number.isFinite(boardId);
+  // Sprints to move to come from the board the issue was opened on. Which
+  // sprint the issue is in comes from the issue itself, so the row shows even
+  // when the issue was opened from search or a link.
+  const hasBoard = boardId != null && Number.isFinite(boardId) && boardId > 0;
   const sprints = useQuery({
     queryKey: ['jira', 'sprints', credentials.id, boardId],
     queryFn: () => fetchJiraSprints(credentials, boardId!),
@@ -159,8 +161,10 @@ function IssueEditor({
   const currentSprint = useQuery({
     queryKey: ['jira', 'issue-sprint', credentials.id, issue.key],
     queryFn: () => fetchJiraIssueSprint(credentials, issue.key),
-    enabled: hasBoard && (sprints.data?.length ?? 0) > 0,
   });
+  const canMoveSprint = (sprints.data?.length ?? 0) > 0;
+  // Boards without sprints have nothing to say here, unless the issue is in one.
+  const showSprint = canMoveSprint || currentSprint.data != null;
   const [error, setError] = useState<string | null>(null);
 
   const transitions = useQuery({
@@ -304,9 +308,9 @@ function IssueEditor({
             loading={assign.isPending}
             onPress={() => setPicker('assignee')}
           />
-          {(sprints.data?.length ?? 0) > 0 ? (
+          {showSprint ? (
             <DetailRow
-              icon="run-fast"
+              icon={currentSprint.data ? 'run-fast' : 'tray-full'}
               label="Sprint"
               value={
                 moveSprint.isPending
@@ -316,7 +320,7 @@ function IssueEditor({
                     : (currentSprint.data?.name ?? 'Backlog')
               }
               loading={moveSprint.isPending}
-              onPress={() => setPicker('sprint')}
+              onPress={canMoveSprint ? () => setPicker('sprint') : undefined}
             />
           ) : null}
           <DetailRow
