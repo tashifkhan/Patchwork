@@ -25,6 +25,7 @@ export function BoardColumn({
   onOpenCard,
   onMoveCard,
   onCreate,
+  onCreateDetailed,
   onMenu,
 }: {
   column: BoardColumnItem;
@@ -38,6 +39,8 @@ export function BoardColumn({
   onOpenCard: (card: BoardCardItem) => void;
   onMoveCard: (card: BoardCardItem) => void;
   onCreate: (title: string) => Promise<void>;
+  /** Open the full create form for this column (type, description, due date…). */
+  onCreateDetailed?: () => void;
   onMenu?: () => void;
 }) {
   const { colors } = useTheme();
@@ -161,6 +164,20 @@ export function BoardColumn({
             />
             {error ? <Text style={{ fontSize: 13, color: colors.danger }}>{error}</Text> : null}
             <View className="flex-row items-center justify-end" style={{ gap: 8 }}>
+              {onCreateDetailed ? (
+                <Pressable
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setDraft(null);
+                    setError(null);
+                    onCreateDetailed();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="More details"
+                  style={{ marginRight: 'auto', paddingHorizontal: 6, height: 36, justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: colors.accent }}>More details</Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => {
                   Keyboard.dismiss();

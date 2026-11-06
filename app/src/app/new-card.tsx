@@ -1,159 +1,198 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable } from 'react-native';
+import { Platform } from 'react-native';
 
-import { DeckCardForm, type DeckCardFormValues } from '@/components/deck/deck-card-form';
+import {
+  DetailRow,
+  DetailsCard,
+  EDITOR_CONTENT,
+  EditorHeading,
+  EditorNotes,
+  EditorPrimaryButton,
+  EditorTitle,
+} from '@/components/boards/item-editor';
+import { PickerSheet } from '@/components/boards/picker-sheet';
 import { NewBoardChip } from '@/components/deck/new-board-chip';
-import { useTheme } from '@/components/theme/context';
+import { HeaderTextButton } from '@/components/settings/settings-list';
+import { DateField } from '@/components/tasks/date-field';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
+import { haptics } from '@/lib/haptics';
 import { ScrollView, Text, View } from '@/tw';
 
-export default function NewDeckScreen() {
+const IOS = Platform.OS === 'ios';
+
+/**
+ * New Deck card, laid out like the New To-Do sheet: big title, live Markdown
+ * description, then board, column and due date in one details card.
+ */
+export default function NewCardScreen() {
   const { boardId, stackId } = useLocalSearchParams<{ boardId?: string; stackId?: string }>();
+  const requestedBoardId = parseOptionalNumber(boardId);
+  const requestedStackId = parseOptionalNumber(stackId);
+  const boardsQuery = useDeckBoards();
+  const createCard = useCreateDeckCard();
+
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [duedate, setDuedate] = useState<string | null>(null);
+  const [selectedBoardId, setSelectedBoardId] = useState<number | null>(requestedBoardId);
+  const [selectedStackId, setSelectedStackId] = useState<number | null>(requestedStackId);
+  const [picker, setPicker] = useState<'board' | 'column' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const boards = boardsQuery.data ?? [];
+  const activeBoardId = boards.some((board) => board.id === selectedBoardId)
+    ? selectedBoardId
+    : (boards[0]?.id ?? null);
+  const activeBoard = boards.find((board) => board.id === activeBoardId);
+  const boardQuery = useDeckBoard(activeBoardId);
+  const columns = useMemo(
+    () =>
+      (boardQuery.data?.stacks ?? []).filter(
+        (stack): stack is typeof stack & { id: number } => typeof stack.id === 'number'
+      ),
+    [boardQuery.data]
+  );
+  const column = columns.find((stack) => stack.id === selectedStackId) ?? columns[0];
+  const canCreate = title.trim().length > 0 && activeBoardId != null && column != null && !createCard.isPending;
+
+  async function create() {
+    if (!canCreate || activeBoardId == null || !column) return;
+    try {
+      await createCard.mutateAsync({
+        board_id: activeBoardId,
+        stack_id: column.id,
+        title: title.trim(),
+        description: description.trim(),
+        duedate,
+      });
+      haptics.success();
+      router.back();
+    } catch (cause) {
+      haptics.error();
+      setError(cause instanceof Error ? cause.message : 'Could not create the card.');
+    }
+  }
+
+  if (boardsQuery.isLoading) {
+    return (
+      <SheetSurface title="New Card">
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <LoadingState message="Loading boards…" fullScreen={false} />
+        </View>
+      </SheetSurface>
+    );
+  }
+
+  if (boards.length === 0) {
+    return (
+      <SheetSurface title="New Card">
+        <View className="gap-4 px-5 py-10">
+          <Text className="text-sf-text-2 text-center">No Deck boards yet. Create one to add cards.</Text>
+          <NewBoardChip />
+        </View>
+      </SheetSurface>
+    );
+  }
 
   return (
-    <SheetSurface title="New card" subtitle="Add a card to your board">
+    <SheetSurface title="New Card">
+      {IOS ? (
+        <Stack.Screen
+          options={{
+            headerLeft: () => <HeaderTextButton label="Cancel" bold={false} onPress={() => router.back()} />,
+            headerRight: () => (
+              <HeaderTextButton label="Add" onPress={create} disabled={!canCreate} loading={createCard.isPending} />
+            ),
+          }}
+        />
+      ) : null}
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 32 }}>
-        <Stack.Screen options={{ title: 'New Card' }} />
-        <NewCardBody boardId={boardId} stackId={stackId} />
-      </ScrollView>
-    </SheetSurface>
-  );
-}
+        automaticallyAdjustKeyboardInsets={IOS}
+        contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: 32 }}>
+        <EditorTitle value={title} onChangeText={setTitle} placeholder="New Card" autoFocus />
+        <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
 
-function NewCardBody({ boardId, stackId }: { boardId?: string; stackId?: string }) {
-  const { colors } = useTheme();
-  const requestedBoardId = parseOptionalNumber(boardId);
-  const requestedStackId = parseOptionalNumber(stackId);
-  const boardsQuery = useDeckBoards();
-  const createCard = useCreateDeckCard();
-  const [selectedBoardId, setSelectedBoardId] = useState<number | null>(requestedBoardId);
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
-
-  const boards = boardsQuery.data ?? [];
-  const activeBoardId = boards.some((board) => board.id === selectedBoardId)
-    ? selectedBoardId
-    : (boards[0]?.id ?? null);
-  const boardQuery = useDeckBoard(activeBoardId);
-  const stacks = useMemo(
-    () => boardQuery.data?.stacks.filter((stack) => typeof stack.id === 'number') ?? [],
-    [boardQuery.data]
-  );
-
-  async function handleSubmit(values: DeckCardFormValues) {
-    if (activeBoardId == null) return;
-    try {
-      await createCard.mutateAsync({
-        board_id: activeBoardId,
-        stack_id: values.stack_id,
-        title: values.title,
-        description: values.description,
-        duedate: values.duedate,
-      });
-      router.back();
-    } catch (error) {
-      setAlert({
-        title: 'Create failed',
-        message: error instanceof Error ? error.message : 'Could not create the card.',
-      });
-    }
-  }
-
-  if (boardsQuery.isLoading || (activeBoardId != null && boardQuery.isLoading)) {
-    return (
-      <View style={{ minHeight: 220, justifyContent: 'center' }}>
-        <LoadingState
-          message="Loading board…"
-          subtitle="Fetching stacks and columns"
-          fullScreen={false}
-        />
-      </View>
-    );
-  }
-
-  if (activeBoardId == null || stacks.length === 0) {
-    return (
-      <View className="gap-4 px-5 py-10">
-        <Text className="text-sf-text-2 text-center">
-          {activeBoardId == null ? 'No Deck boards found.' : 'No Deck stacks available.'}
-        </Text>
-        {activeBoardId == null ? <NewBoardChip /> : null}
-        <BoardAlert alert={alert} onDismiss={() => setAlert(null)} />
-      </View>
-    );
-  }
-
-  return (
-    <>
-      {boards.length > 0 ? (
-        <View className="gap-2 px-5 pt-2">
-          <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Board</Text>
-          <View className="flex-row flex-wrap gap-2">
-            {boards.map((board) => {
-              const selected = board.id === activeBoardId;
-              return (
-                <Pressable
-                  key={board.id}
-                  onPress={() => setSelectedBoardId(board.id)}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-                  <View
-                    className="rounded-full px-4 py-2"
-                    style={{
-                      minHeight: 40,
-                      backgroundColor: selected ? colors.primaryContainer : colors.bg3,
-                      borderCurve: 'continuous',
-                    }}>
-                    <Text
-                      className="text-sm font-medium"
-                      style={{
-                        color: selected ? colors.onPrimaryContainer : colors.text2,
-                      }}>
-                      {board.title}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-            <NewBoardChip />
+        <EditorHeading title="Details" />
+        <DetailsCard>
+          <DetailRow
+            icon="view-dashboard-outline"
+            label="Board"
+            value={activeBoard?.title ?? 'Board'}
+            onPress={() => setPicker('board')}
+          />
+          <DetailRow
+            icon="view-column-outline"
+            label="Column"
+            value={boardQuery.isLoading ? 'Loading…' : (column?.title ?? 'No columns')}
+            onPress={columns.length > 0 ? () => setPicker('column') : undefined}
+          />
+          <View style={{ paddingVertical: 12 }}>
+            <DateField label="Due date" iconName="flag-outline" value={duedate} onChange={setDuedate} />
           </View>
-        </View>
-      ) : null}
-      <DeckCardForm
-        key={`${activeBoardId}:${stacks.map((stack) => stack.id).join(',')}`}
-        stacks={stacks}
-        initial={{ stack_id: requestedStackId ?? (stacks[0].id as number) }}
-        submitting={createCard.isPending}
-        submitLabel={createCard.isPending ? 'Creating…' : 'Create Card'}
-        onSubmit={handleSubmit}
-      />
-      <BoardAlert alert={alert} onDismiss={() => setAlert(null)} />
-    </>
-  );
-}
+        </DetailsCard>
 
-function BoardAlert({
-  alert,
-  onDismiss,
-}: {
-  alert: { title: string; message: string } | null;
-  onDismiss: () => void;
-}) {
-  return (
-    <NativeAlert
-      visible={alert != null}
-      title={alert?.title ?? ''}
-      message={alert?.message ?? ''}
-      onDismiss={onDismiss}
-    />
+        {!IOS ? (
+          <EditorPrimaryButton
+            label="Add card"
+            busyLabel="Adding…"
+            icon="plus"
+            busy={createCard.isPending}
+            disabled={!canCreate}
+            onPress={create}
+          />
+        ) : null}
+      </ScrollView>
+
+      <PickerSheet
+        visible={picker === 'board'}
+        title="Board"
+        items={boards.map((board) => ({
+          key: String(board.id),
+          label: board.title,
+          subtitle: board.account_name,
+          icon: 'view-dashboard-outline' as const,
+          selected: board.id === activeBoardId,
+          onPress: () => {
+            haptics.selection();
+            setSelectedBoardId(board.id);
+            setSelectedStackId(null);
+            setPicker(null);
+          },
+        }))}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'column'}
+        title="Column"
+        items={columns.map((stack) => ({
+          key: String(stack.id),
+          label: stack.title ?? 'Column',
+          icon: 'view-column-outline' as const,
+          selected: stack.id === column?.id,
+          onPress: () => {
+            haptics.selection();
+            setSelectedStackId(stack.id);
+            setPicker(null);
+          },
+        }))}
+        onClose={() => setPicker(null)}
+      />
+      <NativeAlert
+        visible={error != null}
+        title="Could not add"
+        message={error ?? ''}
+        onDismiss={() => setError(null)}
+      />
+    </SheetSurface>
   );
 }
 

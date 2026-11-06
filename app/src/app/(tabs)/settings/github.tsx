@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Linking, Platform, Pressable } from 'react-native';
 
 import {
@@ -11,6 +11,7 @@ import {
   SettingsActionRow,
   SettingsDivider,
   SettingsGroup,
+  SettingsLinkRow,
   SettingsRow,
   SettingsScreen,
   SettingsTextField,
@@ -19,7 +20,7 @@ import {
 import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
-import type { GitHubIssueScope } from '@/features/github/types';
+import type { GitHubAccount, GitHubIssueScope } from '@/features/github/types';
 import { useGitHubConnection } from '@/hooks/use-github-connection';
 import { GITHUB_NEW_TOKEN_URL } from '@/lib/github-auth';
 import { haptics } from '@/lib/haptics';
@@ -59,9 +60,10 @@ const SCOPES: {
 ];
 
 /**
- * GitHub, connected with a personal access token only. Disconnected, the page
- * is a three-step setup; connected, it lists the repositories that show up as
- * lists in Tasks and the filter for which of their issues appear.
+ * GitHub, connected with personal access tokens only. Disconnected, the page
+ * is a three-step setup; connected, it lists the accounts (add as many as you
+ * like), the repositories that show up as lists in Tasks, and the filter for
+ * which of their issues appear.
  */
 export default function GitHubSettingsScreen() {
   const { colors } = useTheme();
@@ -73,22 +75,33 @@ export default function GitHubSettingsScreen() {
   const setScope = useSettingsStore((s) => s.setGitHubIssueScope);
   const setIssueState = useSettingsStore((s) => s.setGitHubIssueState);
   const [token, setToken] = useState('');
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<GitHubAccount | 'all' | null>(null);
 
   const state = connection.connection;
   const connected = state.status === 'connected';
-  const account =
-    state.status === 'connected' || state.status === 'refreshing'
+  const accounts = state.status === 'connected' || state.status === 'refreshing' ? state.accounts : [];
+  const expired = 'expired' in state ? state.expired : [];
+  const allAccounts = [
+    ...accounts.map((entry) => ({ account: entry.account, message: undefined as string | undefined })),
+    ...expired,
+  ];
+  const multiple = allAccounts.length > 1;
+  const account = multiple
+    ? undefined
+    : state.status === 'connected' || state.status === 'refreshing'
       ? state.credentials.account
       : state.status === 'expired'
         ? state.account
         : undefined;
+  const loginById = new Map(accounts.map((entry) => [entry.account.id, entry.account.login]));
 
   async function connect() {
     try {
       await connection.connectPat(token);
       haptics.success();
       setToken('');
+      setAdding(false);
     } catch {
       haptics.error();
       // The hook keeps the message in `connectionError`, shown under the field.
@@ -120,17 +133,21 @@ export default function GitHubSettingsScreen() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderCurve: 'continuous',
-                backgroundColor: SETTINGS_IOS ? colors.accent : colors.primaryContainer,
+                backgroundColor: SETTINGS_IOS ? '#24292F' : colors.primaryContainer,
               }}>
               <MaterialCommunityIcons
                 name="github"
                 size={40}
-                color={SETTINGS_IOS ? colors.onAccent : colors.onPrimaryContainer}
+                color={SETTINGS_IOS ? '#FFFFFF' : colors.onPrimaryContainer}
               />
             </View>
           )}
           <Text style={{ fontSize: 22, fontWeight: '700', color: colors.text }}>
-            {connected && account ? `@${account.login}` : 'Issues as to-dos'}
+            {connected && account
+              ? `@${account.login}`
+              : connected && multiple
+                ? `${allAccounts.length} GitHub accounts`
+                : 'Issues as to-dos'}
           </Text>
           <Text
             style={{
@@ -151,6 +168,111 @@ export default function GitHubSettingsScreen() {
         {connected ? (
           <>
             <SettingsGroup
+              title="Accounts"
+              footer={
+                connection.connectionError && adding ? (
+                  <Text style={{ color: colors.danger }}>{connection.connectionError}</Text>
+                ) : expired.length > 0 ? (
+                  'Paste a new token for an account that stopped working, or remove it.'
+                ) : adding ? (
+                  'A token for an account you already have replaces its old one.'
+                ) : (
+                  'Add another account to bring in its repositories too.'
+                )
+              }>
+              {allAccounts.map((entry, index) => (
+                <Fragment key={`${entry.account.id}:${entry.account.login}`}>
+                  {index > 0 ? <RowSeparator /> : null}
+                  <SettingsRow
+                    leading={
+                      <Image
+                        source={{ uri: entry.account.avatarUrl }}
+                        style={{
+                          width: SETTINGS_IOS ? 30 : 40,
+                          height: SETTINGS_IOS ? 30 : 40,
+                          borderRadius: SETTINGS_IOS ? 15 : 20,
+                        }}
+                        accessibilityIgnoresInvertColors
+                      />
+                    }
+                    title={`@${entry.account.login}`}
+                    subtitle={entry.message ? 'Needs a new token' : undefined}
+                    danger={!!entry.message}
+                    onPress={entry.message ? () => setAdding(true) : undefined}
+                    trailing={
+                      <Pressable
+                        onPress={() => {
+                          haptics.tap();
+                          setRemoving(entry.account);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove @${entry.account.login}`}
+                        hitSlop={8}
+                        style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                        {SETTINGS_IOS ? (
+                          <SymbolView name="xmark.circle.fill" size={20} tintColor={colors.text3} />
+                        ) : (
+                          <MaterialCommunityIcons name="close" size={20} color={colors.text2} />
+                        )}
+                      </Pressable>
+                    }
+                  />
+                </Fragment>
+              ))}
+              <RowSeparator />
+              {adding ? (
+                <>
+                  <SettingsTextField
+                    value={token}
+                    onChangeText={(value) => {
+                      setToken(value);
+                      if (connection.connectionError) connection.clearConnectionError();
+                    }}
+                    onSubmitEditing={connect}
+                    placeholder="github_pat_…"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    returnKeyType="go"
+                    accessibilityLabel="Personal access token"
+                    autoFocus
+                    mono
+                  />
+                  <SettingsDivider />
+                  <SettingsActionRow
+                    title={connection.patPending ? 'Checking Token…' : 'Add Account'}
+                    onPress={connect}
+                    disabled={!token.trim()}
+                    loading={connection.patPending}
+                  />
+                  <SettingsDivider />
+                  <SettingsRow
+                    icon="open-in-new"
+                    title="Create a token on GitHub"
+                    onPress={() => Linking.openURL(GITHUB_NEW_TOKEN_URL)}
+                  />
+                  <SettingsDivider />
+                  <SettingsActionRow
+                    title="Cancel"
+                    onPress={() => {
+                      setAdding(false);
+                      setToken('');
+                      connection.clearConnectionError();
+                    }}
+                  />
+                </>
+              ) : (
+                <SettingsRow
+                  icon="plus"
+                  title="Add account"
+                  onPress={() => {
+                    haptics.tap();
+                    setAdding(true);
+                  }}
+                />
+              )}
+            </SettingsGroup>
+
+            <SettingsGroup
               title="Repositories"
               footer={
                 repositories.length === 0
@@ -162,7 +284,15 @@ export default function GitHubSettingsScreen() {
                   key={repo.fullName}
                   icon={repo.visibility === 'private' ? 'lock-outline' : 'source-repository'}
                   title={repo.fullName.split('/')[1] ?? repo.fullName}
-                  subtitle={`${repo.fullName.split('/')[0]}${repo.canWriteIssues === false ? ' · read only' : ''}`}
+                  subtitle={[
+                    repo.fullName.split('/')[0],
+                    multiple && repo.accountId != null && loginById.get(repo.accountId)
+                      ? `via @${loginById.get(repo.accountId)}`
+                      : null,
+                    repo.canWriteIssues === false ? 'read only' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                   trailing={
                     <Pressable
                       onPress={() => {
@@ -230,44 +360,37 @@ export default function GitHubSettingsScreen() {
             <SettingsGroup>
               <SettingsRow
                 icon="logout"
-                title="Disconnect GitHub"
+                title={multiple ? 'Disconnect all' : 'Disconnect GitHub'}
                 danger
-                onPress={() => setConfirmDisconnect(true)}
+                onPress={() => setRemoving('all')}
               />
             </SettingsGroup>
           </>
         ) : SETTINGS_IOS ? (
           <>
-            <SettingsGroup title="Connect in three steps">
-              <SettingsRow
-                leading={<NumberTile n={1} />}
-                title="Create a token on GitHub"
-                subtitle="Opens github.com in Safari"
+            {/* iOS form pattern: the confirm action lives in the navigation bar. */}
+            <Stack.Toolbar placement="right">
+              <Stack.Toolbar.Button
+                variant="done"
+                disabled={!token.trim() || connection.patPending}
+                accessibilityLabel="Connect GitHub"
+                onPress={connect}>
+                Connect
+              </Stack.Toolbar.Button>
+            </Stack.Toolbar>
+            <SettingsGroup footer="Pick the repositories you want, then set Issues to Read and write. Classic tokens with the repo scope work too.">
+              <SettingsLinkRow
+                title="Create a Token on GitHub"
                 onPress={() => Linking.openURL(GITHUB_NEW_TOKEN_URL)}
-                trailing={
-                  <SymbolView
-                    name="arrow.up.right"
-                    size={14}
-                    weight="semibold"
-                    tintColor={colors.text3}
-                  />
-                }
               />
-              <RowSeparator />
-              <SettingsRow
-                leading={<NumberTile n={2} />}
-                title="Give it access"
-                subtitle="Pick the repositories you want, then set Issues to Read and write. Classic tokens with the repo scope work too."
-              />
-              <RowSeparator />
-              <SettingsRow leading={<NumberTile n={3} />} title="Paste it below" />
             </SettingsGroup>
-
             <SettingsGroup
-              title="Personal access token"
+              title="Personal Access Token"
               footer={
                 connection.connectionError ? (
                   <Text style={{ color: colors.danger }}>{connection.connectionError}</Text>
+                ) : connection.patPending ? (
+                  'Checking the token with GitHub…'
                 ) : (
                   'Stored encrypted on this device.'
                 )
@@ -285,13 +408,6 @@ export default function GitHubSettingsScreen() {
                 returnKeyType="go"
                 accessibilityLabel="Personal access token"
                 mono
-              />
-              <SettingsDivider />
-              <SettingsActionRow
-                title={connection.patPending ? 'Checking Token…' : 'Connect'}
-                onPress={connect}
-                disabled={!token.trim()}
-                loading={connection.patPending}
               />
             </SettingsGroup>
           </>
@@ -410,15 +526,26 @@ export default function GitHubSettingsScreen() {
       </SettingsScreen>
 
       <NativeAlert
-        visible={confirmDisconnect}
-        title="Disconnect GitHub?"
-        message="The token is removed from this device. Your repositories stay saved for when you reconnect."
-        confirmLabel="Disconnect"
+        visible={removing != null}
+        title={
+          removing === 'all'
+            ? multiple
+              ? 'Disconnect every GitHub account?'
+              : 'Disconnect GitHub?'
+            : `Remove @${removing?.login ?? ''}?`
+        }
+        message={
+          removing === 'all'
+            ? 'Tokens are removed from this device. Your repositories stay saved for when you reconnect.'
+            : "Its token is removed from this device. Repositories it added stay, read with your other account."
+        }
+        confirmLabel={removing === 'all' ? 'Disconnect' : 'Remove'}
         dismissLabel="Cancel"
-        onDismiss={() => setConfirmDisconnect(false)}
+        onDismiss={() => setRemoving(null)}
         onConfirm={() => {
-          setConfirmDisconnect(false);
-          void connection.disconnect();
+          const target = removing;
+          setRemoving(null);
+          void connection.disconnect(target === 'all' ? undefined : (target ?? undefined));
         }}
       />
     </>
@@ -446,25 +573,6 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
         </Text>
         {children}
       </View>
-    </View>
-  );
-}
-
-/** Step number on an accent tile, sized like the iOS settings icons. */
-function NumberTile({ n }: { n: number }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={{
-        width: 30,
-        height: 30,
-        borderRadius: 7,
-        borderCurve: 'continuous',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: colors.accent,
-      }}>
-      <Text style={{ color: colors.onAccent, fontSize: 15, fontWeight: '700' }}>{n}</Text>
     </View>
   );
 }

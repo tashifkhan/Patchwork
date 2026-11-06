@@ -248,6 +248,8 @@ export interface GitHubIssue {
   source: 'github';
   canWrite: boolean;
   readOnly: boolean;
+  /** GitHub user id of the connected account that loaded the issue. */
+  accountId?: number;
 }
 
 export interface GitHubIssueUpdate {
@@ -277,4 +279,6 @@ export interface GitHubRepo {
   canCreateIssues: boolean;
   canWriteIssues: boolean;
   owner: GitHubUser;
+  /** GitHub user id of the connected account that can see the repository. */
+  accountId?: number;
 }

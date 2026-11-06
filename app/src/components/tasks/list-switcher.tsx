@@ -1,12 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import { Dimensions, Modal, Platform, Pressable } from 'react-native';
+import { Modal, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 
 import type { TaskList } from '@/api/types';
 import type { GitHubRepositorySelection } from '@/features/github/types';
 import { useTheme } from '@/components/theme/context';
-import { useSheetPanel } from '@/components/ui/sheet-panel';
+import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
 import { ScrollView, Text, View } from '@/tw';
@@ -126,26 +126,8 @@ export function ListSwitcherSheet({
 
   return (
     <Modal visible={visible} transparent animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
-      {/*
-        Android lays the modal's root out at the old window size (above the
-        navigation bar) and only learns the full edge-to-edge size a few
-        frames later, so a `flex: 1` sheet would park above the tab bar and
-        then drop. Sizing the overlay to the physical screen up front pins the
-        sheet to the bottom edge from the first frame.
-      */}
-      <Animated.View
-        entering={FadeIn.duration(DURATION.short4)}
-        style={
-          Platform.OS === 'android'
-            ? {
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: Dimensions.get('screen').width,
-                height: Dimensions.get('screen').height,
-              }
-            : { flex: 1 }
-        }>
+      {/* Pinned to the screen's bottom edge on Android; see sheetOverlayStyle. */}
+      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
         <Pressable
           onPress={onClose}
           accessibilityLabel="Close list switcher"

@@ -114,6 +114,10 @@ export default function RootLayout() {
               options={sheetScreenOptions([0.72, 1.0], 'New Card')}
             />
             <Stack.Screen
+              name="new-issue"
+              options={sheetScreenOptions([0.72, 1.0], 'New Issue')}
+            />
+            <Stack.Screen
               name="new-board"
               options={sheetScreenOptions([0.55, 0.85], 'New Board')}
             />
@@ -163,7 +167,7 @@ function NativeRuntimeCoordinator() {
   const tasksQuery = useTasks();
   const initializeGitHub = useGitHubSessionStore((state) => state.initialize);
   const notificationsEnabled = useSettingsStore((state) => state.notificationsEnabled);
-  const defaultReminderMinutes = useSettingsStore((state) => state.defaultReminderMinutes);
+  const defaultReminderOffsets = useSettingsStore((state) => state.defaultReminderOffsets);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') initializeGitHub();
@@ -172,7 +176,7 @@ function NativeRuntimeCoordinator() {
   useEffect(() => {
     if (!tasksQuery.data) return;
     syncTaskReminders(tasksQuery.data).catch(() => {});
-  }, [tasksQuery.data, notificationsEnabled, defaultReminderMinutes]);
+  }, [tasksQuery.data, notificationsEnabled, defaultReminderOffsets]);
 
   useEffect(() => {
     let active = true;

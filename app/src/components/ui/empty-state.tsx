@@ -5,6 +5,7 @@ import { Platform, Pressable, type StyleProp, type ViewStyle } from 'react-nativ
 
 import { useTheme } from '@/components/theme/context';
 import { Button, type ButtonVariant } from '@/components/ui/button';
+import { SystemEmptyState } from '@/components/ui/system-empty-state';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
 
@@ -17,6 +18,11 @@ const SF_FOR: Partial<Record<IconName, SFSymbol>> = {
   'magnify-close': 'magnifyingglass',
   'source-repository': 'book.closed',
   'view-column-outline': 'rectangle.split.3x1',
+  'cloud-off-outline': 'icloud.slash',
+  jira: 'square.grid.2x2',
+  'progress-check': 'checkmark.circle',
+  'tray-full': 'tray.full',
+  'account-outline': 'person.crop.circle',
 };
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -121,6 +127,21 @@ function IosEmptyState({
   const { colors } = useTheme();
   const [primary, ...secondary] = actions ?? [];
   const symbol = SF_FOR[icon];
+
+  // The real thing when nothing custom goes inside: SwiftUI's view, with
+  // native glass buttons.
+  if (!children) {
+    return (
+      <View style={[{ alignSelf: 'stretch', flexGrow: 1, justifyContent: 'center' }, style]}>
+        <SystemEmptyState
+          symbol={symbol ?? 'tray'}
+          title={title}
+          description={subtitle}
+          actions={actions?.map(({ label, onPress }) => ({ label, onPress }))}
+        />
+      </View>
+    );
+  }
 
   return (
     <View className="w-full items-center justify-center self-center px-10" style={[{ gap: 6 }, style]}>

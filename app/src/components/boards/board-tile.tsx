@@ -1,9 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+
+import { jiraImageHeaders } from '@/api/jira';
 
 import type { BoardSummary } from '@/features/boards/model';
 import { useTheme } from '@/components/theme/context';
+import { useJiraCredentials } from '@/stores/jira-session-store';
 import { View } from '@/tw';
 
 /**
@@ -17,16 +20,22 @@ export function BoardTile({
 }: {
   board: BoardSummary;
   size?: number;
+  /** Defaults to the auth headers of the Jira login the board belongs to. */
   imageHeaders?: Record<string, string>;
 }) {
   const { colors } = useTheme();
+  const credentials = useJiraCredentials(board.source === 'jira' ? board.accountId : undefined);
+  const headers = useMemo(
+    () => imageHeaders ?? (credentials ? jiraImageHeaders(credentials) : undefined),
+    [credentials, imageHeaders]
+  );
   const [failed, setFailed] = useState(false);
   const radius = Math.round(size * 0.28);
 
   if (board.imageUrl && !failed) {
     return (
       <Image
-        source={{ uri: board.imageUrl, headers: imageHeaders }}
+        source={{ uri: board.imageUrl, headers }}
         onError={() => setFailed(true)}
         style={{ width: size, height: size, borderRadius: radius }}
         contentFit="cover"

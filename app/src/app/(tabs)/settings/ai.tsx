@@ -32,6 +32,14 @@ import { Text, View } from '@/tw';
 
 type ReasoningChoice = ReturnType<typeof reasoningChoices>[number];
 
+/** RelayRoom routing modes: the key's ladder, subscription logins, or stored API keys. */
+type RouteMode = 'auto' | 'sub' | 'api';
+const ROUTE_LABELS: Record<RouteMode, string> = { auto: 'Auto', sub: 'Subscription', api: 'API key' };
+
+function routeModes(modes: string[] | undefined): RouteMode[] {
+  return (['auto', 'sub', 'api'] as const).filter((mode) => modes?.includes(mode));
+}
+
 export default function AiScreen() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -62,6 +70,12 @@ export default function AiScreen() {
       aiModelSelections.map((s, i) =>
         i === index ? { ...s, reasoningEffort: effort ?? undefined } : s
       )
+    );
+  }
+
+  function setRouteMode(index: number, mode: RouteMode) {
+    setAiModelSelections(
+      aiModelSelections.map((s, i) => (i === index ? { ...s, routeMode: mode === 'auto' ? undefined : mode } : s))
     );
   }
 
@@ -139,6 +153,9 @@ export default function AiScreen() {
             const effort = choices.some((c) => c.value === selection.reasoningEffort)
               ? (selection.reasoningEffort ?? null)
               : null;
+            // RelayRoom: which credentials the gateway routes through.
+            const modes = routeModes(selection.modes);
+            const mode: RouteMode = selection.routeMode ?? 'auto';
             if (SETTINGS_IOS) {
               // iOS: a plain row with its rank tile; reorder, thinking budget and
               // removal live in the native menu behind the ellipsis.
@@ -151,6 +168,7 @@ export default function AiScreen() {
                     subtitle={[
                       provider?.name ?? selection.providerId,
                       reasoning ? `Thinking: ${effortLabel(effort)}` : null,
+                      modes.length > 1 ? `Route: ${ROUTE_LABELS[mode]}` : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -162,6 +180,9 @@ export default function AiScreen() {
                         first={index === 0}
                         last={index === aiModelSelections.length - 1}
                         onEffort={(value) => setReasoningEffort(index, value)}
+                        modes={modes}
+                        mode={mode}
+                        onMode={(value) => setRouteMode(index, value)}
                         onMove={(direction) => moveSelection(index, direction)}
                         onRemove={() => removeSelection(selection.providerId, selection.modelId)}
                       />
@@ -211,6 +232,16 @@ export default function AiScreen() {
                     onPress={() => removeSelection(selection.providerId, selection.modelId)}
                   />
                 </View>
+                {modes.length > 1 ? (
+                  <View className="gap-2 px-4 pb-3" style={{ paddingLeft: 56 }}>
+                    <Text className="text-sf-text-2 text-sm">Route through</Text>
+                    <SegmentedChoice
+                      options={modes.map((value) => ({ label: ROUTE_LABELS[value], value }))}
+                      value={mode}
+                      onChange={(value) => setRouteMode(index, value)}
+                    />
+                  </View>
+                ) : null}
                 {reasoning ? (
                   <View className="gap-2 px-4 pb-3" style={{ paddingLeft: 56 }}>
                     <Text className="text-sf-text-2 text-sm">Thinking</Text>
@@ -433,7 +464,13 @@ function ChainMenu({
   onEffort,
   onMove,
   onRemove,
+  modes = [],
+  mode = 'auto',
+  onMode,
 }: {
+  modes?: RouteMode[];
+  mode?: RouteMode;
+  onMode?: (mode: RouteMode) => void;
   name: string;
   choices: ReasoningChoice[];
   effort: ReasoningEffort | null;
@@ -461,6 +498,20 @@ function ChainMenu({
               },
             ]
           : []),
+        ...(modes.length > 1
+          ? [
+              {
+                id: 'route',
+                title: 'Route Through',
+                displayInline: true,
+                subactions: modes.map((value) => ({
+                  id: `route:${value}`,
+                  title: ROUTE_LABELS[value],
+                  state: (value === mode ? 'on' : 'off') as 'on' | 'off',
+                })),
+              },
+            ]
+          : []),
         {
           id: 'order',
           title: 'Order',
@@ -482,6 +533,7 @@ function ChainMenu({
         if (event === 'up') onMove(-1);
         else if (event === 'down') onMove(1);
         else if (event === 'remove') onRemove();
+        else if (event.startsWith('route:')) onMode?.(event.slice('route:'.length) as RouteMode);
         else if (event.startsWith('effort:')) {
           const value = event.slice('effort:'.length);
           onEffort(value === 'auto' ? null : (value as ReasoningEffort));

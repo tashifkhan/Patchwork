@@ -11,6 +11,7 @@ import {
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  PlatformColor,
   Platform,
   Pressable,
   StyleSheet,
@@ -137,6 +138,59 @@ const SF_ICONS: Partial<Record<IconName, SFSymbol>> = {
   'close-circle-outline': 'xmark.circle.fill',
   'key-outline': 'key.fill',
   'tray-arrow-down': 'tray.and.arrow.down.fill',
+  'bell-ring-outline': 'bell.fill',
+  'email-outline': 'envelope.fill',
+  'flag-outline': 'flag.fill',
+  'key-variant': 'key.fill',
+  'label-outline': 'tag.fill',
+  'tag-outline': 'tag.fill',
+  'moon-waning-crescent': 'moon.fill',
+  'white-balance-sunny': 'sun.max.fill',
+  'theme-light-dark': 'circle.lefthalf.filled',
+  server: 'server.rack',
+  'cube-outline': 'cube.fill',
+  'shape-outline': 'square.on.circle.fill',
+  'router-network': 'point.3.connected.trianglepath.dotted',
+};
+
+/**
+ * iOS Settings gives each row its own system-colored tile (Notifications red,
+ * Display blue, General gray). Rows not listed here use the app accent.
+ */
+const IOS_TILE_COLORS: Partial<Record<IconName, Parameters<typeof PlatformColor>[0]>> = {
+  'bell-outline': 'systemRed',
+  'bell-ring-outline': 'systemRed',
+  'palette-outline': 'systemBlue',
+  'palette-swatch': 'systemIndigo',
+  'circle-opacity': 'systemIndigo',
+  'contrast-circle': 'systemGray',
+  'theme-light-dark': 'systemBlue',
+  vibrate: 'systemPink',
+  'dock-bottom': 'systemGray',
+  github: 'systemGray',
+  jira: 'systemBlue',
+  'star-four-points-outline': 'systemPurple',
+  brain: 'systemPurple',
+  'router-network': 'systemTeal',
+  'cloud-check-outline': 'systemBlue',
+  'cloud-alert-outline': 'systemOrange',
+  refresh: 'systemGreen',
+  'lan-connect': 'systemTeal',
+  web: 'systemBlue',
+  'lock-outline': 'systemGray',
+  'key-outline': 'systemGray',
+  'key-variant': 'systemGray',
+  'email-outline': 'systemBlue',
+  'clock-outline': 'systemOrange',
+  'trash-can-outline': 'systemRed',
+  logout: 'systemRed',
+  'view-column-outline': 'systemTeal',
+  'source-repository': 'systemGray',
+  'source-repository-multiple': 'systemGray',
+  'check-circle-outline': 'systemGreen',
+  'format-list-checks': 'systemOrange',
+  'format-list-bulleted': 'systemOrange',
+  server: 'systemBlue',
 };
 
 /**
@@ -159,6 +213,8 @@ export function SettingsItemIcon({
 
   if (IOS) {
     const mapped = SF_ICONS[icon];
+    // A caller-provided container color (e.g. danger) wins over the system tile.
+    const tile = containerColor ? undefined : IOS_TILE_COLORS[icon];
     return (
       <View
         className="items-center justify-center"
@@ -167,12 +223,12 @@ export function SettingsItemIcon({
           height: 30,
           borderRadius: 7,
           borderCurve: 'continuous',
-          backgroundColor: containerColor ?? colors.accent,
+          backgroundColor: containerColor ?? (tile ? PlatformColor(tile) : colors.accent),
         }}>
         <SymbolView
           name={sf ?? mapped ?? 'gearshape.fill'}
           size={17}
-          tintColor={contentColor ?? colors.onAccent}
+          tintColor={contentColor ?? (tile ? '#FFFFFF' : colors.onAccent)}
           weight="medium"
           resizeMode="scaleAspectFit"
           style={{ width: 20, height: 20 }}
@@ -830,6 +886,28 @@ export function SettingsActionRow({
         style={{ minHeight: 52, paddingHorizontal: 16, gap: 12 }}>
         <Text style={{ fontSize: 17, letterSpacing: -0.43, color }}>{title}</Text>
         {loading ? <ActivityIndicator size="small" /> : null}
+      </View>
+    </RowPressable>
+  );
+}
+
+/**
+ * A row that opens a web page. iOS: tinted title with the arrow-up-right
+ * glyph, as in Settings' "Learn more" rows. Android: a list row with the
+ * open-in-new icon.
+ */
+export function SettingsLinkRow({ title, onPress }: { title: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  if (!IOS) {
+    return <SettingsRow icon="open-in-new" title={title} onPress={onPress} />;
+  }
+  return (
+    <RowPressable onPress={onPress} accessibilityLabel={title}>
+      <View
+        className="flex-row items-center justify-between"
+        style={{ minHeight: 52, paddingHorizontal: 16, gap: 12 }}>
+        <Text style={{ flex: 1, fontSize: 17, letterSpacing: -0.43, color: colors.accent }}>{title}</Text>
+        <SymbolView name="arrow.up.right" size={13} weight="semibold" tintColor={colors.text3} />
       </View>
     </RowPressable>
   );

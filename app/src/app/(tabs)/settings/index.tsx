@@ -1,11 +1,18 @@
 import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { type Href, Redirect, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RowSeparator, SettingsGroup, SettingsRow, SettingsScreen } from '@/components/settings/settings-list';
+import {
+  RowSeparator,
+  SettingsActionRow,
+  SettingsGroup,
+  SettingsRow,
+  SettingsScreen,
+} from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
@@ -73,6 +80,129 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
     }, [])
   );
 
+  const versionLine = `${Constants.expoConfig?.name ?? 'Patchwork'} · v${Constants.expoConfig?.version ?? '1.0.0'}`;
+
+  async function refreshAll() {
+    setRefreshMessage(null);
+    try {
+      await queryClient.invalidateQueries({
+        predicate: (query) =>
+          ['tasks', 'task-lists', 'deck', 'github', 'jira'].includes(String(query.queryKey[0])),
+      });
+      setRefreshMessage('Refresh completed.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Refresh failed.');
+    }
+  }
+
+  if (Platform.OS === 'ios') {
+    // iOS Settings layout: colored SF Symbol tiles, real brand logos, a short
+    // status on the right instead of a sentence underneath, section titles,
+    // and plain tinted button rows for actions.
+    const githubValue =
+      githubConnection.status === 'connected'
+        ? `${githubReposCount} ${githubReposCount === 1 ? 'Repo' : 'Repos'}`
+        : githubConnection.status === 'expired'
+          ? 'Reconnect'
+          : githubReposCount > 0
+            ? `${githubReposCount} Public`
+            : 'Off';
+    const jiraValue =
+      jiraConnection.status !== 'connected'
+        ? 'Off'
+        : Object.keys(jiraConnection.expired).length > 0
+          ? 'Reconnect'
+          : jiraConnection.accounts.length > 1
+            ? `${jiraConnection.accounts.length} Accounts`
+            : 'On';
+    return (
+      <SettingsScreen>
+        {embedded ? (
+          <Text
+            accessibilityRole="header"
+            style={{ paddingTop: insets.top + 12, paddingHorizontal: 4, fontSize: 34, fontWeight: '700', color: colors.text }}>
+            Settings
+          </Text>
+        ) : null}
+
+        <SettingsGroup title="Accounts">
+          {accounts.map((account) => (
+            <Fragment key={account.id}>
+              <SettingsRow
+                icon="server"
+                sf="server.rack"
+                title={account.displayName}
+                subtitle={account.baseUrl.replace(/^https?:\/\//, '')}
+                showChevron
+                onPress={() => go({ pathname: '/settings/account', params: { id: account.id } })}
+              />
+              <RowSeparator />
+            </Fragment>
+          ))}
+          <SettingsActionRow title="Add Account" onPress={() => go('/settings/account')} />
+        </SettingsGroup>
+
+        <SettingsGroup>
+          <SettingsRow
+            icon="palette-outline"
+            sf="paintpalette.fill"
+            title="Appearance"
+            showChevron
+            onPress={() => go('/settings/appearance')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="bell-outline"
+            title="Notifications"
+            showChevron
+            onPress={() => go('/settings/notifications')}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title="Integrations">
+          <SettingsRow
+            leading={<BrandTile icon="github" background="#24292F" />}
+            title="GitHub"
+            value={githubValue}
+            showChevron
+            onPress={() => go('/settings/github')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            leading={<BrandTile icon="jira" background="#1868DB" />}
+            title="Jira"
+            value={jiraValue}
+            showChevron
+            onPress={() => go('/settings/jira')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="star-four-points-outline"
+            title="AI Import"
+            value={hasGemini ? 'On' : 'Off'}
+            showChevron
+            onPress={() => go('/settings/ai')}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup
+          footer={
+            errorMessage ? (
+              <Text style={{ color: colors.danger }}>{errorMessage}</Text>
+            ) : (
+              (refreshMessage ?? undefined)
+            )
+          }>
+          <SettingsActionRow title="Refresh All Data" onPress={refreshAll} />
+        </SettingsGroup>
+
+        <Text style={{ textAlign: 'center', fontSize: 13, color: colors.text3 }}>
+          {versionLine}
+        </Text>
+      </SettingsScreen>
+    );
+  }
+
   return (
     <SettingsScreen>
       {embedded ? (
@@ -139,7 +269,9 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           title="GitHub Issues"
           subtitle={
             githubConnection.status === 'connected'
-              ? `${githubReposCount} repositories selected`
+              ? githubConnection.accounts.length > 1
+                ? `${githubConnection.accounts.length} accounts · ${githubReposCount} repositories`
+                : `${githubReposCount} repositories selected`
               : githubConnection.status === 'expired'
                 ? 'Connection needs attention'
                 : githubReposCount > 0
@@ -154,11 +286,13 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           icon="jira"
           title="Jira"
           subtitle={
-            jiraConnection.status === 'connected'
-              ? `${jiraConnection.credentials.account.displayName} · ${jiraConnection.credentials.site.replace(/^https:\/\//, '')}`
-              : jiraConnection.status === 'expired'
+            jiraConnection.status !== 'connected'
+              ? 'Bring your Jira boards into Boards'
+              : Object.keys(jiraConnection.expired).length > 0
                 ? 'Connection needs attention'
-                : 'Bring your Jira boards into Boards'
+                : jiraConnection.accounts.length > 1
+                  ? `${jiraConnection.accounts.length} accounts`
+                  : `${jiraConnection.accounts[0].account.displayName} · ${jiraConnection.accounts[0].site.replace(/^https:\/\//, '')}`
           }
           showChevron
           onPress={() => go('/settings/jira')}
@@ -198,5 +332,29 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
         {Constants.expoConfig?.name ?? 'Patchwork'} · v{Constants.expoConfig?.version ?? '1.0.0'}
       </Text>
     </SettingsScreen>
+  );
+}
+
+/** A settings tile with a brand's own logo (GitHub, Jira), sized like the SF Symbol tiles. */
+function BrandTile({
+  icon,
+  background,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  background: string;
+}) {
+  return (
+    <View
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 7,
+        borderCurve: 'continuous',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: background,
+      }}>
+      <MaterialCommunityIcons name={icon} size={20} color="#FFFFFF" />
+    </View>
   );
 }

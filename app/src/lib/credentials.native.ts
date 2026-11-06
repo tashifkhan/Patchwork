@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
+import { githubAccountKey, jiraAccountKey } from './account-keys';
 import { aiCredentialId, type AiProviderId } from './ai-models';
 import type { CalDavAccount, GitHubCredentials, JiraCredentials } from './credentials-types';
 import { assertSafeAccountUrl, normalizeServiceUrl } from './secure-url';
@@ -12,6 +13,7 @@ export type {
   NextcloudCredentials,
   ServerType,
 } from './credentials-types';
+export { githubAccountKey, jiraAccountKey } from './account-keys';
 
 const KEYS = {
   accounts: 'patchwork.accounts',
@@ -19,6 +21,10 @@ const KEYS = {
   github: 'patchwork.github.credentials.v2',
   legacyGithub: 'patchwork.github.credentials',
   jira: 'patchwork.jira.credentials.v1',
+  githubIndex: 'patchwork.github.accounts.v1',
+  githubAccount: 'patchwork.github.account.v1',
+  jiraIndex: 'patchwork.jira.accounts.v1',
+  jiraAccount: 'patchwork.jira.account.v1',
   // Legacy single-account keys (migrated on first read).
   legacyBaseUrl: 'patchwork.nextcloud.base-url',
   legacyUsername: 'patchwork.nextcloud.username',
@@ -175,9 +181,106 @@ export async function clearAiApiKey(providerId: AiProviderId): Promise<void> {
   await SecureStore.deleteItemAsync(aiKeyName(providerId), OPTIONS);
 }
 
+// ── Multi-account storage ──────────────────────────────────────────────
+//
+// Each account sits under its own keychain key, with a small index of ids
+// beside it. One key per account keeps every value well under the size
+// SecureStore handles reliably, however many accounts are connected.
+
+async function readIndex(key: string): Promise<string[]> {
+  const raw = await SecureStore.getItemAsync(key, OPTIONS);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readList<T>(
+  indexKey: string,
+  itemKey: (id: string) => string,
+  valid: (value: unknown) => value is T
+): Promise<T[]> {
+  const ids = await readIndex(indexKey);
+  const items = await Promise.all(
+    ids.map(async (id): Promise<T | null> => {
+      const raw = await SecureStore.getItemAsync(itemKey(id), OPTIONS);
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        return valid(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return items.filter((item): item is T => item != null);
+}
+
+async function upsertItem(indexKey: string, itemKey: (id: string) => string, id: string, value: unknown) {
+  await SecureStore.setItemAsync(itemKey(id), JSON.stringify(value), OPTIONS);
+  const ids = await readIndex(indexKey);
+  if (!ids.includes(id)) await SecureStore.setItemAsync(indexKey, JSON.stringify([...ids, id]), OPTIONS);
+}
+
+async function removeItem(indexKey: string, itemKey: (id: string) => string, id: string) {
+  await SecureStore.deleteItemAsync(itemKey(id), OPTIONS);
+  const ids = await readIndex(indexKey);
+  await SecureStore.setItemAsync(indexKey, JSON.stringify(ids.filter((candidate) => candidate !== id)), OPTIONS);
+}
+
+async function clearList(indexKey: string, itemKey: (id: string) => string) {
+  const ids = await readIndex(indexKey);
+  await Promise.all(ids.map((id) => SecureStore.deleteItemAsync(itemKey(id), OPTIONS)));
+  await SecureStore.deleteItemAsync(indexKey, OPTIONS);
+}
+
 // ── GitHub ─────────────────────────────────────────────────────────────
 
-export async function getGitHubCredentials(): Promise<GitHubCredentials | null> {
+const githubItemKey = (id: string) => `${KEYS.githubAccount}.${id}`;
+
+/** Every connected GitHub account, in the order they were added. */
+export async function getGitHubAccounts(): Promise<GitHubCredentials[]> {
+  const accounts = await readList(KEYS.githubIndex, githubItemKey, isGitHubCredentials);
+  if (accounts.length > 0) return accounts;
+  // One-time move from the single-account key (and its older predecessor).
+  const single = await readSingleGitHubCredentials();
+  if (!single) return [];
+  await upsertItem(KEYS.githubIndex, githubItemKey, githubAccountKey(single), single);
+  await SecureStore.deleteItemAsync(KEYS.github, OPTIONS);
+  return [single];
+}
+
+/** One account by its GitHub user id, or the first account when no id is given. */
+export async function getGitHubCredentials(accountId?: number): Promise<GitHubCredentials | null> {
+  const accounts = await getGitHubAccounts();
+  if (accountId == null) return accounts[0] ?? null;
+  return accounts.find((account) => account.account.id === accountId) ?? null;
+}
+
+/** Add an account, or replace the stored token of one already connected. */
+export async function saveGitHubCredentials(creds: GitHubCredentials): Promise<void> {
+  if (!isGitHubCredentials(creds)) throw new Error('Invalid GitHub credentials.');
+  await getGitHubAccounts(); // finish any migration first so it can't overwrite this
+  await upsertItem(KEYS.githubIndex, githubItemKey, githubAccountKey(creds), creds);
+}
+
+export async function removeGitHubCredentials(creds: Pick<GitHubCredentials, 'account'>): Promise<void> {
+  await removeItem(KEYS.githubIndex, githubItemKey, githubAccountKey(creds));
+}
+
+/** Remove every GitHub account. */
+export async function clearGitHubCredentials(): Promise<void> {
+  await clearList(KEYS.githubIndex, githubItemKey);
+  await Promise.all([
+    SecureStore.deleteItemAsync(KEYS.github, OPTIONS),
+    SecureStore.deleteItemAsync(KEYS.legacyGithub, OPTIONS),
+  ]);
+}
+
+async function readSingleGitHubCredentials(): Promise<GitHubCredentials | null> {
   const raw = await SecureStore.getItemAsync(KEYS.github, OPTIONS);
   if (raw) {
     try {
@@ -187,20 +290,7 @@ export async function getGitHubCredentials(): Promise<GitHubCredentials | null> 
       return null;
     }
   }
-
   return migrateLegacyGitHubCredentials();
-}
-
-export async function saveGitHubCredentials(creds: GitHubCredentials): Promise<void> {
-  if (!isGitHubCredentials(creds)) throw new Error('Invalid GitHub credentials.');
-  await SecureStore.setItemAsync(KEYS.github, JSON.stringify(creds), OPTIONS);
-}
-
-export async function clearGitHubCredentials(): Promise<void> {
-  await Promise.all([
-    SecureStore.deleteItemAsync(KEYS.github, OPTIONS),
-    SecureStore.deleteItemAsync(KEYS.legacyGithub, OPTIONS),
-  ]);
 }
 
 async function migrateLegacyGitHubCredentials(): Promise<GitHubCredentials | null> {
@@ -235,7 +325,6 @@ async function migrateLegacyGitHubCredentials(): Promise<GitHubCredentials | nul
       },
       validatedAt: new Date(0).toISOString(),
     };
-    await saveGitHubCredentials(migrated);
     await SecureStore.deleteItemAsync(KEYS.legacyGithub, OPTIONS);
     return migrated;
   } catch {
@@ -263,24 +352,46 @@ function isGitHubCredentials(value: unknown): value is GitHubCredentials {
 
 // ── Jira ───────────────────────────────────────────────────────────────
 
-export async function getJiraCredentials(): Promise<JiraCredentials | null> {
+const jiraItemKey = (id: string) => `${KEYS.jiraAccount}.${id}`;
+
+/** Every connected Jira login, in the order they were added. */
+export async function getJiraAccounts(): Promise<JiraCredentials[]> {
+  const accounts = await readList(KEYS.jiraIndex, jiraItemKey, isJiraCredentials);
+  if (accounts.length > 0) return accounts.map(withJiraId);
   const raw = await SecureStore.getItemAsync(KEYS.jira, OPTIONS);
-  if (!raw) return null;
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return isJiraCredentials(parsed) ? parsed : null;
+    if (!isJiraCredentials(parsed)) return [];
+    const single = withJiraId(parsed);
+    await upsertItem(KEYS.jiraIndex, jiraItemKey, single.id, single);
+    await SecureStore.deleteItemAsync(KEYS.jira, OPTIONS);
+    return [single];
   } catch {
-    return null;
+    return [];
   }
 }
 
+/** Add a Jira login, or replace the token of one already connected. */
 export async function saveJiraCredentials(creds: JiraCredentials): Promise<void> {
   if (!isJiraCredentials(creds)) throw new Error('Invalid Jira credentials.');
-  await SecureStore.setItemAsync(KEYS.jira, JSON.stringify(creds), OPTIONS);
+  await getJiraAccounts();
+  const record = withJiraId(creds);
+  await upsertItem(KEYS.jiraIndex, jiraItemKey, record.id, record);
 }
 
+export async function removeJiraCredentials(id: string): Promise<void> {
+  await removeItem(KEYS.jiraIndex, jiraItemKey, id);
+}
+
+/** Remove every Jira login. */
 export async function clearJiraCredentials(): Promise<void> {
+  await clearList(KEYS.jiraIndex, jiraItemKey);
   await SecureStore.deleteItemAsync(KEYS.jira, OPTIONS);
+}
+
+function withJiraId(creds: JiraCredentials): JiraCredentials {
+  return { ...creds, id: jiraAccountKey(creds) };
 }
 
 function isJiraCredentials(value: unknown): value is JiraCredentials {

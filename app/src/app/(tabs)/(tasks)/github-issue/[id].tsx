@@ -96,7 +96,7 @@ function IssueDocument({
 
   async function save(patch: { title?: string; body?: string }) {
     try {
-      await updateIssue.mutateAsync({ repo: issue.repo, issueNumber: issue.number, patch });
+      await updateIssue.mutateAsync({ repo: issue.repo, issueNumber: issue.number, patch, accountId: issue.accountId });
     } catch (error) {
       setAlert({
         title: 'Could not save to GitHub',

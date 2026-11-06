@@ -5,6 +5,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { getApiBaseUrl, setApiBaseUrl } from '@/api/client';
 import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/lib/ai-models';
 import type { JiraIssueScope } from '@/api/jira';
+import { normalizeReminderOffsets } from '@/lib/reminder-offsets';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import type {
   GitHubIssueScope,
@@ -41,7 +42,11 @@ interface SettingsState {
   /** Master switch for all touch feedback (see `@/lib/haptics`). */
   hapticsEnabled: boolean;
   notificationsEnabled: boolean;
-  defaultReminderMinutes: number;
+  /**
+   * Minutes before the due time to remind, one notification each (0 = at
+   * the due time). Used for tasks that set no reminder of their own.
+   */
+  defaultReminderOffsets: number[];
   aiDefaultListId: string | null;
   aiModelSelections: AiModelSelection[];
   aiBaseUrlOverrides: Partial<Record<AiProviderId, string>>;
@@ -56,6 +61,9 @@ interface SettingsState {
   favoriteBoards: string[];
   /** Which Jira issues boards show: assigned to me, reported by me, or either. */
   jiraIssueScope: JiraIssueScope;
+  /** Per Jira board ref: the sprint or backlog last shown (see `jiraViewKey`). */
+  jiraBoardViews: Record<string, string>;
+  setJiraBoardView: (ref: string, viewKey: string) => void;
   setJiraIssueScope: (scope: JiraIssueScope) => void;
   /** Most recently opened boards, newest first. */
   recentBoards: string[];
@@ -72,7 +80,7 @@ interface SettingsState {
   setTabBarLabels: (enabled: boolean) => void;
   setHapticsEnabled: (enabled: boolean) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
-  setDefaultReminderMinutes: (minutes: number) => void;
+  setDefaultReminderOffsets: (offsets: number[]) => void;
   setAiDefaultListId: (listId: string | null) => void;
   setAiModelSelections: (selections: AiModelSelection[]) => void;
   setAiBaseUrlOverride: (providerId: AiProviderId, baseUrl: string) => void;
@@ -97,7 +105,7 @@ export const useSettingsStore = create<SettingsState>()(
       tabBarLabels: false,
       hapticsEnabled: true,
       notificationsEnabled: true,
-      defaultReminderMinutes: 0,
+      defaultReminderOffsets: [0],
       aiDefaultListId: null,
       aiModelSelections: DEFAULT_AI_MODELS,
       aiBaseUrlOverrides: {},
@@ -109,6 +117,9 @@ export const useSettingsStore = create<SettingsState>()(
       favoriteBoards: [],
       recentBoards: [],
       jiraIssueScope: 'assigned',
+      jiraBoardViews: {},
+      setJiraBoardView: (ref, viewKey) =>
+        set((state) => ({ jiraBoardViews: { ...state.jiraBoardViews, [ref]: viewKey } })),
       setJiraIssueScope: (jiraIssueScope) => set({ jiraIssueScope }),
       toggleFavoriteBoard: (ref) =>
         set((state) => ({
@@ -140,7 +151,7 @@ export const useSettingsStore = create<SettingsState>()(
       setTabBarLabels: (tabBarLabels) => set({ tabBarLabels }),
       setHapticsEnabled: (hapticsEnabled) => set({ hapticsEnabled }),
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
-      setDefaultReminderMinutes: (defaultReminderMinutes) => set({ defaultReminderMinutes }),
+      setDefaultReminderOffsets: (offsets) => set({ defaultReminderOffsets: normalizeReminderOffsets(offsets) }),
       setAiDefaultListId: (aiDefaultListId) => set({ aiDefaultListId }),
       setAiModelSelections: (aiModelSelections) => set({ aiModelSelections }),
       // Store raw while typing; ai.native.ts validates before sending API keys.
@@ -185,7 +196,7 @@ export const useSettingsStore = create<SettingsState>()(
         tabBarLabels,
         hapticsEnabled,
         notificationsEnabled,
-        defaultReminderMinutes,
+        defaultReminderOffsets,
         aiDefaultListId,
         aiModelSelections,
         aiBaseUrlOverrides,
@@ -196,6 +207,7 @@ export const useSettingsStore = create<SettingsState>()(
         favoriteBoards,
         recentBoards,
         jiraIssueScope,
+        jiraBoardViews,
       }) => ({
         proxyUrl,
         themeMode,
@@ -208,7 +220,7 @@ export const useSettingsStore = create<SettingsState>()(
         tabBarLabels,
         hapticsEnabled,
         notificationsEnabled,
-        defaultReminderMinutes,
+        defaultReminderOffsets,
         aiDefaultListId,
         aiModelSelections,
         aiBaseUrlOverrides,
@@ -219,8 +231,9 @@ export const useSettingsStore = create<SettingsState>()(
         favoriteBoards,
         recentBoards,
         jiraIssueScope,
+        jiraBoardViews,
       }),
-      version: 2,
+      version: 3,
       migrate: (persistedState, version) => {
         const persisted = (persistedState ?? {}) as Record<string, unknown>;
         if (version < 2 && !Array.isArray(persisted.githubRepositories)) {
@@ -232,6 +245,12 @@ export const useSettingsStore = create<SettingsState>()(
             fullName,
           }));
         }
+        // v3: one lead time became a list of reminders.
+        if (version < 3 && !Array.isArray(persisted.defaultReminderOffsets)) {
+          const minutes = typeof persisted.defaultReminderMinutes === 'number' ? persisted.defaultReminderMinutes : 0;
+          persisted.defaultReminderOffsets = [Math.max(0, minutes)];
+        }
+        delete persisted.defaultReminderMinutes;
         delete persisted.githubRepos;
         delete persisted.githubConnected;
         delete persisted.githubMode;

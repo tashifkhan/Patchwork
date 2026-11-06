@@ -26,8 +26,10 @@ export const queryKeys = {
   githubRepos: ['github', 'repos'] as const,
   githubIssue: (repo: string, issueNumber: number) =>
     ['github', 'issue', repo, issueNumber] as const,
-  jiraBoards: ['jira', 'boards'] as const,
-  jiraBoard: (boardId: number, scope: string) => ['jira', 'board', boardId, scope] as const,
+  jiraBoards: (accountId: string) => ['jira', 'boards', accountId] as const,
+  /** `view` is a `jiraViewKey`: a sprint, the backlog, or the board's default. */
+  jiraBoard: (accountId: string, boardId: number, scope: string, view = 'default') =>
+    ['jira', 'board', accountId, boardId, scope, view] as const,
   aiCatalog: ['ai', 'catalog'] as const,
   aiKeys: ['ai', 'keys'] as const,
 };

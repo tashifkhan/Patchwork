@@ -12,11 +12,23 @@ import { useSettingsStore } from '@/stores/settings-store';
 
 const FLOATING_SCREENS = ['(tasks)', 'deck', 'settings', 'search'] as const;
 
+// iOS shows the filled symbol for the selected tab, like the system apps.
 const NATIVE_TABS = [
-  { name: '(tasks)', label: 'Tasks', sf: 'checklist', md: 'checklist' },
-  { name: 'deck', label: 'Boards', sf: 'rectangle.split.3x1', md: 'view_column' },
-  { name: 'settings', label: 'Settings', sf: 'gear', md: 'settings' },
-  { name: 'search', label: 'Search', sf: 'magnifyingglass', md: 'search', role: 'search' },
+  { name: '(tasks)', label: 'Tasks', sf: { default: 'checklist', selected: 'checklist' }, md: 'checklist' },
+  {
+    name: 'deck',
+    label: 'Boards',
+    sf: { default: 'rectangle.split.3x1', selected: 'rectangle.split.3x1.fill' },
+    md: 'view_column',
+  },
+  { name: 'settings', label: 'Settings', sf: { default: 'gearshape', selected: 'gearshape.fill' }, md: 'settings' },
+  {
+    name: 'search',
+    label: 'Search',
+    sf: { default: 'magnifyingglass', selected: 'magnifyingglass' },
+    md: 'search',
+    role: 'search',
+  },
 ] as const;
 
 export default function AppTabs() {
@@ -37,9 +49,28 @@ export default function AppTabs() {
 }
 
 function MaterialNativeTabs() {
-  const { colors, scheme } = useTheme();
+  const { colors } = useTheme();
   const inactiveColor = colors.text2;
   const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
+
+  if (Platform.OS === 'ios') {
+    // The system tab bar: Liquid Glass on iOS 26+, with the app accent as the
+    // only tint. A custom background or blur here would turn the glass off.
+    return (
+      <NativeTabs minimizeBehavior="onScrollDown" sidebarAdaptable tintColor={colors.accent}>
+        {NATIVE_TABS.map((tab) => (
+          <NativeTabs.Trigger
+            key={tab.name}
+            name={tab.name}
+            role={'role' in tab ? tab.role : undefined}
+            listeners={{ tabPress: () => haptics.selection() }}>
+            <NativeTabs.Trigger.Icon sf={tab.sf} />
+            <NativeTabs.Trigger.Label>{tab.label}</NativeTabs.Trigger.Label>
+          </NativeTabs.Trigger>
+        ))}
+      </NativeTabs>
+    );
+  }
 
   return (
     <NativeTabs
@@ -58,13 +89,6 @@ function MaterialNativeTabs() {
       indicatorColor={colors.selectionBg}
       rippleColor={colors.gray3}
       shadowColor={colors.separator}
-      blurEffect={
-        Platform.OS === 'ios'
-          ? scheme === 'dark'
-            ? 'systemMaterialDark'
-            : 'systemMaterialLight'
-          : undefined
-      }
       labelStyle={{
         default: { color: inactiveColor, fontSize: 12, fontWeight: '500' },
         selected: { color: colors.accent, fontSize: 12, fontWeight: '500' },
@@ -77,7 +101,7 @@ function MaterialNativeTabs() {
           // The native bar owns the pill/label animation; we only add the
           // selection tick so switching destinations feels physical.
           listeners={{ tabPress: () => haptics.selection() }}>
-          <NativeTabs.Trigger.Icon sf={tab.sf} md={tab.md} />
+          <NativeTabs.Trigger.Icon md={tab.md} />
           <NativeTabs.Trigger.Label>{tab.label}</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
       ))}

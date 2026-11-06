@@ -39,6 +39,14 @@ export default function GitHubRepositoriesScreen() {
   const setSelections = useSettingsStore((state) => state.setGitHubRepositories);
   const connection = useGitHubSessionStore((state) => state.state);
   const authenticated = connection.status === 'connected';
+  // With more than one account, each row says which one can see it.
+  const accountLogins = useMemo(
+    () =>
+      connection.status === 'connected' && connection.accounts.length > 1
+        ? new Map(connection.accounts.map((account) => [account.account.id, account.account.login]))
+        : null,
+    [connection]
+  );
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<RepositoryFilter>('all');
 
@@ -66,7 +74,8 @@ export default function GitHubRepositoriesScreen() {
         selection.id !== updated.id ||
         selection.fullName !== updated.fullName ||
         selection.canWriteIssues !== updated.canWriteIssues ||
-        selection.visibility !== updated.visibility
+        selection.visibility !== updated.visibility ||
+        selection.accountId !== updated.accountId
       ) {
         changed = true;
         return updated;
@@ -232,6 +241,7 @@ export default function GitHubRepositoriesScreen() {
           <View style={segmentStyle(index, filtered.length, cell)}>
             <RepositoryRow
               repository={item}
+              accountLogin={item.accountId != null ? accountLogins?.get(item.accountId) : undefined}
               selected={selectedNames.has(item.full_name.toLowerCase())}
               onToggle={() => toggleRepository(item)}
             />
@@ -272,7 +282,7 @@ export default function GitHubRepositoriesScreen() {
               title={search ? 'No matching repositories' : 'No repositories available'}
               subtitle={
                 authenticated
-                  ? 'Check the repositories granted to the GitHub App.'
+                  ? 'Check the repositories your tokens can access.'
                   : 'Add a public repository from the previous screen.'
               }
             />
@@ -285,10 +295,13 @@ export default function GitHubRepositoriesScreen() {
 
 function RepositoryRow({
   repository,
+  accountLogin,
   selected,
   onToggle,
 }: {
   repository: GitHubRepo;
+  /** Set when several accounts are connected. */
+  accountLogin?: string;
   selected: boolean;
   onToggle: () => void;
 }) {
@@ -303,7 +316,9 @@ function RepositoryRow({
   return (
     <SettingsToggleRow
       title={repository.full_name}
-      subtitle={repository.private ? `Private · ${status}` : status}
+      subtitle={[repository.private ? 'Private' : null, accountLogin ? `@${accountLogin}` : null, status]
+        .filter(Boolean)
+        .join(' · ')}
       value={selected}
       disabled={unavailable}
       onValueChange={onToggle}

@@ -18,8 +18,10 @@ import {
 } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { RELAYROOM_DEFAULT_URL, fetchRelayroomModelOptions, relayroomTarget } from '@/api/relayroom';
 import { useAiCatalog, useInvalidateAiKeys } from '@/hooks/use-ai';
-import { aiCredentialId, modelBadges, type AiModelInfo } from '@/lib/ai-models';
+import { aiCredentialId, modelBadges, type AiModelInfo, type ReasoningEffort } from '@/lib/ai-models';
+import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { clearAiApiKey, getAiApiKey, saveAiApiKey } from '@/lib/credentials';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
@@ -33,7 +35,7 @@ export default function AiProviderScreen() {
   const { colors } = useTheme();
   const invalidateKeys = useInvalidateAiKeys();
 
-  const { providers } = useAiCatalog();
+  const { providers, relayroom, refresh } = useAiCatalog();
   const provider = providers.find((item) => item.id === id) ?? null;
 
   const aiModelSelections = useSettingsStore((s) => s.aiModelSelections);
@@ -115,9 +117,37 @@ export default function AiProviderScreen() {
               output: model?.output,
               reasoning: model?.reasoning,
               reasoningEfforts: model?.reasoningEfforts,
+              modes: model?.modes,
             },
           ]
     );
+    if (isRelay && !selectedIds.has(modelId)) void loadRouteOptions(modelId);
+  }
+
+  /**
+   * RelayRoom is the authority on what a route accepts: exact reasoning
+   * levels, and whether it carries images and audio. Ask once on pick.
+   */
+  async function loadRouteOptions(modelId: string) {
+    try {
+      const apiKey = await getAiApiKey('relayroom');
+      if (!apiKey) return;
+      const baseUrl = assertSafeAiBaseUrl(aiBaseUrlOverrides.relayroom?.trim() || RELAYROOM_DEFAULT_URL);
+      const options = await fetchRelayroomModelOptions({ baseUrl, apiKey }, relayroomTarget(modelId));
+      const efforts = options.reasoningLevels.filter((level): level is ReasoningEffort =>
+        ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(level)
+      );
+      const store = useSettingsStore.getState();
+      store.setAiModelSelections(
+        store.aiModelSelections.map((s) =>
+          s.providerId === 'relayroom' && s.modelId === modelId
+            ? { ...s, input: options.inputTypes, reasoning: efforts.length > 0, reasoningEfforts: efforts }
+            : s
+        )
+      );
+    } catch {
+      // Keep the catalog capabilities; the chain still works without them.
+    }
   }
 
   async function saveKey() {
@@ -127,6 +157,7 @@ export default function AiProviderScreen() {
       await saveAiApiKey(provider.id, key);
       setHasKey(true);
       invalidateKeys();
+      if (provider.id === 'relayroom') void refresh();
       setAlert({ title: 'Saved', message: 'API key stored securely on this device.' });
     } catch (error) {
       setAlert({
@@ -187,6 +218,9 @@ export default function AiProviderScreen() {
 
   const keyFooter = [
     hasKey ? 'Stored in the Keychain on this device.' : `Paste your ${provider.env}.`,
+    provider.id === 'relayroom'
+      ? 'Issue a gateway key in the RelayRoom console under API keys. On a phone, replace 127.0.0.1 with your computer\'s LAN address.'
+      : null,
     sharesKeyWith.length > 0
       ? `The same ${provider.env} is used by ${sharesKeyWith.join(', ')}, so saving here configures both.`
       : null,
@@ -194,8 +228,9 @@ export default function AiProviderScreen() {
     .filter(Boolean)
     .join(' ');
 
+  const isRelay = provider.kind === 'relayroom';
   const baseUrlOverride =
-    provider.kind === 'openai-compatible' && !provider.custom;
+    (provider.kind === 'openai-compatible' && !provider.custom) || isRelay;
 
   return (
     <>
@@ -254,7 +289,7 @@ export default function AiProviderScreen() {
                 onChangeText={(value) => setAiBaseUrlOverride(provider.id, value)}
                 autoCapitalize="none"
                 keyboardType="url"
-                placeholder="OpenAI-compatible URL"
+                placeholder={isRelay ? RELAYROOM_DEFAULT_URL : 'OpenAI-compatible URL'}
               />
             </>
           ) : null}
@@ -291,9 +326,18 @@ export default function AiProviderScreen() {
             footer={
               visibleModels.length === 0
                 ? provider.models.length === 0
-                  ? 'This provider has no catalog models. Add a model id below.'
+                  ? isRelay
+                    ? relayroom.error ??
+                      (relayroom.loading
+                        ? 'Loading your gateway catalog…'
+                        : hasKey
+                          ? 'The gateway has no live models. Add credentials in the RelayRoom console.'
+                          : 'Save a gateway key to load your aliases and every model RelayRoom routes.')
+                    : 'This provider has no catalog models. Add a model id below.'
                   : 'No models match that search.'
-                : 'Checked models join the fallback chain on the AI import page.'
+                : isRelay
+                  ? 'Aliases fail over along their ladder. Each model can route through Auto, Subscription or API key on the AI import page.'
+                  : 'Checked models join the fallback chain on the AI import page.'
             }>
             {visibleModels.slice(0, limit).map((model, index) => {
               const badges = modelBadges(model);
@@ -302,7 +346,13 @@ export default function AiProviderScreen() {
                   {index > 0 ? <SettingsDivider /> : null}
                   <SettingsRow
                     title={model.name}
-                    subtitle={`${badges.length > 0 ? `${badges.join(' · ')} · ` : ''}${model.id}`}
+                    subtitle={
+                      isRelay
+                        ? [model.providerName, badges.join(' · ') || null, model.alias ? null : relayroomTarget(model.id).model]
+                            .filter(Boolean)
+                            .join(' · ')
+                        : `${badges.length > 0 ? `${badges.join(' · ')} · ` : ''}${model.id}`
+                    }
                     selected={selectedIds.has(model.id)}
                     onPress={() => toggleModel(model.id, model)}
                   />

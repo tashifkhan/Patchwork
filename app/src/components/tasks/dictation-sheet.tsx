@@ -25,10 +25,10 @@ import { dictateTasks } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
-import { useSheetPanel } from '@/components/ui/sheet-panel';
+import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
 import { haptics } from '@/lib/haptics';
-import { DURATION, SPRING } from '@/lib/motion';
+import { DURATION, EASING } from '@/lib/motion';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { Text, View } from '@/tw';
 
@@ -230,15 +230,13 @@ export function DictationSheet({
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={() => void close()}>
-      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={{ flex: 1 }}>
+      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
         <Pressable
           onPress={() => void close()}
           accessibilityLabel="Cancel dictation"
           style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'flex-end' }}>
           <Animated.View
-            entering={SlideInDown.springify()
-              .damping(SPRING.spatialSlow.damping)
-              .stiffness(SPRING.spatialSlow.stiffness)}
+            entering={SlideInDown.duration(DURATION.medium4).easing(EASING.emphasizedDecelerate)}
             onStartShouldSetResponder={() => true}
             style={{
               ...panel.style,

@@ -4,7 +4,7 @@ import type { JiraBoard, JiraBoardDetail, JiraIssue } from '@/api/jira';
 /**
  * One shape for Nextcloud Deck boards and Jira boards, so the Boards tab can
  * list and render both the same way. A board ref is `deck:<id>` or
- * `jira:<id>`.
+ * `jira:<id>@<login id>` (older `jira:<id>` refs mean the first login).
  */
 export type BoardSource = 'deck' | 'jira';
 
@@ -18,6 +18,8 @@ export interface BoardSummary {
   color?: string;
   /** Image for the tile (Jira project avatar). */
   imageUrl?: string;
+  /** Jira: the connected login the board belongs to. */
+  accountId?: string;
 }
 
 export interface BoardCardItem {
@@ -53,6 +55,14 @@ export function parseBoardRef(ref: string): { source: BoardSource; id: string } 
   return match ? { source: match[1] as BoardSource, id: match[2] } : null;
 }
 
+/** Split the id part of a Jira board ref into the board id and its login. */
+export function parseJiraBoardId(id: string): { boardId: number; accountId?: string } | null {
+  const at = id.indexOf('@');
+  const boardId = Number(at < 0 ? id : id.slice(0, at));
+  if (!Number.isFinite(boardId)) return null;
+  return at < 0 ? { boardId } : { boardId, accountId: id.slice(at + 1) || undefined };
+}
+
 export function deckBoardSummary(board: DeckBoard, showAccount: boolean): BoardSummary {
   const color = typeof board.raw.color === 'string' ? `#${board.raw.color.replace(/^#/, '')}` : undefined;
   return {
@@ -64,13 +74,16 @@ export function deckBoardSummary(board: DeckBoard, showAccount: boolean): BoardS
   };
 }
 
-export function jiraBoardSummary(board: JiraBoard): BoardSummary {
+/** `accountLabel` names the login when more than one is connected. */
+export function jiraBoardSummary(board: JiraBoard, accountLabel?: string): BoardSummary {
+  const key = board.projectKey ?? board.type.toUpperCase();
   return {
-    ref: boardRef('jira', board.id),
+    ref: boardRef('jira', `${board.id}@${board.accountId}`),
     source: 'jira',
     title: board.projectName && board.name.toLowerCase().includes('board') ? board.projectName : board.name,
-    subtitle: board.projectKey ?? board.type.toUpperCase(),
+    subtitle: accountLabel ? `${key} · ${accountLabel}` : key,
     imageUrl: board.projectAvatarUrl,
+    accountId: board.accountId,
   };
 }
 

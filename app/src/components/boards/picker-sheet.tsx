@@ -4,9 +4,9 @@ import { Modal, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
-import { useSheetPanel } from '@/components/ui/sheet-panel';
+import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { haptics } from '@/lib/haptics';
-import { DURATION, SPRING } from '@/lib/motion';
+import { DURATION, EASING } from '@/lib/motion';
 import { ScrollView, Text, View } from '@/tw';
 
 export interface PickerSheetItem {
@@ -47,15 +47,13 @@ export function PickerSheet({
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={onClose}>
-      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={{ flex: 1 }}>
+      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
         <Pressable
           onPress={onClose}
           accessibilityLabel="Close"
           style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'flex-end' }}>
           <Animated.View
-            entering={SlideInDown.springify()
-              .damping(SPRING.spatialSlow.damping)
-              .stiffness(SPRING.spatialSlow.stiffness)}
+            entering={SlideInDown.duration(DURATION.medium4).easing(EASING.emphasizedDecelerate)}
             onStartShouldSetResponder={() => true}
             style={{
               ...panel.style,

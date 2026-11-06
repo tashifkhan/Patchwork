@@ -39,6 +39,9 @@ export function useTabBarFabOffset(gap = 12): number {
   // The rail leaves the screen running to the bottom edge, so clear the
   // gesture bar instead of a tab bar.
   if (navigationRail) return insets.bottom + 16;
+  // iOS native tabs float over the scene (Liquid Glass), and the bottom
+  // safe-area inset already includes the tab bar, so clear it.
+  if (Platform.OS === 'ios') return insets.bottom + 16;
   return 16;
 }
 

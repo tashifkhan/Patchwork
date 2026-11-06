@@ -1,3 +1,4 @@
+import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { createElement } from 'react';
 import { Platform } from 'react-native';
 
@@ -15,6 +16,25 @@ export const stackScreenOptions = {
   headerBackButtonDisplayMode: 'minimal' as const,
 };
 
+/** iOS 26+: the system draws Liquid Glass bars, so headers stay transparent. */
+export const IOS_GLASS = Platform.OS === 'ios' && isLiquidGlassAvailable();
+
+/**
+ * The iOS 26 header: transparent, so UIKit draws its own glass with the scroll
+ * edge effect and content scrolls under it. Every screen's main scroll view
+ * must use `contentInsetAdjustmentBehavior="automatic"` to start below it.
+ * Large titles work here: they were only invisible on a solid header.
+ * (Older iOS keeps the solid themed header.)
+ */
+export const iosGlassHeaderOptions = {
+  headerTransparent: true,
+  headerStyle: { backgroundColor: 'transparent' },
+  headerLargeStyle: { backgroundColor: 'transparent' },
+  headerShadowVisible: false,
+  headerLargeTitleShadowVisible: false,
+  headerBackButtonDisplayMode: 'minimal' as const,
+};
+
 /**
  * Themed stack options. Always prefer this over bare `stackScreenOptions` so
  * screen chrome (content + header) tracks dark/light mode instead of falling
@@ -24,14 +44,24 @@ export const stackScreenOptions = {
  * Material icon button (`HeaderBackButtonLeft`) so every stack back control
  * matches the rest of the circular chrome.
  */
-export function themedStackScreenOptions(colors: ThemeColors) {
+export function themedStackScreenOptions(colors: ThemeColors, background: string = colors.bg) {
+  if (IOS_GLASS) {
+    return {
+      ...stackScreenOptions,
+      ...iosGlassHeaderOptions,
+      contentStyle: { backgroundColor: background },
+      headerTintColor: colors.accent,
+      headerTitleStyle: { color: colors.text },
+      headerLargeTitleStyle: { color: colors.text },
+    };
+  }
   return {
     ...stackScreenOptions,
-    contentStyle: { backgroundColor: colors.bg },
-    headerStyle: { backgroundColor: colors.bg },
+    contentStyle: { backgroundColor: background },
+    headerStyle: { backgroundColor: background },
     headerTintColor: colors.accent,
     headerTitleStyle: { color: colors.text },
-    headerLargeStyle: { backgroundColor: colors.bg },
+    headerLargeStyle: { backgroundColor: background },
     ...(Platform.OS === 'android'
       ? {
           // Hide the native up-arrow so only the circular headerLeft renders.

@@ -63,7 +63,7 @@ export function AiProviderIcon({ providerId, custom, configured, size = 44 }: Ai
         />
       ) : (
         <MaterialCommunityIcons
-          name={custom ? 'server-network' : 'api'}
+          name={custom ? 'server-network' : providerId === 'relayroom' ? 'router-network' : 'api'}
           size={glyph}
           color={colors.text2}
         />
