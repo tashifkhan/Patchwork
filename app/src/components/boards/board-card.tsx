@@ -22,7 +22,8 @@ export const BoardCard = memo(function BoardCard({
   card: BoardCardItem;
   imageHeaders?: Record<string, string>;
   onPress: () => void;
-  onLongPress: () => void;
+  /** Without it the card is draggable, and the board's gesture owns long-press. */
+  onLongPress?: () => void;
 }) {
   const { colors } = useTheme();
   const due = formatRelativeDue(card.due ?? null);
@@ -35,7 +36,7 @@ export const BoardCard = memo(function BoardCard({
         delayLongPress={300}
         accessibilityRole="button"
         accessibilityLabel={[card.key, card.title].filter(Boolean).join(', ')}
-        accessibilityHint="Long press to move to another column"
+        accessibilityHint={onLongPress ? 'Long press to move to another column' : 'Long press and drag to move'}
         android_ripple={{ color: colors.separator }}
         style={({ pressed }) => ({
           paddingHorizontal: 16,

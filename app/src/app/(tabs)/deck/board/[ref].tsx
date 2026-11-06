@@ -1,14 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Platform, Pressable, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, useWindowDimensions, type FlatList, type View as RNView } from 'react-native';
+import { LegacyFlatList } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { jiraImageHeaders, sprintTiming } from '@/api/jira';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 
 import { BoardColumn } from '@/components/boards/board-column';
+import { useBoardDrag, type DragDrop } from '@/components/boards/board-drag';
 import { GlassIconButton } from '@/components/ui/glass-button';
 import { BoardTile } from '@/components/boards/board-tile';
 import { FilterSheet, JIRA_SCOPES } from '@/components/boards/filter-sheet';
@@ -23,6 +25,7 @@ import {
   applyFilters,
   EMPTY_FILTERS,
   filterFacets,
+  groupBySprint,
   parseBoardRef,
   parseJiraBoardId,
   type BoardCardItem,
@@ -58,7 +61,8 @@ const MAX_WIDE_COLUMN = 400;
 /**
  * One board as horizontal columns, like the Jira app's Board view. Swipe
  * between columns; each one scrolls its own cards and has an inline Create.
- * Long-press a card to move it to another column.
+ * Long-press a card and drag it to reorder it or drop it in another column;
+ * long-press without moving opens the "Move to" sheet.
  */
 export default function BoardScreen() {
   const { ref = '' } = useLocalSearchParams<{ ref: string }>();
@@ -88,7 +92,11 @@ export default function BoardScreen() {
   const jiraScope = useSettingsStore((s) => s.jiraIssueScope);
   const setJiraScope = useSettingsStore((s) => s.setJiraIssueScope);
   const facets = useMemo(() => filterFacets(detail.columns), [detail.columns]);
-  const visibleColumns = useMemo(() => applyFilters(detail.columns, filters), [detail.columns, filters]);
+  // Cards from several sprints (and the backlog) sit in sprint groups.
+  const { columns: visibleColumns, grouped: sprintGroups } = useMemo(
+    () => groupBySprint(applyFilters(detail.columns, filters)),
+    [detail.columns, filters]
+  );
   const totalCards = detail.columns.reduce((sum, column) => sum + column.cards.length, 0);
   const shownCards = visibleColumns.reduce((sum, column) => sum + column.cards.length, 0);
 
@@ -134,7 +142,8 @@ export default function BoardScreen() {
           ...(credentials ? { account: credentials.id } : {}),
           ...(columnId ? { column: columnId } : {}),
           // New issues land in the sprint (or backlog) being viewed.
-          ...(detail.jira?.sprints.length
+          // The All view passes nothing, so the form picks the active sprint.
+          ...(detail.jira?.sprints.length && detail.jira.view.kind !== 'board'
             ? {
                 sprint:
                   detail.jira.view.kind === 'sprint' ? String(detail.jira.view.sprintId) : 'backlog',
@@ -158,7 +167,7 @@ export default function BoardScreen() {
           key: card.id,
           ...(credentials ? { account: credentials.id } : {}),
           // Lets the issue screen offer this board's sprints.
-          ...(detail.jira?.sprints.length ? { board: String(parseJiraBoardId(parsed.id)?.boardId ?? '') } : {}),
+          board: String(parseJiraBoardId(parsed.id)?.boardId ?? ''),
         },
       });
       return;
@@ -168,6 +177,48 @@ export default function BoardScreen() {
       params: { boardId: parsed.id, stackId: column.id, cardId: card.id },
     });
   }
+
+  /** A drag landed. `drop.index` counts visible cards; the server wants the full column. */
+  async function dropCard(drop: DragDrop) {
+    const full = (detail.columns.find((column) => column.id === drop.toColumnId)?.cards ?? []).filter(
+      (card) => card.id !== drop.card.id
+    );
+    const visible = (visibleColumns.find((column) => column.id === drop.toColumnId)?.cards ?? []).filter(
+      (card) => card.id !== drop.card.id
+    );
+    const before = visible[drop.index];
+    const last = visible[visible.length - 1];
+    const toIndex = before
+      ? Math.max(0, full.findIndex((card) => card.id === before.id))
+      : last
+        ? full.findIndex((card) => card.id === last.id) + 1
+        : full.length;
+    haptics.impact('light');
+    try {
+      await detail.moveCard({
+        cardId: drop.card.id,
+        fromColumnId: drop.fromColumnId,
+        toColumnId: drop.toColumnId,
+        toIndex,
+      });
+    } catch (error) {
+      haptics.error();
+      setErrorMessage(error instanceof Error ? error.message : 'Could not move the card.');
+    }
+  }
+
+  const dragContainerRef = useRef<RNView>(null);
+  const boardListRef = useRef<FlatList<BoardColumnItem>>(null);
+  const drag = useBoardDrag({
+    containerRef: dragContainerRef,
+    boardRef: boardListRef,
+    columns: visibleColumns,
+    columnWidth,
+    imageHeaders,
+    snapInterval: wideBoard ? undefined : columnWidth + GAP,
+    onDrop: (drop) => void dropCard(drop),
+    onHold: (card, column) => setMoving({ card, column }),
+  });
 
   async function moveTo(target: BoardColumnItem) {
     const current = moving;
@@ -378,21 +429,33 @@ export default function BoardScreen() {
     );
   } else {
     body = (
-      <FlatList
+      <LegacyFlatList
+        ref={boardListRef}
         horizontal
         data={visibleColumns}
+        scrollEnabled={drag.dragging == null}
+        // Every column stays mounted so a drag can reach and measure it.
+        removeClippedSubviews={false}
+        scrollEventThrottle={16}
+        onScroll={(e) => drag.board.onScroll(e.nativeEvent.contentOffset.x)}
+        onContentSizeChange={(w) => drag.board.onContentWidth(w)}
+        extraData={drag.target ?? drag.dragging}
         keyExtractor={(column) => column.id}
         showsHorizontalScrollIndicator={wideBoard}
         snapToInterval={wideBoard ? undefined : columnWidth + GAP}
         snapToAlignment="start"
         decelerationRate={wideBoard ? 'normal' : 'fast'}
         disableIntervalMomentum={!wideBoard}
-        onLayout={(e) => setBoardWidth(e.nativeEvent.layout.width)}
+        onLayout={(e) => {
+          setBoardWidth(e.nativeEvent.layout.width);
+          drag.board.onLayout(e.nativeEvent.layout.width);
+        }}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: SIDE, gap: GAP, paddingTop: 4 }}
         renderItem={({ item: column }) => (
           <BoardColumn
             column={column}
+            sprintGroups={sprintGroups}
             width={columnWidth}
             imageHeaders={imageHeaders}
             refreshing={pulling}
@@ -416,6 +479,7 @@ export default function BoardScreen() {
             onCreate={(cardTitle) => detail.createCard(column.id, cardTitle)}
             onCreateDetailed={() => openNewItem(column.id)}
             onMenu={source === 'deck' ? () => editColumn(column) : undefined}
+            drag={drag}
           />
         )}
       />
@@ -430,7 +494,13 @@ export default function BoardScreen() {
         {showSprints && detail.jira ? (
           <SprintBar sprints={detail.jira.sprints} view={detail.jira.view} onSelect={detail.jira.setView} />
         ) : null}
-        <View style={{ flex: 1, opacity: detail.jira?.switching ? 0.5 : 1 }}>{body}</View>
+        <View
+          ref={dragContainerRef}
+          collapsable={false}
+          style={{ flex: 1, opacity: detail.jira?.switching ? 0.5 : 1 }}>
+          {body}
+          {drag.overlay}
+        </View>
       </View>
 
       <PickerSheet
