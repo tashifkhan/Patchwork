@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type AiProviderKind = 'openai' | 'google' | 'anthropic' | 'openai-compatible';
+export type AiProviderKind = 'openai' | 'google' | 'anthropic' | 'openai-compatible' | 'relayroom';
 export type AiProviderId = string;
 
 export interface AiModelInfo {
@@ -17,6 +17,12 @@ export interface AiModelInfo {
   reasoningEfforts?: ReasoningEffort[];
   toolCall?: boolean;
   contextWindow?: number;
+  /** RelayRoom: routing modes this model accepts (`auto`, `sub`, `api`). */
+  modes?: string[];
+  /** RelayRoom: the upstream provider's name, shown under the model. */
+  providerName?: string;
+  /** RelayRoom: an operator-defined alias (`opus`) rather than one model. */
+  alias?: boolean;
 }
 
 export interface AiProviderInfo {
@@ -106,12 +112,17 @@ export interface AiModelSelection {
   /** Snapshot of the model's levels, used when the catalog isn't loaded. */
   reasoningEfforts?: ReasoningEffort[];
   reasoningEffort?: ReasoningEffort;
+  /** RelayRoom: which credentials to route through. Unset means `auto`. */
+  routeMode?: 'auto' | 'sub' | 'api';
+  /** RelayRoom: modes this model accepts, for the mode picker. */
+  modes?: string[];
 }
 
 const MODELS_DEV_CACHE_KEY = 'patchwork.ai.models-dev-cache';
 const MODELS_DEV_URL = 'https://models.dev/api.json';
 
 export const BUILTIN_PROVIDER_IDS = [
+  'relayroom',
   'openai',
   'anthropic',
   'google',
@@ -137,6 +148,10 @@ export function aiCredentialId(providerId: AiProviderId): AiProviderId {
 }
 
 const BUILTIN_PROVIDER_META: Record<(typeof BUILTIN_PROVIDER_IDS)[number], Omit<AiProviderInfo, 'models'>> = {
+  // Your own gateway: one key for every provider it routes, with aliases,
+  // subscription/API routing and usage tracking. Models come from the
+  // gateway itself (see `@/api/relayroom`), not from models.dev.
+  relayroom: { id: 'relayroom', name: 'RelayRoom', kind: 'relayroom', env: 'GATEWAY_API_KEY', defaultBaseUrl: 'http://127.0.0.1:8317/v1', docs: 'http://127.0.0.1:8320/docs' },
   openai: { id: 'openai', name: 'OpenAI', kind: 'openai', env: 'OPENAI_API_KEY', docs: 'https://platform.openai.com/docs' },
   anthropic: { id: 'anthropic', name: 'Anthropic', kind: 'anthropic', env: 'ANTHROPIC_API_KEY', docs: 'https://docs.anthropic.com' },
   google: { id: 'google', name: 'Google', kind: 'google', env: 'GEMINI_API_KEY', docs: 'https://ai.google.dev' },
@@ -265,6 +280,7 @@ function normalizeModelsDev(payload: unknown): AiProviderInfo[] {
   if (typeof payload !== 'object' || payload === null) return AI_PROVIDERS;
   const root = payload as Record<string, unknown>;
   return BUILTIN_PROVIDER_IDS.map((id) => {
+    if (id === 'relayroom') return { ...BUILTIN_PROVIDER_META.relayroom, models: [] };
     const raw = typeof root[id] === 'object' && root[id] !== null ? (root[id] as Record<string, unknown>) : {};
     const fallback = BUILTIN_PROVIDER_META[id];
     const npm = typeof raw.npm === 'string' ? raw.npm : '';

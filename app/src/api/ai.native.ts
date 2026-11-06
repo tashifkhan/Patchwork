@@ -6,6 +6,7 @@ import type { JSONValue, LanguageModel } from 'ai';
 import { generateText } from 'ai';
 
 import { ApiError } from './client';
+import { RELAYROOM_DEFAULT_URL, relayroomGenerate } from './relayroom';
 import type { AiDraftRequest, AiGeneratedTask, AiRefineRequest, AiTasksResponse, TaskList } from './types';
 import { DEFAULT_AI_MODELS, buildProvidersWithCustom, providerById, supportsAudio, supportsImage, type AiModelSelection } from '@/lib/ai-models';
 import { getAiApiKey } from '@/lib/credentials';
@@ -13,6 +14,9 @@ import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { useSettingsStore } from '@/stores/settings-store';
 
 type Attachment = { kind: 'image' | 'audio'; mimeType: string; data: string };
+
+/** Tags each request in RelayRoom's Usage view. */
+type Feature = 'draft' | 'refine' | 'photo-import' | 'dictation';
 
 /** Voice notes are short; this keeps the request well under provider inline limits. */
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
@@ -40,7 +44,7 @@ export async function dictateTasks(input: DictationInput): Promise<AiTasksRespon
     kind: 'audio',
     mimeType: input.mimeType,
     data: bytesToBase64(bytes),
-  });
+  }, 'dictation');
   // Belt and braces against hallucinated to-dos: no heard speech, no tasks.
   if (heardNothing(responseText)) return { tasks: [] };
   return { tasks: parseTaskJson(responseText, input.availableLists, input.availableTags) };
@@ -78,21 +82,21 @@ export async function ocrUploadImage(input: OcrUploadInput): Promise<AiTasksResp
     kind: 'image',
     mimeType: input.mimeType,
     data: bytesToBase64(imageBytes),
-  });
+  }, 'photo-import');
   return { tasks: parseTaskJson(responseText, input.availableLists, input.availableTags) };
 }
 
 export async function draftTasks(payload: AiDraftRequest): Promise<AiTasksResponse> {
-  const responseText = await generateModelJson(buildDraftPrompt(payload));
+  const responseText = await generateModelJson(buildDraftPrompt(payload), undefined, 'draft');
   return { tasks: parseTaskJson(responseText, payload.available_lists, payload.available_tags) };
 }
 
 export async function refineTasks(payload: AiRefineRequest): Promise<AiTasksResponse> {
-  const responseText = await generateModelJson(buildRefinePrompt(payload));
+  const responseText = await generateModelJson(buildRefinePrompt(payload), undefined, 'refine');
   return { tasks: parseTaskJson(responseText, payload.available_lists, payload.available_tags) };
 }
 
-async function generateModelJson(prompt: string, attachment?: Attachment) {
+async function generateModelJson(prompt: string, attachment?: Attachment, feature: Feature = 'draft') {
   const settings = useSettingsStore.getState();
   const configured = settings.aiModelSelections.length > 0 ? settings.aiModelSelections : DEFAULT_AI_MODELS;
   const selections =
@@ -116,6 +120,28 @@ async function generateModelJson(prompt: string, attachment?: Attachment) {
   const failures: string[] = [];
   for (const selection of selections) {
     try {
+      // RelayRoom: one gateway call; it picks the credential, enforces JSON
+      // natively and records usage under the feature tag.
+      if (providerById(selection.providerId, providers)?.kind === 'relayroom') {
+        const apiKey = await getAiApiKey('relayroom');
+        if (!apiKey) throw new Error('RelayRoom gateway key is not configured on this device.');
+        const baseUrl = assertSafeAiBaseUrl(settings.aiBaseUrlOverrides.relayroom?.trim() || RELAYROOM_DEFAULT_URL);
+        const result = await relayroomGenerate(
+          { baseUrl, apiKey },
+          {
+            model: selection.modelId,
+            mode: selection.routeMode,
+            prompt,
+            attachment,
+            reasoning: selection.reasoningEffort,
+            json: true,
+            tags: { feature },
+          }
+        );
+        if (result.text.trim()) return result.text;
+        failures.push(`relayroom/${selection.modelId}: empty response`);
+        continue;
+      }
       const model = await languageModelFor(selection, settings.aiBaseUrlOverrides, providers);
       const result = await generateText({
         model,
