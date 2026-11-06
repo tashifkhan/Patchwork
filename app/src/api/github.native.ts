@@ -15,7 +15,9 @@ import type {
   GitHubReposResult,
   GitHubSourceWarning,
 } from '@/features/github/types';
-import { getGitHubCredentials } from '@/lib/credentials';
+import { getGitHubAccounts, getGitHubCredentials } from '@/lib/credentials';
+import { useGitHubSessionStore } from '@/stores/github-session-store';
+import type { GitHubCredentials } from '@/lib/credentials-types';
 import { isLegacyCredential } from '@/lib/github-auth';
 
 const GITHUB_API = 'https://api.github.com';
@@ -138,20 +140,35 @@ export async function fetchGitHubIssues(input: {
   signal?: AbortSignal;
 }): Promise<GitHubIssuesResult> {
   if (input.repositories.length === 0) return { issues: [], warnings: [] };
-  const client = await getClient(input.authenticated);
+  // Each repository is read with the account that added it, and "assigned to
+  // me" means that account's login.
+  const clients = new Map<number | undefined, Promise<AccountClient>>();
+  const clientFor = (accountId: number | undefined) => {
+    let pending = clients.get(accountId);
+    if (!pending) {
+      pending = getAccountClient(input.authenticated, accountId);
+      clients.set(accountId, pending);
+    }
+    return pending;
+  };
   const results = await mapWithConcurrency(
     input.repositories,
     REPOSITORY_CONCURRENCY,
-    async (repository) =>
-      fetchRepoIssues(
-        client,
-        repository,
-        input.scope,
-        input.state,
-        input.authenticated,
-        input.viewerLogin,
-        input.signal
-      )
+    async (repository) => {
+      const { client, credentials } = await clientFor(repository.accountId);
+      return tagAccount(credentials, () =>
+        fetchRepoIssues(
+          client,
+          repository,
+          input.scope,
+          input.state,
+          input.authenticated,
+          credentials?.account.login ?? input.viewerLogin,
+          credentials?.account.id,
+          input.signal
+        )
+      );
+    }
   );
 
   const issues: GitHubIssue[] = [];
@@ -191,6 +208,7 @@ async function fetchRepoIssues(
   state: GitHubIssueState,
   authenticated: boolean,
   viewerLogin?: string,
+  accountId?: number,
   signal?: AbortSignal
 ): Promise<{
   issues: GitHubIssue[];
@@ -231,7 +249,8 @@ async function fetchRepoIssues(
           mapIssue(
             item,
             repository,
-            authenticated && canWriteIssues
+            authenticated && canWriteIssues,
+            accountId
           )
         )
     );
@@ -289,8 +308,8 @@ export async function fetchGitHubRepos(input: {
   authenticated: boolean;
   signal?: AbortSignal;
 }): Promise<GitHubReposResult> {
-  const client = await getClient(input.authenticated);
   if (!input.authenticated) {
+    const client = new GitHubClient();
     const results = await mapWithConcurrency(
       input.repositories,
       REPOSITORY_CONCURRENCY,
@@ -305,6 +324,38 @@ export async function fetchGitHubRepos(input: {
     return { repositories, warnings };
   }
 
+  const accounts = await workingAccounts();
+  if (accounts.length === 0) {
+    throw new GitHubError('unauthenticated', 'Connect GitHub in Settings to list your repositories.', 401);
+  }
+  const results = await Promise.allSettled(
+    accounts.map((account) => tagAccount(account, () => fetchAccountRepos(account, input.signal)))
+  );
+
+  // A repository two accounts can see is listed once, under the account that
+  // can do the most with it (write access first, then the first connected).
+  const byId = new Map<number, GitHubRepo>();
+  const warnings: GitHubSourceWarning[] = [];
+  let rateLimit: GitHubRateLimit | undefined;
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      const error = asGitHubError(result.reason);
+      if (error.requiresReconnect && accounts.length === 1) throw error;
+      warnings.push(warningFromError(`@${accounts[index].account.login}`, error));
+      return;
+    }
+    warnings.push(...result.value.warnings);
+    rateLimit = lowerRateLimit(rateLimit, result.value.rateLimit);
+    for (const repo of result.value.repositories) {
+      const existing = byId.get(repo.id);
+      if (!existing || (!existing.canWriteIssues && repo.canWriteIssues)) byId.set(repo.id, repo);
+    }
+  });
+  return { repositories: [...byId.values()], warnings, rateLimit };
+}
+
+async function fetchAccountRepos(account: GitHubCredentials, signal?: AbortSignal): Promise<GitHubReposResult> {
+  const client = new GitHubClient(account.accessToken);
   let nextUrl: string | null =
     `${GITHUB_API}/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member`;
   const repositories: GitHubRepo[] = [];
@@ -316,12 +367,14 @@ export async function fetchGitHubRepos(input: {
     const response: GitHubResponse<GitHubApiRepo[]> = await client.request(
       'GET',
       nextUrl,
-      { signal: input.signal }
+      { signal }
     );
     if (!Array.isArray(response.data)) {
       throw new GitHubError('invalid_response', 'GitHub returned an invalid repository list.');
     }
-    repositories.push(...response.data.map((repo) => mapRepo(repo, true)));
+    repositories.push(
+      ...response.data.map((repo) => ({ ...mapRepo(repo, true), accountId: account.account.id }))
+    );
     nextUrl = response.nextUrl;
     rateLimit = lowerRateLimit(rateLimit, response.rateLimit);
     page += 1;
@@ -329,7 +382,7 @@ export async function fetchGitHubRepos(input: {
 
   if (nextUrl) {
     warnings.push({
-      repository: 'GitHub account',
+      repository: `@${account.account.login}`,
       code: 'validation',
       message: `Only the first ${MAX_REPOSITORY_PAGES * 100} accessible repositories are shown.`,
     });
@@ -361,9 +414,19 @@ async function fetchRepository(
 export async function fetchSingleGitHubIssue(
   repo: string,
   issueNumber: number,
+  options: { authenticated: boolean; canWrite?: boolean; accountId?: number; signal?: AbortSignal }
+): Promise<GitHubIssue> {
+  const { client, credentials } = await getAccountClient(options.authenticated, options.accountId);
+  return tagAccount(credentials, () => fetchSingleIssueWith(client, credentials, repo, issueNumber, options));
+}
+
+async function fetchSingleIssueWith(
+  client: GitHubClient,
+  credentials: GitHubCredentials | undefined,
+  repo: string,
+  issueNumber: number,
   options: { authenticated: boolean; canWrite?: boolean; signal?: AbortSignal }
 ): Promise<GitHubIssue> {
-  const client = await getClient(options.authenticated);
   let canWrite = options.authenticated && options.canWrite === true;
   if (options.authenticated && options.canWrite === undefined) {
     const repository = await fetchRepository(client, repo, true, options.signal);
@@ -380,7 +443,8 @@ export async function fetchSingleGitHubIssue(
   return mapIssue(
     response.data,
     { id: response.data.repository?.id ?? null, fullName: repo },
-    canWrite
+    canWrite,
+    credentials?.account.id
   );
 }
 
@@ -388,15 +452,22 @@ export async function updateGitHubIssue(
   repo: string,
   issueNumber: number,
   patch: GitHubIssueUpdate,
-  signal?: AbortSignal
+  options: { accountId?: number; signal?: AbortSignal } = {}
 ): Promise<GitHubIssue> {
-  const client = await getClient(true);
-  const response = await client.request<GitHubApiIssue>(
-    'PATCH',
-    `/repos/${repositoryPath(repo)}/issues/${encodeURIComponent(String(issueNumber))}`,
-    { body: patch, signal }
-  );
-  return mapIssue(response.data, { id: response.data.repository?.id ?? null, fullName: repo }, true);
+  const { client, credentials } = await getAccountClient(true, options.accountId);
+  return tagAccount(credentials, async () => {
+    const response = await client.request<GitHubApiIssue>(
+      'PATCH',
+      `/repos/${repositoryPath(repo)}/issues/${encodeURIComponent(String(issueNumber))}`,
+      { body: patch, signal: options.signal }
+    );
+    return mapIssue(
+      response.data,
+      { id: response.data.repository?.id ?? null, fullName: repo },
+      true,
+      credentials?.account.id
+    );
+  });
 }
 
 export async function createGitHubIssue(
@@ -404,17 +475,20 @@ export async function createGitHubIssue(
   input: GitHubIssueCreate,
   signal?: AbortSignal
 ): Promise<GitHubIssue> {
-  const client = await getClient(true);
-  const response = await client.request<GitHubApiIssue>(
-    'POST',
-    `/repos/${repositoryPath(repository.fullName)}/issues`,
-    { body: buildGitHubIssueCreatePayload(input), signal }
-  );
-  return mapIssue(
-    response.data,
-    repository,
-    repository.canWriteIssues === true
-  );
+  const { client, credentials } = await getAccountClient(true, repository.accountId);
+  return tagAccount(credentials, async () => {
+    const response = await client.request<GitHubApiIssue>(
+      'POST',
+      `/repos/${repositoryPath(repository.fullName)}/issues`,
+      { body: buildGitHubIssueCreatePayload(input), signal }
+    );
+    return mapIssue(
+      response.data,
+      repository,
+      repository.canWriteIssues === true,
+      credentials?.account.id
+    );
+  });
 }
 
 export function buildGitHubIssueCreatePayload(input: GitHubIssueCreate) {
@@ -442,17 +516,52 @@ export function buildGitHubIssueCreatePayload(input: GitHubIssueCreate) {
   };
 }
 
-export function closeGitHubIssue(repo: string, issueNumber: number): Promise<GitHubIssue> {
-  return updateGitHubIssue(repo, issueNumber, { state: 'closed' });
+export function closeGitHubIssue(repo: string, issueNumber: number, accountId?: number): Promise<GitHubIssue> {
+  return updateGitHubIssue(repo, issueNumber, { state: 'closed' }, { accountId });
 }
 
-export function reopenGitHubIssue(repo: string, issueNumber: number): Promise<GitHubIssue> {
-  return updateGitHubIssue(repo, issueNumber, { state: 'open' });
+export function reopenGitHubIssue(repo: string, issueNumber: number, accountId?: number): Promise<GitHubIssue> {
+  return updateGitHubIssue(repo, issueNumber, { state: 'open' }, { accountId });
 }
 
-async function getClient(authenticated: boolean): Promise<GitHubClient> {
-  if (!authenticated) return new GitHubClient();
-  const credentials = await getGitHubCredentials();
+/**
+ * Accounts whose tokens work. Once the session has started it is the source
+ * of truth, so a token GitHub rejected is never tried again until replaced.
+ */
+async function workingAccounts(): Promise<GitHubCredentials[]> {
+  const state = useGitHubSessionStore.getState().state;
+  if (state.status === 'connected' || state.status === 'refreshing') return state.accounts;
+  return (await getGitHubAccounts()).filter((account) => !isLegacyCredential(account));
+}
+
+interface AccountClient {
+  client: GitHubClient;
+  /** Undefined for anonymous (public repository) clients. */
+  credentials?: GitHubCredentials;
+}
+
+/** Run a request and stamp any GitHub error with the account it used. */
+async function tagAccount<T>(credentials: GitHubCredentials | undefined, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const githubError = asGitHubError(error);
+    if (credentials && githubError.accountId == null) githubError.accountId = credentials.account.id;
+    throw githubError;
+  }
+}
+
+/**
+ * A client for one connected account: the one with `accountId`, or the first
+ * account when it is missing or no longer connected.
+ */
+async function getAccountClient(authenticated: boolean, accountId?: number): Promise<AccountClient> {
+  if (!authenticated) return { client: new GitHubClient() };
+  const accounts = await workingAccounts();
+  const credentials =
+    (accountId != null ? accounts.find((account) => account.account.id === accountId) : undefined) ??
+    accounts[0] ??
+    (await getGitHubCredentials());
   if (!credentials) {
     throw new GitHubError('unauthenticated', 'Connect GitHub in Settings to access this repository.', 401);
   }
@@ -464,13 +573,14 @@ async function getClient(authenticated: boolean): Promise<GitHubClient> {
       401
     );
   }
-  return new GitHubClient(credentials.accessToken);
+  return { client: new GitHubClient(credentials.accessToken), credentials };
 }
 
 function mapIssue(
   raw: GitHubApiIssue,
   repository: Pick<GitHubRepositorySelection, 'id' | 'fullName'>,
-  canWrite: boolean
+  canWrite: boolean,
+  accountId?: number
 ): GitHubIssue {
   if (
     typeof raw.id !== 'number' ||
@@ -506,6 +616,7 @@ function mapIssue(
     source: 'github',
     canWrite,
     readOnly: !canWrite,
+    ...(accountId != null ? { accountId } : {}),
   };
 }
 

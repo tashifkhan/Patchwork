@@ -31,7 +31,10 @@ function useGitHubInputs() {
   const issueState = useSettingsStore((state) => state.githubIssueState);
   const connection = useGitHubSessionStore((state) => state.state);
   const authenticated = connection.status === 'connected';
-  const accountId = authenticated ? connection.credentials.account.id : 'anonymous';
+  // Every working account is part of the cache key, so adding or removing one refetches.
+  const accountId = authenticated
+    ? connection.accounts.map((account) => account.account.id).join(',')
+    : 'anonymous';
   const viewerLogin = authenticated
     ? connection.credentials.account.login
     : undefined;
@@ -120,6 +123,7 @@ export function useGitHubIssue(repo?: string, issueNumber?: number) {
       fetchSingleGitHubIssue(repo!, issueNumber!, {
         authenticated,
         canWrite,
+        accountId: selection?.accountId,
         signal,
       }),
     enabled:
@@ -152,8 +156,8 @@ export function useToggleGitHubIssue() {
         );
       }
       return issue.completed
-        ? reopenGitHubIssue(issue.repo, issue.number)
-        : closeGitHubIssue(issue.repo, issue.number);
+        ? reopenGitHubIssue(issue.repo, issue.number, issue.accountId)
+        : closeGitHubIssue(issue.repo, issue.number, issue.accountId);
     },
     onMutate: async (issue) => {
       await client.cancelQueries({ queryKey: ['github'] });
@@ -229,11 +233,14 @@ export function useUpdateGitHubIssue() {
       repo,
       issueNumber,
       patch,
+      accountId,
     }: {
       repo: string;
       issueNumber: number;
       patch: GitHubIssueUpdate;
-    }) => updateGitHubIssue(repo, issueNumber, patch),
+      /** The account that loaded the issue (`GitHubIssue.accountId`). */
+      accountId?: number;
+    }) => updateGitHubIssue(repo, issueNumber, patch, { accountId }),
     onError: handleGitHubSessionError,
     onSuccess: (updated) => updateIssueCaches(client, updated),
     onSettled: (_data, _error, variables) => {
@@ -246,7 +253,7 @@ export function useUpdateGitHubIssue() {
 }
 
 function repositoryKey(repository: GitHubRepositorySelection) {
-  return `${repository.id ?? 'legacy'}:${repository.fullName}:${repository.canWriteIssues ?? false}`;
+  return `${repository.id ?? 'legacy'}:${repository.fullName}:${repository.canWriteIssues ?? false}:${repository.accountId ?? ''}`;
 }
 
 function githubRetry(failureCount: number, error: unknown) {
@@ -301,5 +308,6 @@ export function selectionFromRepo(repo: GitHubRepo): GitHubRepositorySelection {
     fullName: repo.full_name,
     visibility: repo.visibility,
     canWriteIssues: repo.canWriteIssues,
+    ...(repo.accountId != null ? { accountId: repo.accountId } : {}),
   };
 }

@@ -22,6 +22,11 @@ export interface GitHubCredentialsV2 {
 export interface GitHubRepositorySelection {
   /** Null only while migrating an old owner/repo string; validation fills it. */
   id: number | null;
+  /**
+   * The connected account whose token reads and writes this repository.
+   * Missing on repositories added before multiple accounts: the first one.
+   */
+  accountId?: number;
   fullName: string;
   visibility?: 'public' | 'private' | 'internal';
   canWriteIssues?: boolean;
@@ -71,11 +76,32 @@ export interface GitHubReposResult {
   rateLimit?: GitHubRateLimit;
 }
 
+/** A connected account whose token stopped working. */
+export interface GitHubExpiredAccount {
+  account: GitHubAccount;
+  message: string;
+}
+
+/**
+ * `credentials` is the first working account; `accounts` lists every working
+ * one, and `expired` the ones that need a new token. `expired` status means
+ * no account works.
+ */
 export type GitHubConnectionState =
   | { status: 'initializing' }
   | { status: 'disconnected' }
-  | { status: 'connected'; credentials: GitHubCredentialsV2 }
-  | { status: 'refreshing'; credentials: GitHubCredentialsV2 }
-  | { status: 'expired'; account?: GitHubAccount; message: string }
+  | {
+      status: 'connected';
+      credentials: GitHubCredentialsV2;
+      accounts: GitHubCredentialsV2[];
+      expired: GitHubExpiredAccount[];
+    }
+  | {
+      status: 'refreshing';
+      credentials: GitHubCredentialsV2;
+      accounts: GitHubCredentialsV2[];
+      expired: GitHubExpiredAccount[];
+    }
+  | { status: 'expired'; account?: GitHubAccount; message: string; expired: GitHubExpiredAccount[] }
   | { status: 'error'; message: string };
 

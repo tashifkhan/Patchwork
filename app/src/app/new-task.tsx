@@ -29,7 +29,7 @@ import { DURATION, SPRING } from '@/lib/motion';
 import { collectAllTags, normalizeTags } from '@/lib/tags';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { takeCreateHandoff } from '@/stores/create-handoff';
-import { useGitHubSessionStore } from '@/stores/github-session-store';
+import { githubAccountFor, useGitHubSessionStore } from '@/stores/github-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Switch } from '@/components/ui/switch';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
@@ -111,8 +111,8 @@ export default function NewTaskScreen() {
   const [assignMe, setAssignMe] = useState(true);
   const createIssue = useCreateGitHubIssue();
   const issuesQuery = useGitHubIssues();
-  const viewerLogin =
-    githubConnection.status === 'connected' ? githubConnection.credentials.account.login : null;
+  // "Assign to me" means the account that owns the chosen repository.
+  const viewerLogin = githubAccountFor(githubConnection, repo?.accountId)?.account.login ?? null;
   const repoLabels = useMemo(() => {
     if (!repo) return [];
     const set = new Set<string>();

@@ -1,6 +1,9 @@
 import type { GitHubErrorCode, GitHubRateLimit } from './types';
 
 export class GitHubError extends Error {
+  /** GitHub user id of the connected account the failed request used. */
+  accountId?: number;
+
   constructor(
     public code: GitHubErrorCode,
     message: string,

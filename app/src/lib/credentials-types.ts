@@ -44,6 +44,8 @@ export interface JiraAccount {
  */
 export interface JiraCredentials {
   schemaVersion: 1;
+  /** Storage id (site + account id); set whenever credentials are read back. */
+  id: string;
   /** Site root, e.g. https://acme.atlassian.net (no trailing slash). */
   site: string;
   email: string;
