@@ -2,6 +2,41 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.6.0] - 2026-11-06
+
+Patchwork 1.6 adds multiple GitHub and Jira logins, a full Jira issue workflow with sprint planning, RelayRoom as an AI gateway, and several default reminders per task.
+
+### Added
+
+- Connect more than one GitHub token or Jira login. Issues, repositories, boards, and token failures stay attributed to the account that owns them.
+- Jira sprint and backlog views, with a sprint bar, active and upcoming sprints, and a saved view for each board.
+- A Jira issue editor for summary, Markdown description, labels, priority, due date, assignee, status, and sprint. Descriptions convert between Jira's ADF and Markdown, and unsupported ADF blocks keep the description read-only instead of dropping them.
+- A New Issue sheet that creates an issue in the chosen board, column, and sprint, with assign-to-me, issue type, priority, and labels.
+- RelayRoom as a built-in AI provider: save a gateway key and URL, load live aliases and routed models, and choose Auto, Subscription, or API-key routing per model.
+- Gateway-reported reasoning levels and capabilities for RelayRoom models, with feature tags on drafts, refinement, photo imports, and dictation.
+- Up to five default reminders per task, from at the due time to one week before. Each due task gets one notification per reminder.
+- Native iOS search, menus, large titles, and glass toolbars on the Boards and issue screens.
+
+### Changed
+
+- Deck cards use the same title, Markdown notes, detail rows, and primary action pieces as Jira issues.
+- iOS 26 uses transparent Liquid Glass stack headers and the system tab bar, with filled symbols for the selected tab.
+- iOS empty states use SwiftUI's ContentUnavailableView with native glass buttons.
+- Bottom sheets on edge-to-edge Android size themselves to the physical screen and use the Material 3 emphasized slide.
+- Existing single-account GitHub and Jira credentials migrate on first read. The old reminder lead time migrates into a one-item reminder list.
+
+### Fixed
+
+- GitHub repositories visible to several accounts are listed once, under an account that can write to them.
+- A revoked GitHub or Jira token expires only the account that used it.
+- RelayRoom requests no longer depend on a local client checkout, so release builds are self-contained.
+- Jira board tiles load project avatars with the right login's auth headers.
+- The iOS floating action buttons clear the native tab bar.
+
+### Removed
+
+- The old Deck card form and its previous/next column buttons.
+
 ## [1.5.0] - 2026-11-05
 
 Patchwork 1.5 turns Boards into one place for Nextcloud Deck and Jira, adds voice dictation, renders task notes as Markdown, and uses the extra room on tablets and foldables.
