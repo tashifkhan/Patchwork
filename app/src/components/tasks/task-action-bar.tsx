@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { useEffect } from 'react';
 import { Keyboard, Platform, Pressable } from 'react-native';
 import Animated, {
@@ -16,6 +18,8 @@ import { DURATION, EASING, SPRING } from '@/lib/motion';
 import { Text, View } from '@/tw';
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+const GLASS = Platform.OS === 'ios' && isLiquidGlassAvailable();
 
 /**
  * Floating toolbar shown while a to-do is open in place, like the Things
@@ -49,18 +53,7 @@ export function TaskActionBar({
       exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
       pointerEvents="box-none"
       style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, position]}>
-      <View
-        className="flex-row items-center"
-        style={{
-          backgroundColor: colors.primaryContainer,
-          borderRadius: 32,
-          borderCurve: 'continuous',
-          height: 64,
-          paddingHorizontal: 8,
-          gap: 4,
-          // M3 elevation level 3.
-          boxShadow: '0 4px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.3)',
-        }}>
+      <BarSurface>
         <Pressable
           onPress={() => {
             haptics.tap();
@@ -83,35 +76,79 @@ export function TaskActionBar({
             backgroundColor: colors.accent,
             opacity: pressed && Platform.OS === 'ios' ? 0.85 : 1,
           })}>
-          <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
+          {GLASS ? (
+            <SymbolView name="arrow.right" size={18} tintColor={colors.onAccent} weight="semibold" />
+          ) : (
+            <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
+          )}
           <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>Move</Text>
         </Pressable>
         <IconAction
           icon="trash-can-outline"
+          sf="trash"
           label={deleteLabel}
-          color={colors.onPrimaryContainer}
+          color={GLASS ? colors.danger : colors.onPrimaryContainer}
           onPress={onDelete}
         />
         {onDetails ? (
           <IconAction
             icon="arrow-expand"
+            sf="arrow.up.left.and.arrow.down.right"
             label="Details"
-            color={colors.onPrimaryContainer}
+            color={GLASS ? colors.text : colors.onPrimaryContainer}
             onPress={onDetails}
           />
         ) : null}
-      </View>
+      </BarSurface>
     </Animated.View>
+  );
+}
+
+/**
+ * iOS 26+: a Liquid Glass capsule, like the system's floating toolbars.
+ * Android (and older iOS): the M3 vibrant floating toolbar.
+ */
+function BarSurface({ children }: { children: React.ReactNode }) {
+  const { colors, scheme } = useTheme();
+  const layout = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    borderRadius: 32,
+    height: 64,
+    paddingHorizontal: 8,
+    gap: 4,
+  };
+  if (GLASS) {
+    return (
+      <GlassView glassEffectStyle="regular" isInteractive colorScheme={scheme} style={layout}>
+        {children}
+      </GlassView>
+    );
+  }
+  return (
+    <View
+      style={{
+        ...layout,
+        backgroundColor: colors.primaryContainer,
+        borderCurve: 'continuous',
+        // M3 elevation level 3.
+        boxShadow: '0 4px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.3)',
+      }}>
+      {children}
+    </View>
   );
 }
 
 function IconAction({
   icon,
+  sf,
   label,
   color,
   onPress,
 }: {
   icon: IconName;
+  /** SF Symbol used on the iOS glass bar. */
+  sf: SFSymbol;
   label: string;
   color: string;
   onPress: () => void;
@@ -135,7 +172,11 @@ function IconAction({
         borderCurve: 'continuous',
         opacity: pressed && Platform.OS === 'ios' ? 0.6 : 1,
       })}>
-      <MaterialCommunityIcons name={icon} size={24} color={color} />
+      {GLASS ? (
+        <SymbolView name={sf} size={22} tintColor={color} weight="medium" />
+      ) : (
+        <MaterialCommunityIcons name={icon} size={24} color={color} />
+      )}
     </Pressable>
   );
 }

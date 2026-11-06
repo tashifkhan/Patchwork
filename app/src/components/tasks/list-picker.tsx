@@ -5,6 +5,7 @@ import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
+import { sheetOverlayStyle } from '@/components/ui/sheet-panel';
 import { DURATION, SPRING } from '@/lib/motion';
 import { ScrollView, Text, View } from '@/tw';
 
@@ -39,7 +40,7 @@ export function ListPicker({
 
   return (
     <Modal visible={visible} transparent animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
-      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={{ flex: 1 }}>
+      <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
         <Pressable
           onPress={onClose}
           accessibilityLabel="Close"
