@@ -2,6 +2,32 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.7.0] - 2026-11-07
+
+Patchwork 1.7 makes Jira boards draggable, groups their cards by sprint, and fixes keyboard positioning for settings fields and the floating task bar.
+
+### Added
+
+- Drag cards on a Jira or Deck board. Long-press lifts the card, dragging reorders it within a column or moves it to another column, edge zones auto-scroll the board and the column, and a drop line marks the landing slot.
+- Long-press without moving still opens the Move to sheet.
+- An All view on Jira boards, with cards grouped by sprint and dashed dividers between groups.
+- Sprint filtering. Pick any combination of sprints and the backlog from the filter sheet.
+- Jira rank updates when a card moves, so the new order survives a refresh.
+- The issue screen shows its sprint even when the issue was opened from search or a link, not just from a board.
+
+### Changed
+
+- New issues created from the All view land in the active sprint.
+- Done Jira issues keep the last finished sprint they belonged to instead of falling into the backlog.
+- Android settings scroll the focused field above the keyboard after it appears.
+- The floating task action bar tracks the keyboard on both platforms and accounts for the Android navigation bar.
+
+### Fixed
+
+- The settings keyboard no longer leaves focused fields hidden below the keys on edge-to-edge Android.
+- The task action bar no longer sits behind the keyboard on Android.
+- Sprint views resolve back to All when a saved sprint has closed or the board stops reporting sprints.
+
 ## [1.6.0] - 2026-11-06
 
 Patchwork 1.6 adds multiple GitHub and Jira logins, a full Jira issue workflow with sprint planning, RelayRoom as an AI gateway, and several default reminders per task.
