@@ -126,6 +126,10 @@ export default function RootLayout() {
               options={sheetScreenOptions([0.55, 0.85], 'Column')}
             />
             <Stack.Screen
+              name="reorder-columns"
+              options={sheetScreenOptions([0.6, 1.0], 'Reorder Columns')}
+            />
+            <Stack.Screen
               name="edit-list"
               options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
             />

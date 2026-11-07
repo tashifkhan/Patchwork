@@ -65,8 +65,7 @@ export default function StackScreen() {
   return (
     <SheetSurface
       title={editing ? 'Edit column' : 'New column'}
-      subtitle={editing ? 'Rename this stack' : 'Add a column to the board'}
-      >
+      subtitle={editing ? 'Rename, move or delete this column' : 'Add a column to the board'}>
       <Stack.Screen options={{ title: editing ? 'Edit Column' : 'New Column' }} />
       <ScrollView
         className="flex-1"
@@ -103,11 +102,14 @@ export default function StackScreen() {
           />
           {editing ? (
             <Button
-              variant="danger"
-              label="Delete column"
+              variant="tonal"
+              label="Reorder columns"
               disabled={busy}
-              onPress={() => setDeleteVisible(true)}
+              onPress={() => router.replace({ pathname: '/reorder-columns', params: { boardId: String(boardId) } })}
             />
+          ) : null}
+          {editing ? (
+            <Button variant="danger" label="Delete column" disabled={busy} onPress={() => setDeleteVisible(true)} />
           ) : null}
         </View>
 
