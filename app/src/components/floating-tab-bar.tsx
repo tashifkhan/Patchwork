@@ -14,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useSettingsStore } from '@/stores/settings-store';
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
 import {
@@ -71,6 +72,7 @@ export type FloatingTabBarProps = {
  */
 export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBarProps) {
   const { colors, scheme } = useTheme();
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
   const isDark = scheme === 'dark';
   const insets = useSafeAreaInsets();
   const minimized = useTabBarChromeStore((s) => s.minimized);
@@ -211,7 +213,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
           style={[styles.layer, expandedStyle]}
           pointerEvents={compact ? 'none' : 'box-none'}>
           <View style={[styles.capsule, shell]}>
-            {MAIN_TABS.map((tab) => {
+            {MAIN_TABS.filter((tab) => boardsTab || tab.route !== 'deck').map((tab) => {
               const focused = activeRoute === tab.route;
               return (
                 // Every tab is labeled. The selected one gains its icon and a

@@ -41,6 +41,7 @@ export default function JiraSettingsScreen() {
   const disconnect = useJiraSessionStore((s) => s.disconnect);
   const disconnectAll = useJiraSessionStore((s) => s.disconnectAll);
   const boards = useJiraBoards();
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
   const scope = useSettingsStore((s) => s.jiraIssueScope);
   const setScope = useSettingsStore((s) => s.setJiraIssueScope);
 
@@ -199,9 +200,15 @@ export default function JiraSettingsScreen() {
                     ? 'Loading boards…'
                     : `${boardCount} board${boardCount === 1 ? '' : 's'}`
                 }
-                subtitle={boards.error instanceof Error ? boards.error.message : 'Open the Boards tab'}
-                showChevron
-                onPress={() => router.navigate('/deck')}
+                subtitle={
+                  boards.error instanceof Error
+                    ? boards.error.message
+                    : boardsTab
+                      ? 'Open the Boards tab'
+                      : 'The Boards tab is off in Appearance'
+                }
+                showChevron={boardsTab}
+                onPress={boardsTab ? () => router.navigate('/deck') : undefined}
               />
               <RowSeparator />
               <SettingsRow

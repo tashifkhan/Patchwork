@@ -50,6 +50,8 @@ export default function AppearanceScreen() {
   const setFloatingTabBar = useSettingsStore((s) => s.setFloatingTabBar);
   const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
   const setTabBarLabels = useSettingsStore((s) => s.setTabBarLabels);
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const setBoardsTab = useSettingsStore((s) => s.setBoardsTab);
   const hapticsEnabled = useSettingsStore((s) => s.hapticsEnabled);
   const setHapticsEnabled = useSettingsStore((s) => s.setHapticsEnabled);
   const accentColor = useSettingsStore((s) => s.accentColor);
@@ -207,6 +209,14 @@ export default function AppearanceScreen() {
           subtitle="Vibrate on taps, toggles and drags"
           value={hapticsEnabled}
           onValueChange={setHapticsEnabled}
+        />
+        <RowSeparator />
+        <SettingsToggleRow
+          icon="view-column-outline"
+          title="Boards tab"
+          subtitle="Deck and Jira boards. Turn off if you only use Tasks"
+          value={boardsTab}
+          onValueChange={setBoardsTab}
         />
         {isAndroid ? (
           <>

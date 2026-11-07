@@ -3,6 +3,7 @@ import { type ComponentProps } from 'react';
 import { Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useSettingsStore } from '@/stores/settings-store';
 import { useTheme } from '@/components/theme/context';
 import { NAVIGATION_RAIL_WIDTH } from '@/hooks/use-adaptive-layout';
 import { haptics } from '@/lib/haptics';
@@ -38,6 +39,7 @@ type RailProps = {
  */
 export function NavigationRail({ state, emitter, navigateToTab }: RailProps) {
   const { colors } = useTheme();
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
   const insets = useSafeAreaInsets();
   const active = state.routes[state.index]?.name;
 
@@ -55,7 +57,7 @@ export function NavigationRail({ state, emitter, navigateToTab }: RailProps) {
       }}>
       {DESTINATIONS.map((dest) => {
         const route = state.routes.find((r) => r.name === dest.route);
-        if (!route) return null;
+        if (!route || (dest.route === 'deck' && !boardsTab)) return null;
         const focused = active === dest.route;
         return (
           <Pressable

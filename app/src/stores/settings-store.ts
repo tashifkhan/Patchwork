@@ -39,6 +39,8 @@ interface SettingsState {
    * instead of only the selected one.
    */
   tabBarLabels: boolean;
+  /** Show the Boards tab (Deck and Jira). Off hides it for people who only use Tasks. */
+  boardsTab: boolean;
   /** Master switch for all touch feedback (see `@/lib/haptics`). */
   hapticsEnabled: boolean;
   notificationsEnabled: boolean;
@@ -78,6 +80,7 @@ interface SettingsState {
   setHighContrast: (enabled: boolean) => void;
   setFloatingTabBar: (enabled: boolean) => void;
   setTabBarLabels: (enabled: boolean) => void;
+  setBoardsTab: (enabled: boolean) => void;
   setHapticsEnabled: (enabled: boolean) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setDefaultReminderOffsets: (offsets: number[]) => void;
@@ -103,6 +106,7 @@ export const useSettingsStore = create<SettingsState>()(
       highContrast: false,
       floatingTabBar: false,
       tabBarLabels: false,
+      boardsTab: true,
       hapticsEnabled: true,
       notificationsEnabled: true,
       defaultReminderOffsets: [0],
@@ -149,6 +153,7 @@ export const useSettingsStore = create<SettingsState>()(
       setHighContrast: (highContrast) => set({ highContrast }),
       setFloatingTabBar: (floatingTabBar) => set({ floatingTabBar }),
       setTabBarLabels: (tabBarLabels) => set({ tabBarLabels }),
+      setBoardsTab: (boardsTab) => set({ boardsTab }),
       setHapticsEnabled: (hapticsEnabled) => set({ hapticsEnabled }),
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
       setDefaultReminderOffsets: (offsets) => set({ defaultReminderOffsets: normalizeReminderOffsets(offsets) }),
@@ -194,6 +199,7 @@ export const useSettingsStore = create<SettingsState>()(
         highContrast,
         floatingTabBar,
         tabBarLabels,
+        boardsTab,
         hapticsEnabled,
         notificationsEnabled,
         defaultReminderOffsets,
@@ -218,6 +224,7 @@ export const useSettingsStore = create<SettingsState>()(
         highContrast,
         floatingTabBar,
         tabBarLabels,
+        boardsTab,
         hapticsEnabled,
         notificationsEnabled,
         defaultReminderOffsets,

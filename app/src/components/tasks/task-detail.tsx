@@ -34,6 +34,7 @@ import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { collectAllTags, normalizeTags } from '@/lib/tags';
 import { useFocusStore } from '@/stores/focus-store';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
+import { useSettingsStore } from '@/stores/settings-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 import { endFocus, pauseFocus, resumeFocus, startFocus } from '@/widgets/focus';
 
@@ -216,6 +217,7 @@ function TaskDocument({
   const createTask = useCreateTask();
   const openTagPicker = useTagPickerStore((s) => s.open);
   const fabBottom = useTabBarFabOffset();
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
 
   const [draft, setDraft] = useState<Draft>(() => draftFromTask(task));
   const [checklistDraft, setChecklistDraft] = useState('');
@@ -648,7 +650,7 @@ function TaskDocument({
               }}
             />
           ) : null}
-          {!task.parent_uid ? <MoveToDeck task={task} inline /> : null}
+          {!task.parent_uid && boardsTab ? <MoveToDeck task={task} inline /> : null}
         </PropertyGroup>
 
         {Platform.OS === 'ios' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
