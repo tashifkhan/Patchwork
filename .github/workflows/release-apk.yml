@@ -7,7 +7,7 @@ name: Release Android APK
 #   - Push a version tag:   git tag v1.2.3 && git push origin v1.2.3
 #   - Manual run:           Actions → Release Android APK → Run workflow
 #
-# Required secrets (Patchwork / caldav-todo repo):
+# Required secrets (Patchwork repo):
 #   EXPO_TOKEN                    — Expo account token for EAS builds
 #   TASHIF_CODES_WORKFLOW_TOKEN   — PAT with actions:write on tashifkhan/tashif.codes
 #                                   (optional; skip F-Droid if unset)
