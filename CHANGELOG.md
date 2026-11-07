@@ -2,6 +2,27 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.7.1] - 2026-11-07
+
+Patchwork 1.7.1 adds column reordering, an optional Boards tab, floating actions on Deck cards and Jira issues, and Markdown notes in board editors.
+
+### Added
+
+- Reorder Deck columns from a drag sheet. Hold a column, drag it to a new place, and save; each moved column gets its new position.
+- Open the Reorder Columns sheet from the board toolbar or from Edit Column.
+- Delete a Jira issue from the issue screen, with a confirmation. Jira still refuses issues that have subtasks.
+- A Boards tab toggle in Appearance. It is on by default.
+
+### Changed
+
+- Deck cards and Jira issues use the same floating Move and Delete bar as tasks.
+- Board card descriptions and Jira descriptions render as Markdown and switch to the editor on tap, matching task notes.
+- With the Boards tab off, Deck disappears from the native tabs, floating bar, and navigation rail, search stops indexing Deck cards, tasks hide Move to Deck, and Jira settings says the tab is off.
+
+### Fixed
+
+- Deck and issue editors leave room for the floating action bar instead of ending behind it.
+
 ## [1.7.0] - 2026-11-07
 
 Patchwork 1.7 makes Jira boards draggable, groups their cards by sprint, and fixes keyboard positioning for settings fields and the floating task bar.
