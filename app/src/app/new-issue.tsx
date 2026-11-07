@@ -5,7 +5,6 @@ import { useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
 import {
-  createJiraIssue,
   defaultIssueType,
   fetchJiraBoardDetail,
   fetchJiraIssueTypes,
@@ -35,6 +34,7 @@ import { Switch } from '@/components/ui/switch';
 import { jiraAccountLabel, useJiraBoards } from '@/hooks/use-boards';
 import { queryKeys } from '@/lib/query-client';
 import { haptics } from '@/lib/haptics';
+import { createJiraIssueOrQueue } from '@/lib/outbox-sync';
 import { handleJiraError } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { ScrollView, View } from '@/tw';
@@ -133,7 +133,7 @@ export default function NewIssueScreen() {
     if (!canCreate || !credentials || !board) return;
     setCreating(true);
     try {
-      const created = await createJiraIssue(credentials, {
+      const created = await createJiraIssueOrQueue(credentials, {
         board,
         summary,
         description,
@@ -147,6 +147,11 @@ export default function NewIssueScreen() {
         sprintId: sprint?.id,
       });
       haptics.success();
+      if (!created) {
+        // Offline: it sits in the outbox and goes to Jira once back online.
+        router.back();
+        return;
+      }
       await client.invalidateQueries({ queryKey: ['jira', 'board'] });
       router.back();
       // Show it straight away, ready for more edits.
