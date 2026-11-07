@@ -88,7 +88,10 @@ export default function SearchScreen() {
   const [recents, setRecents] = useState<string[]>([]);
   // Defer deck indexing until the search tab has settled — avoids main-thread
   // ANRs when opening Search with many boards.
-  const [indexDeck, setIndexDeck] = useState(false);
+  const [deckSettled, setIndexDeck] = useState(false);
+  // With the Boards tab off, Deck cards stay out of search: they would open a hidden tab.
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const indexDeck = deckSettled && boardsTab;
   const deferredQuery = useDeferredValue(query);
 
   // Opening the Search tab means the user wants to type: focus the field and

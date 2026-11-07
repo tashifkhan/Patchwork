@@ -248,6 +248,12 @@ export default function BoardScreen() {
     });
   }
 
+  function reorderColumns() {
+    const parsed = parseBoardRef(ref);
+    if (!parsed || parsed.source !== 'deck') return;
+    router.push({ pathname: '/reorder-columns', params: { boardId: parsed.id } });
+  }
+
   function addColumn() {
     const parsed = parseBoardRef(ref);
     if (!parsed || parsed.source !== 'deck') return;
@@ -333,6 +339,11 @@ export default function BoardScreen() {
             source === 'deck' ? (
               <Stack.Toolbar.MenuAction key="column" icon="rectangle.badge.plus" onPress={addColumn}>
                 Add Column
+              </Stack.Toolbar.MenuAction>
+            ) : null,
+            source === 'deck' && detail.columns.length > 1 ? (
+              <Stack.Toolbar.MenuAction key="reorder" icon="arrow.left.arrow.right" onPress={reorderColumns}>
+                Reorder Columns
               </Stack.Toolbar.MenuAction>
             ) : null,
             <Stack.Toolbar.MenuAction key="switch" icon="rectangle.2.swap" onPress={() => setSwitcherOpen(true)}>

@@ -7,7 +7,6 @@ import {
   DetailRow,
   DetailsCard,
   EDITOR_CONTENT,
-  EditorActionRow,
   EditorHeading,
   EditorNotes,
   EditorPrimaryButton,
@@ -17,10 +16,12 @@ import { PickerSheet } from '@/components/boards/picker-sheet';
 import { MoveToTasks } from '@/components/deck/move-to-tasks';
 import { HeaderTextButton } from '@/components/settings/settings-list';
 import { DateField } from '@/components/tasks/date-field';
+import { TaskActionBar } from '@/components/tasks/task-action-bar';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeleteDeckCard, useUpdateDeckCard } from '@/hooks/use-deck';
 import { haptics } from '@/lib/haptics';
+import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { ScrollView, Text, View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
@@ -85,6 +86,7 @@ function CardEditor({
   const [columnOpen, setColumnOpen] = useState(false);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const barBottom = useTabBarFabOffset();
 
   const columns = stacks.filter((stack): stack is DeckStack & { id: number } => typeof stack.id === 'number');
   const column = columns.find((stack) => stack.id === targetStackId);
@@ -145,7 +147,7 @@ function CardEditor({
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets={IOS}
-        contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: 48 }}>
+        contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }}>
         <EditorTitle value={title} onChangeText={setTitle} placeholder="Card title" />
         <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
 
@@ -179,8 +181,14 @@ function CardEditor({
             onPress={save}
           />
         ) : null}
-        <EditorActionRow icon="trash-can-outline" label="Delete card" danger onPress={() => setDeleteVisible(true)} />
       </ScrollView>
+
+      <TaskActionBar
+        bottom={barBottom}
+        onMove={() => setColumnOpen(true)}
+        onDelete={() => setDeleteVisible(true)}
+        deleteLabel="Delete card"
+      />
 
       <PickerSheet
         visible={columnOpen}

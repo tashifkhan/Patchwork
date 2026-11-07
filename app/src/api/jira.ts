@@ -826,6 +826,11 @@ export async function fetchJiraTransitions(creds: JiraCredentials, key: string):
   }));
 }
 
+/** Delete an issue. Jira refuses when it has subtasks, and says so. */
+export async function deleteJiraIssue(creds: JiraCredentials, key: string): Promise<void> {
+  await new JiraClient(creds).request('DELETE', `/rest/api/3/issue/${encodeURIComponent(key)}`);
+}
+
 export async function applyJiraTransition(creds: JiraCredentials, key: string, transitionId: string): Promise<void> {
   await new JiraClient(creds).request('POST', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, {
     transition: { id: transitionId },
