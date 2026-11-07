@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 import {
   applyJiraTransition,
   assignJiraIssue,
+  deleteJiraIssue,
   fetchJiraIssue,
   fetchJiraPriorities,
   fetchJiraIssueSprint,
@@ -35,11 +36,13 @@ import {
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { HeaderTextButton } from '@/components/settings/settings-list';
 import { DateField } from '@/components/tasks/date-field';
+import { TaskActionBar } from '@/components/tasks/task-action-bar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import type { JiraCredentials } from '@/lib/credentials-types';
 import { haptics } from '@/lib/haptics';
+import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { handleJiraError, useJiraAccounts, useJiraSessionStore } from '@/stores/jira-session-store';
 import { ScrollView, View } from '@/tw';
 
@@ -166,6 +169,8 @@ function IssueEditor({
   // Boards without sprints have nothing to say here, unless the issue is in one.
   const showSprint = canMoveSprint || currentSprint.data != null;
   const [error, setError] = useState<string | null>(null);
+  const [deleteVisible, setDeleteVisible] = useState(false);
+  const barBottom = useTabBarFabOffset();
 
   const transitions = useQuery({
     queryKey: ['jira', 'transitions', credentials.id, issue.key, issue.status.id],
@@ -231,6 +236,17 @@ function IssueEditor({
     onError: fail,
   });
 
+  const remove = useMutation({
+    mutationFn: () => deleteJiraIssue(credentials, issue.key),
+    onSuccess: () => {
+      haptics.success();
+      void client.invalidateQueries({ queryKey: ['jira', 'board'] });
+      client.removeQueries({ queryKey: issueKey(credentials.id, issue.key) });
+      router.back();
+    },
+    onError: fail,
+  });
+
   const canSave = dirty && summary.trim().length > 0 && !save.isPending;
   const meta = [issue.key, issue.type?.name].filter(Boolean).join(' · ');
   const mine = issue.assignee?.accountId === credentials.account.accountId;
@@ -260,7 +276,7 @@ function IssueEditor({
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets={IOS}
-        contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: 48 }}>
+        contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }}>
         <EditorTitle
           value={summary}
           onChangeText={setSummary}
@@ -367,6 +383,13 @@ function IssueEditor({
           onPress={() => void WebBrowser.openBrowserAsync(jiraIssueUrl(credentials, issue.key))}
         />
       </ScrollView>
+
+      <TaskActionBar
+        bottom={barBottom}
+        onMove={() => setPicker('status')}
+        onDelete={() => setDeleteVisible(true)}
+        deleteLabel="Delete issue"
+      />
 
       <PickerSheet
         visible={picker === 'status'}
@@ -488,6 +511,18 @@ function IssueEditor({
               }))
         }
         onClose={() => setPicker(null)}
+      />
+      <NativeAlert
+        visible={deleteVisible}
+        title="Delete issue?"
+        message={`${issue.key} "${issue.summary}" is deleted from Jira. This cannot be undone.`}
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteVisible(false)}
+        onConfirm={() => {
+          setDeleteVisible(false);
+          remove.mutate();
+        }}
       />
       <NativeAlert
         visible={error != null}
