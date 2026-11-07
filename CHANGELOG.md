@@ -2,6 +2,15 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.8.1] - 2026-11-08
+
+Two fixes for Android: a new wallpaper palette now applies without restarting Patchwork, and the Reorder Columns sheet lets its rows be dragged.
+
+### Fixed
+
+- Android applies a new Material You wallpaper palette as soon as it changes. The app used to keep the old system colours until it was killed, because MainActivity handled the palette change itself.
+- Reorder Columns on Android drags the column you hold instead of pulling the sheet down. Back, outside taps, and the close button still dismiss the sheet.
+
 ## [1.8.0] - 2026-11-07
 
 Patchwork 1.8 keeps working without a connection. Lists and to-dos can live on the device, account data is cached, new items wait in an outbox, and dictation says what is wrong before it records.
