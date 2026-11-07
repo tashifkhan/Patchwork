@@ -1,51 +1,154 @@
 import { ApiError } from './client';
 import type { Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate } from './types';
 import { base64Encode } from '@/lib/base64';
+import { isNetworkError, knownOffline } from '@/lib/connectivity';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
+import {
+  LOCAL_ACCOUNT_ID,
+  cacheRemoteLists,
+  cacheRemoteTasks,
+  cachedRemoteLists,
+  cachedRemoteTasks,
+  createLocalList,
+  createLocalTask,
+  deleteLocalList,
+  deleteLocalTask,
+  ensureDefaultLocalList,
+  findKnownList,
+  getLocalLists,
+  getLocalTask,
+  getLocalTasks,
+  isLocalListId,
+  isLocalTaskId,
+  renameLocalList,
+  updateLocalTask,
+} from '@/lib/local-tasks';
+import {
+  enqueue,
+  getEntries,
+  isPendingTaskId,
+  pendingEntryId,
+  pendingTask,
+  removeEntry,
+  updateEntry,
+  type OutboxTaskEntry,
+} from '@/lib/outbox';
 import { assertUrlSameOrigin, originOf } from '@/lib/secure-url';
 import { normalizeTags } from '@/lib/tags';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
 
 const DAV_NS = 'DAV:';
 const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export async function fetchTaskLists() {
-  const clients = await allClients();
-  const results = await Promise.allSettled(clients.map((client) => client.listTaskCalendars()));
-  const lists = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
-  useSyncStatusStore.getState().setTaskSync(rejectionMessages(results));
+  const accounts = await getAccounts();
+  const clients = accounts.map((account) => new CalDavClient(account));
+  const [results, localLists] = await Promise.all([
+    Promise.allSettled(clients.map((client) => client.listTaskCalendars())),
+    localListsToShow(accounts.length === 0),
+  ]);
+  const lists: TaskList[] = [];
+  const warnings: string[] = [];
+  let offline = false;
+  for (const [index, result] of results.entries()) {
+    const account = accounts[index];
+    if (result.status === 'fulfilled') {
+      lists.push(...result.value);
+      void cacheRemoteLists(account.id, result.value).catch(() => {});
+      continue;
+    }
+    const cached = isNetworkError(result.reason) ? await cachedRemoteLists(account.id) : null;
+    if (cached) {
+      offline = true;
+      lists.push(...cached);
+    } else {
+      warnings.push(errorMessage(result.reason));
+    }
+  }
+  if (offline) warnings.unshift(OFFLINE_WARNING);
+  lists.push(...localLists);
+  useSyncStatusStore.getState().setTaskSync(warnings);
   if (lists.length === 0) throw firstRejected(results) ?? new ApiError(404, 'No task lists found.');
   return lists;
 }
 
 export async function fetchTasks() {
-  const clients = await allClients();
-  const results = await Promise.allSettled(
-    clients.map(async (client) => {
-      const lists = await client.listTaskCalendars();
-      const listResults = await Promise.allSettled(
-        lists.map((list) => client.listCalendarTasks(list))
-      );
-      const tasks = listResults.flatMap((result) =>
-        result.status === 'fulfilled' ? result.value : []
-      );
-      if (tasks.length === 0 && listResults.some((result) => result.status === 'rejected')) {
-        throw firstRejected(listResults) ?? new ApiError(502, 'Task lists could not be synchronized.');
+  const accounts = await getAccounts();
+  const clients = accounts.map((account) => new CalDavClient(account));
+  const [results, localLists, localTasks, outbox] = await Promise.all([
+    Promise.allSettled(
+      clients.map(async (client) => {
+        const lists = await client.listTaskCalendars();
+        const listResults = await Promise.allSettled(
+          lists.map((list) => client.listCalendarTasks(list))
+        );
+        const tasks = listResults.flatMap((result) =>
+          result.status === 'fulfilled' ? result.value : []
+        );
+        if (tasks.length === 0 && listResults.some((result) => result.status === 'rejected')) {
+          throw firstRejected(listResults) ?? new ApiError(502, 'Task lists could not be synchronized.');
+        }
+        return { tasks, warnings: rejectionMessages(listResults) };
+      })
+    ),
+    localListsToShow(accounts.length === 0),
+    getLocalTasks(),
+    getEntries(),
+  ]);
+
+  // Tasks saved offline join their account's tree, so a pending checklist item
+  // still sits under its parent.
+  const pending = outbox.flatMap((entry) => (entry.kind === 'task' ? [pendingTask(entry)] : []));
+  const pendingFor = (accountId: string | undefined) =>
+    pending.filter((task) => task.account_id === accountId);
+
+  const tasks: Task[] = [];
+  const warnings: string[] = [];
+  let offline = false;
+  let failedWithoutCache = 0;
+  for (const [index, result] of results.entries()) {
+    const account = accounts[index];
+    let flat: Task[];
+    if (result.status === 'fulfilled') {
+      flat = result.value.tasks;
+      warnings.push(...result.value.warnings);
+      void cacheRemoteTasks(account.id, flat).catch(() => {});
+    } else {
+      const cached = isNetworkError(result.reason) ? await cachedRemoteTasks(account.id) : null;
+      if (cached) {
+        offline = true;
+        flat = cached;
+      } else {
+        failedWithoutCache += 1;
+        warnings.push(errorMessage(result.reason));
+        flat = [];
       }
-      // Build the parent/child tree per account so RELATED-TO uids never
-      // collide across servers.
-      return { tasks: attachChildren(tasks), warnings: rejectionMessages(listResults) };
-    })
-  );
-  const tasks = results.flatMap((result) => result.status === 'fulfilled' ? result.value.tasks : []);
-  const warnings = results.flatMap((result) => result.status === 'fulfilled'
-    ? result.value.warnings
-    : [errorMessage(result.reason)]);
+    }
+    // Build the parent/child tree per account so RELATED-TO uids never
+    // collide across servers.
+    tasks.push(...attachChildren([...flat, ...pendingFor(account.id)]));
+  }
+  const knownAccounts = new Set(accounts.map((account) => account.id));
+  const orphans = pending.filter((task) => !task.account_id || !knownAccounts.has(task.account_id));
+  tasks.push(...attachChildren(localTasks), ...attachChildren(orphans));
+
+  if (offline) warnings.unshift(OFFLINE_WARNING);
   useSyncStatusStore.getState().setTaskSync(warnings);
-  if (tasks.length === 0 && results.some((result) => result.status === 'rejected')) {
+  if (tasks.length === 0 && localLists.length === 0 && failedWithoutCache > 0) {
     throw firstRejected(results) ?? new ApiError(404, 'No tasks found.');
   }
   return tasks;
+}
+
+const OFFLINE_WARNING =
+  "You're offline. Showing what was last synced. New to-dos are saved on this device and sent when you're back online.";
+
+/** On-device lists, plus a starter list when there is no account to sync with. */
+async function localListsToShow(noAccounts: boolean) {
+  const lists = await getLocalLists();
+  if (lists.length > 0 || !noAccounts) return lists;
+  return ensureDefaultLocalList();
 }
 
 function firstRejected<T>(results: PromiseSettledResult<T>[]) {
@@ -62,7 +165,10 @@ function errorMessage(error: unknown) {
 }
 
 export async function createTaskList(payload: TaskListCreate) {
-  const clients = await allClients();
+  if (payload.account_id === LOCAL_ACCOUNT_ID) return createLocalList(payload.name);
+  const accounts = await getAccounts();
+  if (accounts.length === 0 && !payload.account_id) return createLocalList(payload.name);
+  const clients = accounts.map((account) => new CalDavClient(account));
   const client = payload.account_id
     ? clients.find((candidate) => candidate.account.id === payload.account_id)
     : clients.length === 1
@@ -80,16 +186,49 @@ export async function createTaskList(payload: TaskListCreate) {
 }
 
 export async function updateTaskList(listId: string, payload: TaskListUpdate) {
+  if (isLocalListId(listId)) return renameLocalList(listId, payload.name);
   const { client, target } = await resolveListTarget(listId);
   return client.renameTaskCalendar(target, payload.name);
 }
 
 export async function deleteTaskList(listId: string) {
+  if (isLocalListId(listId)) return deleteLocalList(listId);
   const { client, target } = await resolveListTarget(listId);
   await client.deleteTaskCalendar(target);
 }
 
-export async function createTask(payload: TaskCreate) {
+/**
+ * Create a to-do. On-device lists save straight to storage. For an account,
+ * a failure caused by the connection (or a device already known to be
+ * offline) saves it to the outbox instead, and it goes up once the app is
+ * back online. The returned task is marked `pending_sync` in that case.
+ */
+export async function createTask(payload: TaskCreate): Promise<Task> {
+  if (isLocalListId(payload.list_id)) return createLocalTask(payload);
+  const withUid = { ...payload, uid: payload.uid ?? randomUuid() };
+  if (knownOffline()) return queueTask(withUid);
+  try {
+    return await createRemoteTask(withUid);
+  } catch (error) {
+    if (!isNetworkError(error)) throw error;
+    return queueTask(withUid);
+  }
+}
+
+async function queueTask(payload: TaskCreate & { uid: string }) {
+  const list = await findKnownList(payload.list_id);
+  const entry = await enqueue({
+    kind: 'task',
+    payload,
+    listName: list?.name ?? 'Tasks',
+    accountId: list?.account_id ?? payload.list_id.split(':')[0],
+    accountName: list?.account_name,
+  });
+  return pendingTask(entry as OutboxTaskEntry);
+}
+
+/** Upload one to-do to its CalDAV list, with no offline fallback. Used by the outbox. */
+export async function createRemoteTask(payload: TaskCreate) {
   const { client, target } = await resolveListTarget(payload.list_id);
 
   const { uid, calendarData } = serializeVtodo(payload);
@@ -107,10 +246,31 @@ export async function createTask(payload: TaskCreate) {
   return created;
 }
 
-export async function updateTask(taskId: string, payload: TaskUpdate, accountId?: string) {
+export async function updateTask(taskId: string, payload: TaskUpdate, accountId?: string): Promise<Task> {
+  if (isPendingTaskId(taskId)) return updatePendingTask(taskId, payload);
+  if (isLocalTaskId(taskId)) {
+    if (payload.list_id && !isLocalListId(payload.list_id)) return moveLocalTaskToAccount(taskId, payload);
+    return updateLocalTask(taskId, payload);
+  }
   const client = await clientForTask(taskId, accountId);
   const existing = await client.fetchTaskByHref(taskId);
   const calendarData = updateVtodo(existing.calendarData, payload);
+
+  if (payload.list_id && isLocalListId(payload.list_id)) {
+    // Account to device: keep the uid so subtasks stay attached.
+    const parsed = parseVtodo(calendarData, client.absoluteUrl(taskId), null, existing.list);
+    if (!parsed) throw new ApiError(500, 'Task could not be read');
+    const moved = await createLocalTask({ ...taskToCreate(parsed), list_id: payload.list_id });
+    try {
+      await client.request('DELETE', client.absoluteUrl(taskId), {
+        headers: payload.etag ? { 'If-Match': payload.etag } : undefined,
+      });
+    } catch (error) {
+      await deleteLocalTask(moved.id);
+      throw error;
+    }
+    return moved;
+  }
 
   if (payload.list_id && payload.list_id !== existing.list.id) {
     const destination = await resolveListTarget(payload.list_id);
@@ -159,10 +319,65 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
 }
 
 export async function deleteTask(taskId: string, accountId?: string, etag?: string | null) {
+  if (isPendingTaskId(taskId)) return removeEntry(pendingEntryId(taskId));
+  if (isLocalTaskId(taskId)) return deleteLocalTask(taskId);
   const client = await clientForTask(taskId, accountId);
   await client.request('DELETE', client.absoluteUrl(taskId), {
     headers: etag ? { 'If-Match': etag } : undefined,
   });
+}
+
+/** Edit a to-do that is still waiting in the outbox; the change goes up with it. */
+async function updatePendingTask(taskId: string, patch: TaskUpdate): Promise<Task> {
+  const id = pendingEntryId(taskId);
+  const { etag: _etag, ...fields } = patch;
+  const list = fields.list_id ? await findKnownList(fields.list_id) : null;
+  if (fields.list_id && isLocalListId(fields.list_id)) {
+    // Moving it onto the device means it no longer needs to sync.
+    const entry = (await getEntries()).find((candidate) => candidate.id === id);
+    if (!entry || entry.kind !== 'task') throw new ApiError(404, 'This to-do was already sent.');
+    const moved = await createLocalTask({ ...entry.payload, ...fields, list_id: fields.list_id });
+    await removeEntry(id);
+    return moved;
+  }
+  let updated: Task | null = null;
+  await updateEntry(id, (entry) => {
+    if (entry.kind !== 'task') return entry;
+    const next: OutboxTaskEntry = {
+      ...entry,
+      payload: { ...entry.payload, ...fields },
+      ...(list ? { listName: list.name, accountId: list.account_id, accountName: list.account_name } : {}),
+    };
+    updated = pendingTask(next);
+    return next;
+  });
+  if (!updated) throw new ApiError(404, 'This to-do was already sent. Refresh to see it.');
+  return updated;
+}
+
+async function moveLocalTaskToAccount(taskId: string, patch: TaskUpdate): Promise<Task> {
+  const existing = await getLocalTask(taskId);
+  if (!existing) throw new ApiError(404, 'This to-do is no longer on this device.');
+  const { etag: _etag, ...fields } = patch;
+  const created = await createTask({ ...taskToCreate(existing), ...fields, list_id: patch.list_id! });
+  await deleteLocalTask(taskId);
+  return created;
+}
+
+function taskToCreate(task: Task): TaskCreate {
+  return {
+    list_id: task.list_id,
+    uid: task.uid,
+    title: task.title,
+    markdown: task.markdown,
+    completed: task.completed,
+    tags: task.tags,
+    due_at: task.due_at,
+    reminder_at: task.reminder_at,
+    parent_uid: task.parent_uid,
+    priority: task.priority,
+    sort_order: task.sort_order,
+  };
 }
 
 export async function validateCalDavAccount(account: CalDavAccount): Promise<void> {
@@ -219,17 +434,30 @@ class CalDavClient {
       throw new ApiError(400, error instanceof Error ? error.message : 'Refusing off-origin CalDAV URL');
     }
 
-    const response = await fetch(safeUrl, {
-      ...options,
-      method,
-      headers: {
-        Authorization: this.authHeader,
-        Accept: 'application/xml,text/calendar,*/*',
-        'OCS-APIRequest': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        ...options.headers,
-      },
-    });
+    // A stalled connection would otherwise hang a save forever instead of
+    // failing over to the offline outbox.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(safeUrl, {
+        ...options,
+        signal: controller.signal,
+        method,
+        headers: {
+          Authorization: this.authHeader,
+          Accept: 'application/xml,text/calendar,*/*',
+          'OCS-APIRequest': 'true',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...options.headers,
+        },
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw new ApiError(0, 'The server took too long to respond.');
+      throw new ApiError(0, error instanceof Error && error.message ? error.message : 'Could not reach the server.');
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
@@ -516,7 +744,7 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
 }
 
 export function serializeVtodo(task: TaskCreate) {
-  const uid = randomUuid();
+  const uid = task.uid ?? randomUuid();
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -526,8 +754,9 @@ export function serializeVtodo(task: TaskCreate) {
     `SUMMARY:${escapeIcs(task.title)}`,
     `DESCRIPTION:${escapeIcs(task.markdown ?? '')}`,
     `DTSTAMP:${formatIcsDate(new Date().toISOString())}`,
-    'STATUS:NEEDS-ACTION',
+    task.completed ? 'STATUS:COMPLETED' : 'STATUS:NEEDS-ACTION',
   ];
+  if (task.completed) lines.push(`COMPLETED:${formatIcsDate(new Date().toISOString())}`);
   if (task.priority != null) lines.push(`PRIORITY:${task.priority}`);
   if (task.sort_order != null) lines.push(`X-APPLE-SORT-ORDER:${task.sort_order}`);
   if (task.due_at) lines.push(`DUE:${formatIcsDate(task.due_at)}`);

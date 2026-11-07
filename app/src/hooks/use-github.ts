@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   closeGitHubIssue,
-  createGitHubIssue,
   fetchGitHubIssues,
   fetchGitHubRepos,
   fetchSingleGitHubIssue,
@@ -18,6 +17,7 @@ import type {
 } from '@/api/types';
 import { GitHubError } from '@/features/github/errors';
 import type { GitHubIssuesResult, GitHubRepositorySelection } from '@/features/github/types';
+import { createGitHubIssueOrQueue } from '@/lib/outbox-sync';
 import { queryKeys } from '@/lib/query-client';
 import {
   handleGitHubSessionError,
@@ -214,9 +214,11 @@ export function useCreateGitHubIssue() {
     }: {
       repository: GitHubRepositorySelection;
       issue: GitHubIssueCreate;
-    }) => createGitHubIssue(repository, issue),
+    }) => createGitHubIssueOrQueue(repository, issue),
     onError: handleGitHubSessionError,
     onSuccess: (created) => {
+      // Null: saved offline, the outbox sends it later.
+      if (!created) return;
       client.setQueryData(
         [...queryKeys.githubIssue(created.repo, created.number), true],
         created

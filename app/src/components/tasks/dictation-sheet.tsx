@@ -21,12 +21,18 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { dictateTasks } from '@/api/ai';
+import { dictateTasks, dictationBlocker } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
+import {
+  OFFLINE_DICTATION_MESSAGE,
+  SLOW_DICTATION_MESSAGE,
+  checkConnection,
+  isNetworkError,
+} from '@/lib/connectivity';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
@@ -68,6 +74,9 @@ const MIME_TYPE = Platform.OS === 'ios' ? 'audio/wav' : 'audio/aac';
 
 type Phase = 'starting' | 'recording' | 'working' | 'done' | 'error';
 
+/** What went wrong decides the recovery button: retry, OS settings, or AI settings. */
+type ErrorKind = 'retry' | 'permission' | 'ai-setup' | 'network';
+
 /**
  * Hold-free voice capture for new to-dos. Opening the sheet starts recording;
  * Done sends the note to an audio-capable AI model, which writes the to-dos,
@@ -96,24 +105,46 @@ export function DictationSheet({
   const setStaged = useAiStagingStore((s) => s.setStaged);
   const [phase, setPhase] = useState<Phase>('starting');
   const [message, setMessage] = useState<string | null>(null);
-  const [needsSettings, setNeedsSettings] = useState(false);
+  const [errorKind, setErrorKind] = useState<ErrorKind>('retry');
   const [doneLabel, setDoneLabel] = useState('');
   const cancelled = useRef(false);
   // Loudest level heard this take; null when the platform reports no metering.
   const peakDb = useRef<number | null>(null);
 
+  const fail = useCallback((kind: ErrorKind, text: string) => {
+    setErrorKind(kind);
+    setMessage(text);
+    setPhase('error');
+  }, []);
+
   const start = useCallback(async () => {
     cancelled.current = false;
     peakDb.current = null;
     setMessage(null);
-    setNeedsSettings(false);
+    setErrorKind('retry');
     setPhase('starting');
+    // No model in the ladder can hear audio: say so before recording anything.
+    const blocker = dictationBlocker();
+    if (blocker) {
+      haptics.error();
+      fail('ai-setup', blocker.message);
+      return;
+    }
     try {
-      const permission = await requestRecordingPermissionsAsync();
+      // The voice note only goes anywhere over the network, so check it
+      // while the permission prompt is up instead of after a long recording.
+      const [permission, connection] = await Promise.all([
+        requestRecordingPermissionsAsync(),
+        checkConnection({ timeoutMs: 5000, slowMs: 2500 }),
+      ]);
+      if (cancelled.current) return;
       if (!permission.granted) {
-        setPhase('error');
-        setNeedsSettings(!permission.canAskAgain);
-        setMessage('Allow microphone access to dictate a task.');
+        fail(permission.canAskAgain ? 'retry' : 'permission', 'Allow microphone access to dictate a task.');
+        return;
+      }
+      if (connection !== 'online') {
+        haptics.error();
+        fail('network', connection === 'offline' ? OFFLINE_DICTATION_MESSAGE : SLOW_DICTATION_MESSAGE);
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
@@ -123,15 +154,15 @@ export function DictationSheet({
       haptics.impact('medium');
       setPhase('recording');
     } catch (error) {
-      setPhase('error');
-      setMessage(error instanceof Error ? error.message : 'Could not start the microphone.');
+      fail('retry', error instanceof Error ? error.message : 'Could not start the microphone.');
     }
-  }, [recorder]);
+  }, [fail, recorder]);
 
-  // Start listening as soon as the sheet opens.
+  // Start as soon as the sheet opens. The model check is instant, so a ladder
+  // without a voice model shows its error at once instead of a mic spinner.
   useEffect(() => {
     if (!visible) return;
-    const timer = setTimeout(() => void start(), 250);
+    const timer = setTimeout(() => void start(), dictationBlocker() ? 0 : 250);
     return () => clearTimeout(timer);
   }, [visible, start]);
 
@@ -157,14 +188,12 @@ export function DictationSheet({
     await release();
     const uri = recorder.uri;
     if (!uri || seconds < 0.8) {
-      setPhase('error');
-      setMessage('That was too short. Tap the mic and say what you need to do.');
+      fail('retry', 'That was too short. Tap the mic and say what you need to do.');
       return;
     }
     if (peakDb.current != null && peakDb.current < SPEECH_DB) {
       haptics.error();
-      setPhase('error');
-      setMessage("I couldn't hear anything. Check the microphone isn't muted and try again.");
+      fail('retry', "I couldn't hear anything. Check the microphone isn't muted and try again.");
       return;
     }
     haptics.tap();
@@ -173,8 +202,7 @@ export function DictationSheet({
       const response = await dictateTasks({ uri, mimeType: MIME_TYPE, availableLists: lists, availableTags });
       if (cancelled.current) return;
       if (response.tasks.length === 0) {
-        setPhase('error');
-        setMessage("The AI didn't hear a to-do in that. Try again, starting with what you need to do.");
+        fail('retry', "The AI didn't hear a to-do in that. Try again, starting with what you need to do.");
         return;
       }
       haptics.success();
@@ -191,9 +219,17 @@ export function DictationSheet({
         router.push('/ai-review');
       }, 750);
     } catch (error) {
+      if (cancelled.current) return;
       haptics.error();
-      setPhase('error');
-      setMessage(error instanceof ApiError || error instanceof Error ? error.message : 'Could not reach the AI.');
+      const network = isNetworkError(error);
+      fail(
+        network ? 'network' : 'retry',
+        network && !(error instanceof ApiError && error.status === 0)
+          ? SLOW_DICTATION_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : 'Could not reach the AI.'
+      );
     }
   }
 
@@ -249,7 +285,13 @@ export function DictationSheet({
 
             <View className="items-center px-6" style={{ gap: 6, paddingTop: 8 }}>
               <Text style={{ fontSize: 22, fontWeight: '600', color: colors.text }}>
-                {recording ? 'Listening…' : phase === 'error' ? 'Dictate a to-do' : 'Getting the mic ready…'}
+                {recording
+                  ? 'Listening…'
+                  : phase === 'error'
+                    ? errorKind === 'network' || errorKind === 'ai-setup'
+                      ? 'Dictation unavailable'
+                      : 'Dictate a to-do'
+                    : 'Getting the mic ready…'}
               </Text>
               <Text style={{ fontSize: 14, lineHeight: 20, color: colors.text2, textAlign: 'center', maxWidth: 320 }}>
                 {phase === 'error' && message
@@ -299,8 +341,10 @@ export function DictationSheet({
               {phase === 'error' ? (
                 <Pressable
                   onPress={() => {
-                    if (needsSettings) void Linking.openSettings();
-                    else void start();
+                    if (errorKind === 'permission') void Linking.openSettings();
+                    else if (errorKind === 'ai-setup') {
+                      void close().then(() => router.push('/settings/ai'));
+                    } else void start();
                   }}
                   accessibilityRole="button"
                   android_ripple={{ color: colors.separator }}
@@ -316,12 +360,24 @@ export function DictationSheet({
                     backgroundColor: colors.accent,
                   })}>
                   <MaterialCommunityIcons
-                    name={needsSettings ? 'cog-outline' : 'microphone'}
+                    name={
+                      errorKind === 'permission'
+                        ? 'cog-outline'
+                        : errorKind === 'ai-setup'
+                          ? 'star-four-points-outline'
+                          : errorKind === 'network'
+                            ? 'wifi-refresh'
+                            : 'microphone'
+                    }
                     size={20}
                     color={colors.onAccent}
                   />
                   <Text style={{ fontSize: 16, fontWeight: '600', color: colors.onAccent }}>
-                    {needsSettings ? 'Open settings' : 'Try again'}
+                    {errorKind === 'permission'
+                      ? 'Open settings'
+                      : errorKind === 'ai-setup'
+                        ? 'AI settings'
+                        : 'Try again'}
                   </Text>
                 </Pressable>
               ) : (

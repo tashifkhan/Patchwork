@@ -6,13 +6,15 @@ import { router, type ErrorBoundaryProps } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Pressable } from 'react-native';
+import { AppState, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
 import { useTasks } from '@/hooks/use-tasks';
 import { DURATION } from '@/lib/motion';
+import { loadOutbox, useOutboxStore } from '@/lib/outbox';
+import { flushOutbox } from '@/lib/outbox-sync';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient } from '@/lib/query-client';
 import { sheetScreenOptions } from '@/lib/screen-options';
@@ -176,6 +178,25 @@ function NativeRuntimeCoordinator() {
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') initializeGitHub();
   }, [initializeGitHub]);
+
+  // Send anything saved offline: at launch, on return to the app, and every
+  // 30 seconds while something is still waiting.
+  useEffect(() => {
+    if (process.env.EXPO_OS === 'web') return;
+    const flush = () => void flushOutbox().catch(() => {});
+    void loadOutbox().then(flush);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') flush();
+    });
+    const timer = setInterval(() => {
+      const waiting = useOutboxStore.getState().entries.some((entry) => entry.lastError == null);
+      if (AppState.currentState === 'active' && waiting) flush();
+    }, 30_000);
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!tasksQuery.data) return;

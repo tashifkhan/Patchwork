@@ -2,7 +2,6 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useEffect, useMemo } from 'react';
 
 import {
-  createJiraIssue,
   fetchJiraBoardDetail,
   fetchJiraBoards,
   rankJiraIssue,
@@ -25,6 +24,7 @@ import {
   type BoardSummary,
 } from '@/features/boards/model';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards, useReorderDeckCard } from '@/hooks/use-deck';
+import { createJiraIssueOrQueue } from '@/lib/outbox-sync';
 import { queryKeys } from '@/lib/query-client';
 import { useSettingsStore } from '@/stores/settings-store';
 import type { JiraCredentials } from '@/lib/credentials-types';
@@ -222,7 +222,7 @@ export function useBoardDetail(ref: string): BoardDetailState {
     mutationFn: async (input: { columnId: string; title: string }) => {
       const detail = client.getQueryData<JiraBoardDetail>(jiraKey);
       if (!credentials || !jiraBoard) return;
-      await createJiraIssue(credentials, {
+      await createJiraIssueOrQueue(credentials, {
         board: jiraBoard,
         summary: input.title,
         column: detail?.columns.find((column) => column.name === input.columnId),

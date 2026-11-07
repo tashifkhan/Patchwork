@@ -8,8 +8,9 @@ export const queryClient = new QueryClient({
       staleTime: 30_000,
       gcTime: 5 * 60_000,
       retry: (failureCount, error) => {
-        // Don't retry 4xx/501 — they won't succeed on repeat.
-        if (error instanceof ApiError && error.status < 500) return false;
+        // Don't retry 4xx/501, they won't succeed on repeat. Status 0 is a
+        // dropped connection, which can.
+        if (error instanceof ApiError && error.status > 0 && error.status < 500) return false;
         return failureCount < 2;
       },
     },

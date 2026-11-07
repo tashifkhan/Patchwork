@@ -47,11 +47,20 @@ export interface Task {
   account_id?: string;
   /** Human-readable account label for multi-account surfaces and widgets. */
   account_name?: string;
+  /** Saved offline and still waiting to reach its account (see `@/lib/outbox`). */
+  pending_sync?: boolean;
 }
 
 export interface TaskCreate {
   list_id: string;
   title: string;
+  /**
+   * Fixed iCalendar UID. Offline saves pick it up front so subtasks can point
+   * at the parent before it reaches the server, and a retried upload that
+   * already landed is recognised instead of duplicated.
+   */
+  uid?: string;
+  completed?: boolean;
   markdown?: string;
   tags?: string[];
   due_at?: string | null;

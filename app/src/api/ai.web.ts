@@ -46,3 +46,12 @@ export interface DictationInput {
 export async function dictateTasks(_input: DictationInput): Promise<AiTasksResponse> {
   throw new Error('Voice dictation is available in the iOS and Android apps.');
 }
+
+export interface DictationBlocker {
+  reason: 'no-models' | 'no-voice-models' | 'unsupported';
+  message: string;
+}
+
+export function dictationBlocker(): DictationBlocker | null {
+  return { reason: 'unsupported', message: 'Voice dictation is available in the iOS and Android apps.' };
+}

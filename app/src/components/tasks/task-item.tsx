@@ -55,7 +55,8 @@ function TaskItemComponent({
   const focusUid = useFocusStore((s) => s.taskUid);
   const isFocused = focusUid === task.uid;
   const focusEnabled = Platform.OS === 'ios' && !task.completed;
-  const showMeta = Boolean(when || listLabel);
+  const pending = task.pending_sync === true;
+  const showMeta = Boolean(when || listLabel || pending);
 
   return (
     <Animated.View
@@ -157,6 +158,14 @@ function TaskItemComponent({
                 <Text numberOfLines={1} style={{ fontSize: 13, color: colors.text3, flexShrink: 1 }}>
                   {listLabel}
                 </Text>
+              ) : null}
+              {pending ? (
+                <View
+                  className="flex-row items-center gap-1"
+                  accessibilityLabel="Saved on this device, waiting to sync">
+                  <MaterialCommunityIcons name="cloud-upload-outline" size={13} color={colors.text3} />
+                  <Text style={{ fontSize: 13, color: colors.text3 }}>Waiting to sync</Text>
+                </View>
               ) : null}
             </View>
           ) : null}

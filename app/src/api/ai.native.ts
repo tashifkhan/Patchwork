@@ -9,6 +9,7 @@ import { ApiError } from './client';
 import { RELAYROOM_DEFAULT_URL, relayroomGenerate } from './relayroom';
 import type { AiDraftRequest, AiGeneratedTask, AiRefineRequest, AiTasksResponse, TaskList } from './types';
 import { DEFAULT_AI_MODELS, buildProvidersWithCustom, providerById, supportsAudio, supportsImage, type AiModelSelection } from '@/lib/ai-models';
+import { checkConnection, isNetworkError } from '@/lib/connectivity';
 import { getAiApiKey } from '@/lib/credentials';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -28,9 +29,40 @@ export interface DictationInput {
   availableTags?: string[];
 }
 
+export interface DictationBlocker {
+  reason: 'no-models' | 'no-voice-models' | 'unsupported';
+  message: string;
+}
+
+/**
+ * Why dictation can't run with the current AI ladder, or null when at least
+ * one model in it takes audio. Checked when the mic is tapped, before
+ * anything is recorded.
+ */
+export function dictationBlocker(): DictationBlocker | null {
+  const configured = configuredModels();
+  if (configured.length === 0) {
+    return {
+      reason: 'no-models',
+      message: 'Dictation needs an AI model. Add one that supports audio, such as Gemini Flash, in Settings > AI import.',
+    };
+  }
+  if (configured.some(supportsAudio)) return null;
+  const names = configured.map(modelLabel);
+  return {
+    reason: 'no-voice-models',
+    message:
+      configured.length === 1
+        ? `${names[0]} can't take voice input, so dictation won't work with it. In Settings > AI import, add a model marked Audio, such as Gemini Flash.`
+        : `None of the models in your AI ladder can take voice input (${names.join(', ')}). In Settings > AI import, add a model marked Audio, such as Gemini Flash.`,
+  };
+}
+
 /**
  * Send a voice note to an audio-capable model, which listens, transcribes and
- * returns staged to-dos in the same shape as text and photo imports.
+ * returns staged to-dos in the same shape as text and photo imports. Models
+ * that can't hear audio are skipped; the rest are tried in ladder order until
+ * one answers.
  */
 export async function dictateTasks(input: DictationInput): Promise<AiTasksResponse> {
   const response = await fetch(input.uri);
@@ -96,9 +128,21 @@ export async function refineTasks(payload: AiRefineRequest): Promise<AiTasksResp
   return { tasks: parseTaskJson(responseText, payload.available_lists, payload.available_tags) };
 }
 
+function configuredModels() {
+  const settings = useSettingsStore.getState();
+  return settings.aiModelSelections.length > 0 ? settings.aiModelSelections : DEFAULT_AI_MODELS;
+}
+
+function modelLabel(selection: AiModelSelection) {
+  return selection.modelName || selection.modelId;
+}
+
+/** A voice note is a big upload; give each model this long before moving down the ladder. */
+const AUDIO_ATTEMPT_TIMEOUT_MS = 90_000;
+
 async function generateModelJson(prompt: string, attachment?: Attachment, feature: Feature = 'draft') {
   const settings = useSettingsStore.getState();
-  const configured = settings.aiModelSelections.length > 0 ? settings.aiModelSelections : DEFAULT_AI_MODELS;
+  const configured = configuredModels();
   const selections =
     attachment?.kind === 'image'
       ? configured.filter(supportsImage)
@@ -106,19 +150,24 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
         ? configured.filter(supportsAudio)
         : configured;
   if (selections.length === 0) {
+    if (attachment?.kind === 'audio') {
+      throw new ApiError(400, dictationBlocker()?.message ?? 'None of your AI models can listen to audio.');
+    }
     throw new ApiError(
       400,
       configured.length === 0
         ? 'No AI model is selected. Pick at least one model in Settings.'
-        : attachment?.kind === 'audio'
-          ? 'None of your AI models can listen to audio. In Settings, AI import, add one marked Audio, such as Gemini Flash.'
-          : 'No selected AI model supports image input. Pick an image-capable model in Settings.'
+        : 'No selected AI model supports image input. Pick an image-capable model in Settings.'
     );
   }
 
   const providers = buildProvidersWithCustom([], settings.aiCustomProviders);
-  const failures: string[] = [];
+  const failures: { label: string; message: string; network: boolean }[] = [];
   for (const selection of selections) {
+    const label = modelLabel(selection);
+    const controller = new AbortController();
+    const timer =
+      attachment?.kind === 'audio' ? setTimeout(() => controller.abort(), AUDIO_ATTEMPT_TIMEOUT_MS) : null;
     try {
       // RelayRoom: one gateway call; it picks the credential, enforces JSON
       // natively and records usage under the feature tag.
@@ -139,12 +188,15 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
           }
         );
         if (result.text.trim()) return result.text;
-        failures.push(`relayroom/${selection.modelId}: empty response`);
+        failures.push({ label, message: 'empty response', network: false });
         continue;
       }
       const model = await languageModelFor(selection, settings.aiBaseUrlOverrides, providers);
       const result = await generateText({
         model,
+        abortSignal: controller.signal,
+        // The ladder is the retry; one slow model shouldn't be tried three times.
+        maxRetries: attachment?.kind === 'audio' ? 0 : 2,
         providerOptions: reasoningOptions(selection, providers),
         messages: [
           {
@@ -165,13 +217,39 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
         ],
       });
       if (result.text.trim()) return result.text;
-      failures.push(`${selection.providerId}/${selection.modelId}: empty response`);
+      failures.push({ label, message: 'empty response', network: false });
     } catch (error) {
-      failures.push(`${selection.providerId}/${selection.modelId}: ${error instanceof Error ? error.message : 'request failed'}`);
+      const timedOut = controller.signal.aborted;
+      failures.push({
+        label,
+        message: timedOut ? 'timed out' : error instanceof Error ? error.message : 'request failed',
+        network: timedOut || isNetworkError(error),
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
-  throw new ApiError(502, `All selected AI models failed. ${failures.join(' | ')}`);
+  // Every model failed on the connection. Check it's really the device's
+  // internet and not one unreachable gateway before saying so.
+  if (failures.every((failure) => failure.network) && (await checkConnection()) !== 'online') {
+    throw new ApiError(
+      0,
+      attachment?.kind === 'audio'
+        ? "Dictation isn't possible right now because of a bad internet connection. Try again when you have a better signal."
+        : "Couldn't reach the AI because of a bad internet connection. Try again when you have a better signal."
+    );
+  }
+  const detail = failures.map((failure) => `${failure.label}: ${failure.message}`).join(' | ');
+  if (attachment?.kind === 'audio') {
+    throw new ApiError(
+      502,
+      selections.length === 1
+        ? `${selections[0] ? modelLabel(selections[0]) : 'Your voice model'} couldn't handle the voice note. ${detail}`
+        : `Tried all ${selections.length} voice models in your AI ladder and none could handle the note. ${detail}`
+    );
+  }
+  throw new ApiError(502, `All selected AI models failed. ${detail}`);
 }
 
 /**
