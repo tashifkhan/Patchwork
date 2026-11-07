@@ -2,6 +2,30 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.8.0] - 2026-11-07
+
+Patchwork 1.8 keeps working without a connection. Lists and to-dos can live on the device, account data is cached, new items wait in an outbox, and dictation says what is wrong before it records.
+
+### Added
+
+- On-device lists and to-dos, stored only on the phone. Create one from the list form, and move to-dos between device and account lists without breaking subtasks.
+- Cached lists and tasks for each CalDAV account, so the app shows the last known content when the network is down.
+- A sync outbox for to-dos, GitHub issues, and Jira issues created without a connection. Waiting items show a badge in the task list and a banner with Sync now.
+- An Offline & Sync settings screen with on-device lists, every waiting item, per-item errors, Sync now, and discard.
+- Account chips in the create-list form, including On this device.
+
+### Changed
+
+- The outbox sends at launch, when the app returns to the foreground, and every 30 seconds while something is waiting.
+- Dictation checks for an audio-capable model and a usable connection as the sheet opens. Missing models offer a link to AI settings; offline and weak connections get their own message.
+- Audio models that cannot hear voice notes are skipped, and each audio attempt times out after 90 seconds instead of stalling the ladder.
+- CalDAV requests time out after 30 seconds, and a dropped connection is retried rather than failing the query.
+
+### Fixed
+
+- Offline-created to-dos keep a fixed iCalendar UID, so a retried upload that already landed is recognised instead of duplicated.
+- Completed to-dos serialize as completed when they are created through the outbox.
+
 ## [1.7.1] - 2026-11-07
 
 Patchwork 1.7.1 adds column reordering, an optional Boards tab, floating actions on Deck cards and Jira issues, and Markdown notes in board editors.
