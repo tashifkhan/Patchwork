@@ -11,6 +11,8 @@ export interface SheetSurfaceProps {
   bottomInset?: number;
   /** Android only — false rests the sheet at the ~50% detent (ignored on iOS/web). */
   skipPartiallyExpanded?: boolean;
+  /** Android only — false stops the sheet from being dragged by its content. */
+  sheetGesturesEnabled?: boolean;
 }
 
 // Web fallback. Native platforms resolve to sheet-surface.ios.tsx /

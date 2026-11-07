@@ -88,6 +88,7 @@ module.exports = ({ config }) => {
         },
       ],
       './plugins/with-android-workmanager-dedupe',
+      './plugins/with-android-wallpaper-recreate',
     ],
   };
 };

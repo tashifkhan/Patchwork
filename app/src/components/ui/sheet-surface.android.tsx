@@ -31,6 +31,12 @@ export interface SheetSurfaceProps {
    * detent is clipped and cannot be scrolled to.
    */
   skipPartiallyExpanded?: boolean;
+  /**
+   * False stops the sheet itself from being dragged. Use it when the content
+   * has its own vertical drag (drag-to-reorder), or Compose's sheet drag takes
+   * the touch first. Back, outside tap and `router.back()` still close it.
+   */
+  sheetGesturesEnabled?: boolean;
 }
 
 /**
@@ -49,6 +55,7 @@ export function SheetSurface({
   subtitle,
   bottomInset,
   skipPartiallyExpanded = true,
+  sheetGesturesEnabled = true,
 }: SheetSurfaceProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -85,7 +92,7 @@ export function SheetSurface({
           onDismissRequest={dismiss}
           skipPartiallyExpanded={skipPartiallyExpanded}
           showDragHandle
-          sheetGesturesEnabled
+          sheetGesturesEnabled={sheetGesturesEnabled}
           // M3 modal sheets sit on surfaceContainerLow — one step above the
           // scrimmed screen behind so the edge of the sheet is readable.
           containerColor={colors.bg3}

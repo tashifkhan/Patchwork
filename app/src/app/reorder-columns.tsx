@@ -68,7 +68,12 @@ export default function ReorderColumnsScreen() {
   }
 
   return (
-    <SheetSurface title="Reorder columns" subtitle="Hold a column and drag it to a new place">
+    <SheetSurface
+      title="Reorder columns"
+      subtitle="Hold a column and drag it to a new place"
+      // The rows have their own vertical drag. Left on, the Android sheet's
+      // drag grabs the touch first and pulls the sheet instead of the row.
+      sheetGesturesEnabled={false}>
       <Stack.Screen options={{ title: 'Reorder Columns' }} />
       <ScrollView
         className="flex-1"
