@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { useState, type ReactNode } from 'react';
 import { Platform, Pressable } from 'react-native';
 
-import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
+import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner } from '@/components/ui/loading';
@@ -105,7 +105,8 @@ export function EditorTitle({
 }
 
 /**
- * Notes as live Markdown. When `editable` is false (a Jira description with
+ * Notes as rendered Markdown, switching to the live Markdown editor once
+ * tapped, the same as task notes. When `editable` is false (a Jira description with
  * images or tables) it renders read-only with a note saying why.
  */
 export function EditorNotes({
@@ -136,14 +137,12 @@ export function EditorNotes({
     );
   }
   return (
-    <View style={{ marginLeft: EDITOR_TEXT_INSET }}>
-      <LiveMarkdownInput
+    <View style={{ marginLeft: EDITOR_TEXT_INSET, marginTop: 4 }}>
+      <MarkdownNotes
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.text3}
-        accessibilityLabel={placeholder}
-        style={{ minHeight: 40 }}
+        inputStyle={{ minHeight: 40 }}
       />
     </View>
   );
