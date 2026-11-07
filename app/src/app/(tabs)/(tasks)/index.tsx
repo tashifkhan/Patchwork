@@ -36,6 +36,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Fab } from '@/components/ui/fab';
 import { DictateFab } from '@/components/tasks/dictate-fab';
 import { DictationSheet } from '@/components/tasks/dictation-sheet';
+import { OutboxBanner } from '@/components/tasks/outbox-banner';
+import { LOCAL_ACCOUNT_ID, LOCAL_ACCOUNT_NAME } from '@/lib/local-tasks';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { READABLE_MAX_WIDTH, useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
@@ -423,27 +425,36 @@ export default function TasksScreen() {
     return () => sub.remove();
   }, [closeCard, expandedId]);
 
-  const handleCreateList = useCallback(async (name: string) => {
-    try {
-      const selectedAccountId = lists.find((list) => list.id === selectedListId)?.account_id;
-      const accountIds = [...new Set(lists.map((list) => list.account_id).filter(Boolean))];
-      if (!selectedAccountId && accountIds.length > 1) {
-        setAlert({
-          title: 'Choose an account',
-          message: 'Select one of that account’s lists first, then create the new list.',
-        });
-        return;
+  // Every account that can own a list, plus this device.
+  const listAccounts = useMemo(() => {
+    // Web goes through the proxy, which owns its own accounts.
+    if (process.env.EXPO_OS === 'web') return [];
+    const seen = new Map<string, string>();
+    for (const list of lists) {
+      if (list.account_id && !seen.has(list.account_id)) {
+        seen.set(list.account_id, list.account_name ?? list.account_id);
       }
+    }
+    if (!seen.has(LOCAL_ACCOUNT_ID)) seen.set(LOCAL_ACCOUNT_ID, LOCAL_ACCOUNT_NAME);
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [lists]);
+  const selectedListAccountId = lists.find((list) => list.id === selectedListId)?.account_id;
+
+  const handleCreateList = useCallback(async (name: string, accountId?: string) => {
+    try {
       const list = await createList.mutateAsync({
         name,
-        account_id: selectedAccountId ?? accountIds[0],
+        account_id: accountId ?? selectedListAccountId ?? listAccounts[0]?.id,
       });
       setSelectedListId(list.id);
       setCreateListOpen(false);
     } catch (error) {
-      setAlert({ title: 'Could not create list', message: error instanceof ApiError ? error.message : 'Please try again.' });
+      setAlert({
+        title: 'Could not create list',
+        message: error instanceof Error && error.message ? error.message : 'Please try again.',
+      });
     }
-  }, [createList, lists, selectedListId, setSelectedListId]);
+  }, [createList, listAccounts, selectedListAccountId, setSelectedListId]);
 
   const handleReorder = useCallback(
     (next: Task[]) => {
@@ -486,6 +497,7 @@ export default function TasksScreen() {
   const isEmpty = visibleTasks.length === 0 && (!githubEnabled || githubIssues.length === 0);
   const showCenteredState = isEmpty && !githubEnabled && !isLoading;
   const needsCalDavAccount = isMissingCalDavAccountError(tasksQuery.error);
+  const showingOffline = taskWarnings[0]?.startsWith("You're offline") ?? false;
 
   const repoOpen = repoFilter ? (repoIssueCounts[repoFilter.toLowerCase()] ?? 0) : 0;
   const heroTitle = repoFilter
@@ -614,16 +626,25 @@ export default function TasksScreen() {
         ) : null}
         {!tasksQuery.isError && taskWarnings.length > 0 ? (
           <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
-            <MaterialCommunityIcons name="cloud-alert-outline" size={20} color={colors.orange} />
+            <MaterialCommunityIcons
+              name={showingOffline ? 'cloud-off-outline' : 'cloud-alert-outline'}
+              size={20}
+              color={colors.orange}
+            />
             <View className="flex-1 gap-1">
-              <Text className="text-sf-text text-sm font-semibold">Partially synchronized</Text>
+              <Text className="text-sf-text text-sm font-semibold">
+                {showingOffline ? 'Offline' : 'Partially synchronized'}
+              </Text>
               <Text selectable className="text-sf-text-2 text-xs">{taskWarnings[0]}</Text>
               <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()}>
-                <Text className="text-sf-blue text-sm font-semibold">Retry all sources</Text>
+                <Text className="text-sf-blue text-sm font-semibold">
+                  {showingOffline ? 'Try again' : 'Retry all sources'}
+                </Text>
               </Pressable>
             </View>
           </View>
         ) : null}
+        {process.env.EXPO_OS !== 'web' ? <OutboxBanner /> : null}
 
         {isLoading ? (
           // Full M3 loading first (visible on AMOLED); skeleton is for soft reloads only.
@@ -860,6 +881,8 @@ export default function TasksScreen() {
             <CreateTaskListForm
               busy={createList.isPending}
               onCreate={handleCreateList}
+              accounts={listAccounts}
+              defaultAccountId={selectedListAccountId}
               defaultOpen
               onCancel={() => setCreateListOpen(false)}
             />

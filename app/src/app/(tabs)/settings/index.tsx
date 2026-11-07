@@ -16,6 +16,7 @@ import {
 import { useTheme } from '@/components/theme/context';
 import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
+import { useOutboxStore } from '@/lib/outbox';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -59,6 +60,7 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
   const githubConnection = useGitHubSessionStore((state) => state.state);
   const githubReposCount = useSettingsStore((s) => s.githubRepositories.length);
   const jiraConnection = useJiraSessionStore((state) => state.state);
+  const outboxCount = useOutboxStore((state) => state.entries.length);
   const initializeJira = useJiraSessionStore((state) => state.initialize);
   useEffect(() => {
     if (jiraConnection.status === 'initializing') void initializeJira();
@@ -156,6 +158,15 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
             title="Notifications"
             showChevron
             onPress={() => go('/settings/notifications')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="cloud-sync-outline"
+            sf="icloud.and.arrow.up"
+            title="Offline & Sync"
+            value={outboxCount > 0 ? `${outboxCount} Waiting` : undefined}
+            showChevron
+            onPress={() => go('/settings/offline')}
           />
         </SettingsGroup>
 
@@ -261,6 +272,22 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           showChevron
           onPress={() => go('/settings/notifications')}
         />
+        {!isWeb ? (
+          <>
+            <RowSeparator />
+            <SettingsRow
+              icon="cloud-sync-outline"
+              title="Offline and sync"
+              subtitle={
+                outboxCount > 0
+                  ? `${outboxCount} item${outboxCount === 1 ? '' : 's'} waiting to sync`
+                  : 'On-device lists and items saved offline'
+              }
+              showChevron
+              onPress={() => go('/settings/offline')}
+            />
+          </>
+        ) : null}
       </SettingsGroup>
 
       <SettingsGroup>

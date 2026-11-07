@@ -26,6 +26,11 @@ export function createTask(payload: TaskCreate) {
   return api.post<Task>('/api/tasks', payload);
 }
 
+/** Web has no offline outbox, so this is the same request as `createTask`. */
+export function createRemoteTask(payload: TaskCreate) {
+  return createTask(payload);
+}
+
 export function updateTask(taskId: string, payload: TaskUpdate, _accountId?: string) {
   return api.patch<Task>(`/api/tasks/${encodeURIComponent(taskId)}`, payload);
 }

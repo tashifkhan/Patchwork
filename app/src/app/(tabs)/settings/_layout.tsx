@@ -39,6 +39,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="account" options={{ title: 'Account' }} />
       <Stack.Screen name="appearance" options={{ title: IOS ? 'Appearance' : 'Look and feel' }} />
       <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+      <Stack.Screen name="offline" options={{ title: IOS ? 'Offline & Sync' : 'Offline and sync' }} />
       <Stack.Screen name="ai" options={{ title: IOS ? 'AI Import' : 'AI import' }} />
       {/* Title is set per-provider by the screen itself. */}
       <Stack.Screen name="ai-provider" options={{ title: 'Provider', headerLargeTitle: false }} />
