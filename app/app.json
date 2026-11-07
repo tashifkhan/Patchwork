@@ -2,7 +2,7 @@
   "expo": {
     "name": "Patchwork",
     "slug": "todo",
-    "version": "1.7.1",
+    "version": "1.8.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "patchwork",
