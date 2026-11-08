@@ -664,7 +664,7 @@ export default function NewTaskScreen() {
             paddingVertical: 4,
             borderRadius: 24,
             borderCurve: 'continuous',
-            backgroundColor: colors.bg2,
+            backgroundColor: colors.bg3,
           }}>
           {/* Destination: a CalDAV list or, when GitHub is connected, a repository. */}
           <Pressable
