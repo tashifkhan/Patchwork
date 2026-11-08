@@ -47,7 +47,11 @@ export function ButtonBase({
   const { colors } = useTheme();
   const isDisabled = Boolean(disabled || loading);
 
-  const palette = variantColors(variant, colors);
+  // Loading keeps the variant's colors. Only a plain disabled button goes
+  // neutral, so it doesn't read as a dimmed copy of the live one.
+  const palette = disabled && !loading
+    ? disabledColors(variant, colors)
+    : variantColors(variant, colors);
 
   return (
     <Pressable
@@ -69,7 +73,7 @@ export function ButtonBase({
           minHeight,
           width: '100%',
           alignSelf: 'stretch',
-          opacity: isDisabled ? 0.55 : pressed ? 0.88 : 1,
+          opacity: pressed && !isDisabled ? 0.88 : 1,
           transform: [{ scale: pressed && !isDisabled ? 0.98 : 1 }],
         },
         style,
@@ -97,6 +101,32 @@ export function ButtonBase({
       </View>
     </Pressable>
   );
+}
+
+/**
+ * M3 disabled button: a 12% `onSurface` container under 38% `onSurface` text.
+ * Fading the accent fill instead left accent-on-accent text that was hard to
+ * read on dark sheets.
+ */
+function disabledColors(
+  variant: ButtonVariant,
+  colors: ReturnType<typeof useTheme>['colors']
+): { bg: string; fg: string; border: string } {
+  const filled = variant !== 'outlined' && variant !== 'text';
+  return {
+    bg: filled ? withAlpha(colors.text, 0.12) : 'transparent',
+    fg: withAlpha(colors.text, 0.38),
+    border: variant === 'outlined' ? withAlpha(colors.text, 0.12) : 'transparent',
+  };
+}
+
+/** `#RGB` / `#RRGGBB` plus an alpha byte. Any other format comes back unchanged. */
+function withAlpha(color: string, alpha: number): string {
+  let hex = color.trim();
+  if (/^#[0-9a-fA-F]{3}$/.test(hex)) hex = `#${[...hex.slice(1)].map((c) => c + c).join('')}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return color;
+  const byte = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hex}${byte}`;
 }
 
 function variantColors(

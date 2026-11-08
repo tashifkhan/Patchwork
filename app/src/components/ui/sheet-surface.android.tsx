@@ -7,6 +7,7 @@ import {
 import { router } from 'expo-router';
 import { useCallback, useRef, type ReactNode } from 'react';
 import { useWindowDimensions, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
@@ -93,9 +94,9 @@ export function SheetSurface({
           skipPartiallyExpanded={skipPartiallyExpanded}
           showDragHandle
           sheetGesturesEnabled={sheetGesturesEnabled}
-          // M3 modal sheets sit on surfaceContainerLow — one step above the
-          // scrimmed screen behind so the edge of the sheet is readable.
-          containerColor={colors.bg3}
+          // One step below the bg3 fields and rows that sheets put on top, so
+          // they stand out from the sheet instead of matching it.
+          containerColor={colors.bg2}
           contentColor={colors.text}
           // M3 scrim: 32% black over the screen behind the sheet.
           scrimColor="rgba(0,0,0,0.32)"
@@ -110,7 +111,12 @@ export function SheetSurface({
             clips the content — it does not shrink the Compose sheet.
           */}
           <RNHostView>
-            <View style={{ flexGrow: 1, height: 0 }}>
+            {/*
+              The sheet draws in its own window, outside the app's
+              GestureHandlerRootView, so gesture handlers in here (drag to
+              reorder) never got touches without a root of their own.
+            */}
+            <GestureHandlerRootView style={{ flexGrow: 1, height: 0 }}>
               {title ? (
                 <View
                   style={{
@@ -136,7 +142,7 @@ export function SheetSurface({
               ) : null}
 
               <View style={{ flex: 1, paddingBottom: padBottom }}>{children}</View>
-            </View>
+            </GestureHandlerRootView>
           </RNHostView>
         </ModalBottomSheet>
       </Host>

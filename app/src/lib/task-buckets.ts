@@ -47,3 +47,28 @@ export function flattenTasks(tasks: Task[]): Task[] {
   walk(tasks);
   return out;
 }
+
+/**
+ * Moves open subtasks out from under finished parents to the top level.
+ *
+ * Other clients (Nextcloud Tasks, tasks.org) let you complete a parent while
+ * its subtasks stay open. Left nested, those subtasks ride along into the
+ * collapsed Completed section and never count as open. The tree from the API
+ * stays as it is; this only changes what the list screen shows.
+ */
+export function liftOpenSubtasks(tasks: Task[]): Task[] {
+  const lifted: Task[] = [];
+  const prune = (task: Task): Task => {
+    if (task.children.length === 0) return task;
+    const kept: Task[] = [];
+    for (const child of task.children) {
+      const next = prune(child);
+      if (task.completed && !child.completed) lifted.push(next);
+      else kept.push(next);
+    }
+    const unchanged = kept.length === task.children.length && kept.every((c, i) => c === task.children[i]);
+    return unchanged ? task : { ...task, children: kept };
+  };
+  const roots = tasks.map(prune);
+  return lifted.length === 0 ? tasks : [...roots, ...lifted];
+}
