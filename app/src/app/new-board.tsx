@@ -92,6 +92,8 @@ export default function NewBoardScreen() {
                 backgroundColor: colors.bg3,
                 borderCurve: 'continuous',
                 minHeight: 52,
+                // `px-4` from className doesn't reach the native input on Android.
+                paddingHorizontal: 16,
               }}
             />
           </View>
