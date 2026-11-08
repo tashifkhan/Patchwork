@@ -2,6 +2,18 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.8.2] - 2026-11-08
+
+A patch for subtasks hidden under completed parents, drags inside Android sheets, sheet input padding, and button colours.
+
+### Fixed
+
+- Open subtasks of a completed parent move to the top level instead of riding into the collapsed Completed section. They count as open again, and opening one from a notification opens the subtask.
+- Drag-to-reorder inside an Android sheet receives touches. The sheet content mounts its own gesture root because Compose draws the sheet in a separate window.
+- Column, list, and board name fields keep their horizontal padding on Android.
+- Disabled buttons use the M3 neutral container and text colours instead of a faded accent fill, which was hard to read on dark sheets. Loading buttons keep their variant colours.
+- Android sheets sit one step lower than their fields, so inputs and rows stand out, and the new-task destination dock matches.
+
 ## [1.8.1] - 2026-11-08
 
 Two fixes for Android: a new wallpaper palette now applies without restarting Patchwork, and the Reorder Columns sheet lets its rows be dragged.
