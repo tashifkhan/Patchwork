@@ -66,6 +66,7 @@ import {
   bucketOf,
   byManualOrder,
   flattenTasks,
+  liftOpenSubtasks,
   type BucketKey,
 } from '@/lib/task-buckets';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -151,7 +152,7 @@ export default function TasksScreen() {
     () => (listsQuery.data ?? []).filter((list) => !list.is_deck),
     [listsQuery.data]
   );
-  const allTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
+  const allTasks = useMemo(() => liftOpenSubtasks(tasksQuery.data ?? []), [tasksQuery.data]);
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null;
   const listCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -370,8 +371,10 @@ export default function TasksScreen() {
       requestOpenTask(null);
       const found = flattenTasks(allTasks).find((t) => t.uid === openTaskUid);
       if (!found) return;
-      // Subtasks open their parent; filters clear so the row is on screen.
-      const target = found.parent_uid
+      // Subtasks open their parent, unless they show as their own row;
+      // filters clear so the row is on screen.
+      const isRow = allTasks.some((t) => t.id === found.id);
+      const target = found.parent_uid && !isRow
         ? (allTasks.find((t) => t.uid === found.parent_uid) ?? found)
         : found;
       if (

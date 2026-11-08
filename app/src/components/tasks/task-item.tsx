@@ -51,7 +51,7 @@ function TaskItemComponent({
   const hasNotes = task.markdown.trim().length > 0;
   const childCount = task.children.length;
   const doneChildren = task.children.filter((c) => c.completed).length;
-  const listLabel = showList && !task.parent_uid ? task.list_name : '';
+  const listLabel = showList && depth === 0 ? task.list_name : '';
   const focusUid = useFocusStore((s) => s.taskUid);
   const isFocused = focusUid === task.uid;
   const focusEnabled = Platform.OS === 'ios' && !task.completed;
