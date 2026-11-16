@@ -2,11 +2,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { type ComponentProps, type ReactNode } from 'react';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { Platform, Pressable, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
 import { Button, type ButtonVariant } from '@/components/ui/button';
 import { SystemEmptyState } from '@/components/ui/system-empty-state';
 import { haptics } from '@/lib/haptics';
+import { EXPRESSIVE } from '@/lib/motion';
 import { Text, View } from '@/tw';
 
 /** SF Symbols for the glyphs empty states use, so iOS gets Apple's icons. */
@@ -68,9 +70,16 @@ export function EmptyState({
   }
 
   return (
-    <View
-      className="w-full items-center justify-center self-center px-8"
-      style={[{ gap: 20 }, style]}>
+    <Animated.View
+      // Fades in while it rises a little, so an empty list doesn't snap in.
+      entering={FadeInDown.springify()
+        .damping(EXPRESSIVE.entrance.damping)
+        .stiffness(EXPRESSIVE.entrance.stiffness)
+        .reduceMotion(ReduceMotion.System)}
+      style={[
+        { width: '100%', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', paddingHorizontal: 32, gap: 20 },
+        style,
+      ]}>
       {iconBubble ? (
         <View
           className="h-24 w-24 items-center justify-center rounded-full"
@@ -107,7 +116,7 @@ export function EmptyState({
           ))}
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
