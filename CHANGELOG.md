@@ -2,6 +2,25 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.8.3] - 2026-11-16
+
+Motion for the Android floating navbar, section counts that roll, and empty states that ease in.
+
+### Added
+
+- The floating navbar's selection pill slides between tabs instead of switching on and off. Its leading edge moves faster, so it stretches a little on the way.
+- The floating navbar gives under your finger and leans toward it, then springs back. A soft light follows the touch. The round search and back buttons do the same.
+- Each tab's icon makes a small move when you tap it. Tasks hops, Boards wiggles, and the Settings cog turns.
+- The count in a task section header rolls up or down when it changes.
+- Empty states on Android fade in with a small rise.
+
+### Changed
+
+- On light themes the floating navbar's shadow takes the accent colour.
+- Animations follow the system's reduce-motion setting.
+
+The navbar and press motion is adapted from [Expressive Clock](https://github.com/samuelbeckman/expressive-clock) by Sam Beckman, built on Material Clock by Rayane Bouafia, under the MIT licence.
+
 ## [1.8.2] - 2026-11-08
 
 A patch for subtasks hidden under completed parents, drags inside Android sheets, sheet input padding, and button colours.
