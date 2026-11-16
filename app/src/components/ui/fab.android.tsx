@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, View as RNView } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { ElasticView } from '@/components/ui/elastic';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { View } from '@/tw';
@@ -88,27 +89,24 @@ function FallbackFab({
 }) {
   const { colors } = useTheme();
   return (
+    <ElasticView
+      maxStretch={0.08}
+      maxTranslate={2}
+      pressedScale={0.94}
+      style={{ position: 'absolute', right: 16, bottom, width: FAB_SIZE, height: FAB_SIZE }}>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
       android_ripple={{ color: colors.onPrimaryContainer + '33', borderless: false, radius: 28 }}
       hitSlop={4}
-      style={({ pressed }) => ({
-        position: 'absolute',
-        right: 16,
-        bottom,
-        width: FAB_SIZE,
-        height: FAB_SIZE,
-        opacity: pressed ? 0.92 : 1,
-        transform: [{ scale: pressed ? 0.96 : 1 }],
-        elevation: 6,
-      })}>
+      style={{ width: FAB_SIZE, height: FAB_SIZE, elevation: 6 }}>
       <View
         className="h-14 w-14 items-center justify-center rounded-2xl"
         style={{ backgroundColor: colors.primaryContainer, borderCurve: 'continuous' }}>
         <MaterialCommunityIcons name={icon} size={28} color={colors.onPrimaryContainer} />
       </View>
     </Pressable>
+    </ElasticView>
   );
 }

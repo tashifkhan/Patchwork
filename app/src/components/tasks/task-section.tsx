@@ -3,6 +3,7 @@ import { SymbolView } from 'expo-symbols';
 import { Platform, Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { RollingNumber } from '@/components/ui/rolling-number';
 import { Text, View } from '@/tw';
 
 /** Collapsible group heading ("TODAY · 3") used by the Tasks screen buckets. */
@@ -37,7 +38,7 @@ export function Section({
           <View className="flex-row items-center" style={{ gap: 6, paddingBottom: 6 }}>
             {icon ? <MaterialCommunityIcons name={icon} size={17} color={colors.text} /> : null}
             <Text style={{ fontSize: 17, fontWeight: '700', color: colors.accent }}>{title}</Text>
-            <Text style={{ fontSize: 15, color: colors.text3, fontVariant: ['tabular-nums'] }}>{count}</Text>
+            <RollingNumber value={count} style={{ fontSize: 15, color: colors.text3 }} />
             <View style={{ flex: 1 }} />
             <SymbolView
               name={collapsed ? 'chevron.right' : 'chevron.down'}
@@ -68,9 +69,11 @@ export function Section({
         <View className="flex-row items-center justify-between py-2">
           <View className="flex-row items-center gap-1.5">
             {icon ? <MaterialCommunityIcons name={icon} size={16} color={colors.text2} /> : null}
-            <Text className="text-sf-text-2 text-sm font-semibold uppercase">
-              {title} · {count}
-            </Text>
+            <Text className="text-sf-text-2 text-sm font-semibold uppercase">{title} ·</Text>
+            <RollingNumber
+              value={count}
+              style={{ fontSize: 14, lineHeight: 20, fontWeight: '600', color: colors.text2 }}
+            />
           </View>
           <MaterialCommunityIcons
             name={collapsed ? 'chevron-down' : 'chevron-up'}
