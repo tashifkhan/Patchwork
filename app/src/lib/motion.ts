@@ -53,6 +53,29 @@ export const SPRING = {
   effect: { damping: 40, stiffness: 420, mass: 1 },
 } as const;
 
+/**
+ * Livelier springs for things a finger touches, after Expressive Clock
+ * (https://github.com/samuelbeckman/expressive-clock, MIT). Each is that
+ * app's stiffness and damping ratio, with the ratio turned into the damping
+ * value `withSpring` takes: 2 x ratio x sqrt(stiffness).
+ */
+export const EXPRESSIVE = {
+  /** A control following the finger while held. Firm. */
+  pressHold: { damping: 38.5, stiffness: 550, mass: 1 },
+  /** The same control let go. Loose, with one visible overshoot. */
+  pressRelease: { damping: 19.5, stiffness: 350, mass: 1 },
+  /** Scale returning to 1 after a press. */
+  scaleRelease: { damping: 25.4, stiffness: 420, mass: 1 },
+  /** The edge of a selection pill that leads toward the new tab. */
+  indicatorLead: { damping: 41.2, stiffness: 600, mass: 1 },
+  /** The edge that follows, so the pill stretches on the way. */
+  indicatorTrail: { damping: 32.2, stiffness: 320, mass: 1 },
+  /** A digit rolling into place. */
+  digit: { damping: 24, stiffness: 430, mass: 1 },
+  /** Content rising into view. */
+  entrance: { damping: 30.4, stiffness: 380, mass: 1 },
+} as const;
+
 /** `withTiming` using an M3 curve, honoring the OS reduce-motion setting. */
 export function timing(
   toValue: number,
