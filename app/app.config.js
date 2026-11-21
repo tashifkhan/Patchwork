@@ -23,6 +23,8 @@ module.exports = ({ config }) => {
     android: {
       ...config.android,
       package: iosBundleId,
+      // Lets the focus timer notification become a Live Update (status bar chip) on Android 16+.
+      permissions: [...((config.android && config.android.permissions) || []), 'android.permission.POST_PROMOTED_NOTIFICATIONS'],
     },
     plugins: [
       ...(config.plugins ?? []),

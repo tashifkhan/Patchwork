@@ -1,86 +1,42 @@
-import { Platform } from 'react-native';
+import { after, type LiveActivity } from 'expo-widgets';
 
-import { after } from 'expo-widgets';
+import FocusActivity, { type FocusActivityProps } from './FocusActivity';
+import type { LiveTimer } from './live-timer';
 
-import { useFocusStore } from '@/stores/focus-store';
+/**
+ * iOS: the focus timer as a Live Activity (lock screen and Dynamic Island).
+ * The clock is a SwiftUI timer text, so it ticks without updates from JS;
+ * we only push a new state on start, pause, resume and phase changes.
+ */
+let instance: LiveActivity<FocusActivityProps> | null = null;
 
-import FocusActivity from './FocusActivity';
-import type { FocusActivityProps } from './FocusActivity';
-
-const isIOS = Platform.OS === 'ios';
-
-let ticker: ReturnType<typeof setInterval> | null = null;
-
-function stopTicker() {
-  if (ticker) {
-    clearInterval(ticker);
-    ticker = null;
-  }
+function toProps(timer: LiveTimer): FocusActivityProps {
+  return {
+    taskTitle: timer.title,
+    mode: timer.mode,
+    startedAt: timer.startedAt,
+    endsAt: timer.endsAt ?? timer.startedAt,
+    paused: timer.paused,
+    pausedLabel: timer.pausedLabel,
+  };
 }
 
-function currentProps(): FocusActivityProps | null {
-  const { taskTitle, startedAt, durationSeconds, paused, taskUid } = useFocusStore.getState();
-  if (!taskUid || !startedAt) return null;
-  return { taskTitle, startedAt, durationSeconds, paused };
-}
-
-function startTicker() {
-  stopTicker();
-  ticker = setInterval(() => {
-    const state = useFocusStore.getState();
-    if (!state.instance || !state.startedAt || state.paused) return;
-    const remaining = state.durationSeconds - Math.floor((Date.now() - state.startedAt) / 1000);
-    if (remaining <= 0) {
-      endFocus().catch(() => {});
+export async function showLiveTimer(timer: LiveTimer) {
+  const props = toProps(timer);
+  try {
+    if (instance) {
+      await instance.update(props);
       return;
     }
-    const props = currentProps();
-    if (props) state.instance.update(props).catch(() => {});
-  }, 30_000);
-}
-
-export async function startFocus(taskUid: string, taskTitle: string, durationSeconds: number) {
-  if (!isIOS) return;
-  await endFocus();
-  const startedAt = Date.now();
-  const props: FocusActivityProps = { taskTitle, startedAt, durationSeconds, paused: false };
-  const instance = FocusActivity.start(props, `patchwork://task/${encodeURIComponent(taskUid)}`);
-  useFocusStore.getState().set({
-    taskUid,
-    taskTitle,
-    startedAt,
-    durationSeconds,
-    paused: false,
-    instance,
-  });
-  startTicker();
-}
-
-export async function pauseFocus() {
-  if (!isIOS) return;
-  useFocusStore.getState().set({ paused: true });
-  const props = currentProps();
-  const { instance } = useFocusStore.getState();
-  if (instance && props) await instance.update(props).catch(() => {});
-}
-
-export async function resumeFocus() {
-  if (!isIOS) return;
-  useFocusStore.getState().set({ paused: false });
-  const props = currentProps();
-  const { instance } = useFocusStore.getState();
-  if (instance && props) await instance.update(props).catch(() => {});
-}
-
-export async function endFocus() {
-  if (!isIOS) return;
-  stopTicker();
-  const { instance } = useFocusStore.getState();
-  const props = currentProps();
-  if (instance && props) {
-    await instance
-      .end(after(new Date(Date.now() + 30_000)), props, new Date())
-      .catch(() => {});
+    instance = FocusActivity.start(props, 'patchwork://pomodoro');
+  } catch {
+    instance = null;
   }
-  useFocusStore.getState().reset();
+}
+
+export async function endLiveTimer() {
+  const current = instance;
+  instance = null;
+  if (!current) return;
+  await current.end(after(new Date(Date.now() + 5_000))).catch(() => {});
 }

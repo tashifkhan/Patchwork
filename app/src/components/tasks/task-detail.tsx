@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { createContext, use, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Keyboard, Platform, Pressable } from 'react-native';
+import { Keyboard, Pressable } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -36,11 +36,10 @@ import { DURATION, SPRING } from '@/lib/motion';
 import { cancelTaskReminder } from '@/lib/notifications';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { collectAllTags, normalizeTags } from '@/lib/tags';
-import { useFocusStore } from '@/stores/focus-store';
+import { formatMinutes, taskTime, usePomodoroStore } from '@/stores/pomodoro-store';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
-import { endFocus, pauseFocus, resumeFocus, startFocus } from '@/widgets/focus';
 
 const PRIORITIES: { label: string; value: number | null }[] = [
   { label: 'None', value: null },
@@ -709,7 +708,7 @@ function TaskDocument({
           {!task.parent_uid && boardsTab ? <MoveToDeck task={task} inline /> : null}
         </PropertyGroup>
 
-        {Platform.OS === 'ios' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
+        {process.env.EXPO_OS !== 'web' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
 
         {task.updated_at ? (
           <Text className="text-sf-text-3 pt-4 text-xs">
@@ -886,53 +885,63 @@ function CalendarCopy({
 
 function FocusSection({ taskUid, taskTitle }: { taskUid: string; taskTitle: string }) {
   const { colors } = useTheme();
-  const activeUid = useFocusStore((s) => s.taskUid);
-  const paused = useFocusStore((s) => s.paused);
-  const durationSeconds = useFocusStore((s) => s.durationSeconds);
-  const startedAt = useFocusStore((s) => s.startedAt);
-  const isMine = activeUid === taskUid && startedAt != null;
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!isMine || paused) return;
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, [isMine, paused]);
-  const remainingMin = isMine
-    ? Math.max(0, Math.ceil((durationSeconds - (now - (startedAt ?? 0)) / 1000) / 60))
-    : 0;
+  const phase = usePomodoroStore((s) => s.phase);
+  const activeUid = usePomodoroStore((s) => s.taskUid);
+  const sessions = usePomodoroStore((s) => s.sessions);
+  const isMine = phase !== 'idle' && activeUid === taskUid;
+  const logged = useMemo(() => taskTime(sessions, taskUid), [sessions, taskUid]);
+  const task = { uid: taskUid, title: taskTitle };
 
   return (
     <>
       <Heading title="Focus" />
       <View className="flex-row items-center justify-between" style={{ minHeight: 56 }}>
-        <View className="flex-row items-center gap-3">
+        <View className="flex-1 flex-row items-center gap-3">
           <MaterialCommunityIcons name="timer-outline" size={20} color={colors.accent} />
-          <Text className="text-sf-text text-base">
-            {isMine ? (paused ? 'Paused' : `${remainingMin} min left`) : '25-minute session'}
+          <Text className="text-sf-text flex-1 text-base">
+            {isMine
+              ? phase === 'stopwatch'
+                ? 'Tracking time'
+                : phase === 'break'
+                  ? 'On a break'
+                  : 'Focusing'
+              : logged.total > 0
+                ? `${formatMinutes(logged.today)} today · ${formatMinutes(logged.total)} total`
+                : 'No time logged yet'}
           </Text>
         </View>
-        {isMine ? (
-          <View className="flex-row gap-4">
-            <Pressable
-              onPress={() => (paused ? resumeFocus() : pauseFocus())}
-              accessibilityRole="button"
-              hitSlop={8}>
-              <Text style={{ color: colors.accent, fontSize: 16 }}>
-                {paused ? 'Resume' : 'Pause'}
-              </Text>
+        <View className="flex-row gap-4">
+          {isMine ? (
+            <Pressable accessibilityRole="button" onPress={() => router.push('/pomodoro')} hitSlop={8}>
+              <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Open</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => endFocus()} hitSlop={8}>
-              <Text style={{ color: colors.accent, fontSize: 16 }}>End</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => startFocus(taskUid, taskTitle, 25 * 60)}
-            hitSlop={8}>
-            <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Start</Text>
-          </Pressable>
-        )}
+          ) : (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Start a pomodoro on this to-do"
+                onPress={() => {
+                  haptics.impact('medium');
+                  void usePomodoroStore.getState().start(task);
+                  router.push('/pomodoro');
+                }}
+                hitSlop={8}>
+                <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Pomodoro</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Track time on this to-do with a stopwatch"
+                onPress={() => {
+                  haptics.impact('medium');
+                  void usePomodoroStore.getState().startStopwatch(task);
+                  router.push('/pomodoro');
+                }}
+                hitSlop={8}>
+                <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Track</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
       </View>
     </>
   );

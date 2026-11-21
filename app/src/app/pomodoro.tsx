@@ -1,36 +1,47 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { AppState, Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { NativeAlert } from '@/components/ui/native-alert';
+import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { haptics } from '@/lib/haptics';
-import { recentHistory, streak, usePomodoroStore } from '@/stores/pomodoro-store';
+import {
+  formatClock,
+  formatMinutes,
+  recentHistory,
+  sessionsOn,
+  streak,
+  usePomodoroStore,
+  type FocusSession,
+} from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { ScrollView, Text, View } from '@/tw';
 
-function clock(ms: number) {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
+const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const MANUAL = [15, 30, 60];
+
+type Mode = 'pomodoro' | 'stopwatch';
 
 /**
- * Focus timer. Opened from a to-do's timer button (focused on that to-do) or
- * from Settings (no to-do). Work and break lengths live in Settings.
+ * Focus timer. Pomodoro counts down work blocks and breaks; Stopwatch counts
+ * up until you stop it. Either way the time lands in today's log, which is
+ * what "how much did I actually work today" reads from.
  */
 export default function PomodoroScreen() {
   const { colors } = useTheme();
   const state = usePomodoroStore();
   const workMinutes = useSettingsStore((s) => s.pomodoroWorkMinutes);
   const [now, setNow] = useState(() => Date.now());
+  const [chosenMode, setChosenMode] = useState<Mode>('pomodoro');
+  const [removing, setRemoving] = useState<FocusSession | null>(null);
 
   useEffect(() => {
-    void state.settle();
+    void usePomodoroStore.getState().settle();
     const timer = setInterval(() => {
       setNow(Date.now());
       void usePomodoroStore.getState().settle();
@@ -42,56 +53,87 @@ export default function PomodoroScreen() {
       clearInterval(timer);
       sub.remove();
     };
-    // Run once; the interval reads fresh state itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const running = state.endsAt != null;
-  const paused = state.pausedRemaining != null;
-  const remaining = running ? state.endsAt! - now : paused ? state.pausedRemaining! : workMinutes * 60_000;
-  const total = (state.phase === 'idle' ? workMinutes : state.phaseMinutes) * 60_000;
-  const progress = state.phase === 'idle' ? 0 : Math.min(1, Math.max(0, 1 - remaining / total));
+  const running = state.phase !== 'idle';
+  // A running timer decides the mode; the switch only matters when idle.
+  const mode: Mode = state.phase === 'stopwatch' ? 'stopwatch' : running ? 'pomodoro' : chosenMode;
+  const paused = state.pausedRemaining != null || state.pausedElapsed != null;
+  const task = state.taskUid && state.taskTitle ? { uid: state.taskUid, title: state.taskTitle } : undefined;
+
+  let display: number;
+  let progress = 0;
+  if (state.phase === 'stopwatch') {
+    display = state.pausedElapsed ?? (state.startedAt != null ? now - state.startedAt : 0);
+  } else if (state.phase === 'idle') {
+    display = mode === 'stopwatch' ? 0 : workMinutes * 60_000;
+  } else {
+    display = state.endsAt != null ? state.endsAt - now : (state.pausedRemaining ?? 0);
+    progress = Math.min(1, Math.max(0, 1 - display / (state.phaseMinutes * 60_000)));
+  }
+
   const week = recentHistory(state.history, 7);
   const today = week[week.length - 1];
-  const best = Math.max(1, ...week.map((day) => day.sessions));
+  const best = Math.max(1, ...week.map((day) => day.minutes));
   const days = streak(state.history);
+  const todaySessions = useMemo(() => sessionsOn(state.sessions, new Date()), [state.sessions]);
   const tint = state.phase === 'break' ? colors.green : colors.accent;
+  const label =
+    state.phase === 'work'
+      ? 'Focus'
+      : state.phase === 'break'
+        ? 'Break'
+        : state.phase === 'stopwatch'
+          ? 'Tracking'
+          : 'Ready';
 
   return (
-    <SheetSurface title="Focus timer" subtitle={state.taskTitle ?? 'Work in blocks, rest in between'}>
+    <SheetSurface title="Focus timer" subtitle={state.taskTitle ?? 'Time spent today, by block or by stopwatch'}>
       <Stack.Screen options={{ title: 'Focus' }} />
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
-        contentContainerStyle={{ paddingBottom: 32, paddingHorizontal: 20, gap: 24 }}>
-        <View className="items-center gap-2 pt-6">
-          <Text
-            className="text-sf-text-2 text-sm font-semibold uppercase"
-            style={{ letterSpacing: 1.2, color: tint }}>
-            {state.phase === 'work' ? 'Focus' : state.phase === 'break' ? 'Break' : 'Ready'}
+        contentContainerStyle={{ paddingBottom: 32, paddingHorizontal: 20, gap: 22 }}>
+        {!running ? (
+          <View style={{ paddingTop: 12 }}>
+            <SegmentedChoice
+              options={[
+                { label: 'Pomodoro', value: 'pomodoro' as Mode },
+                { label: 'Stopwatch', value: 'stopwatch' as Mode },
+              ]}
+              value={chosenMode}
+              onChange={setChosenMode}
+            />
+          </View>
+        ) : null}
+
+        <View className="items-center gap-2" style={{ paddingTop: running ? 16 : 0 }}>
+          <Text className="text-sm font-semibold uppercase" style={{ letterSpacing: 1.2, color: tint }}>
+            {label}
             {paused ? ' · Paused' : ''}
           </Text>
           <Text
             accessibilityRole="timer"
-            accessibilityLabel={`${Math.ceil(remaining / 60_000)} minutes left`}
             className="text-sf-text"
             style={{ fontSize: 72, fontWeight: '200', fontVariant: ['tabular-nums'] }}>
-            {clock(remaining)}
+            {formatClock(display)}
           </Text>
-          <View
-            style={{ alignSelf: 'stretch', height: 8, borderRadius: 4, backgroundColor: colors.bg3, overflow: 'hidden' }}>
-            <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: tint, borderRadius: 4 }} />
-          </View>
+          {mode === 'pomodoro' ? (
+            <View
+              style={{ alignSelf: 'stretch', height: 8, borderRadius: 4, backgroundColor: colors.bg3, overflow: 'hidden' }}>
+              <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: tint, borderRadius: 4 }} />
+            </View>
+          ) : null}
         </View>
 
         <View className="gap-3">
-          {state.phase === 'idle' ? (
+          {!running ? (
             <Button
-              label={`Start ${workMinutes} minute focus`}
+              label={mode === 'stopwatch' ? 'Start stopwatch' : `Start ${workMinutes} minute focus`}
               icon="play"
               onPress={() => {
                 haptics.impact('medium');
-                void state.start(state.taskUid && state.taskTitle ? { uid: state.taskUid, title: state.taskTitle } : undefined);
+                void (mode === 'stopwatch' ? state.startStopwatch(task) : state.start(task));
               }}
             />
           ) : (
@@ -105,22 +147,25 @@ export default function PomodoroScreen() {
                 }}
               />
               <View className="flex-row gap-3">
+                {state.phase !== 'stopwatch' ? (
+                  <View style={{ flex: 1 }}>
+                    <Button
+                      variant="tonal"
+                      label={state.phase === 'work' ? 'Skip to break' : 'End break'}
+                      onPress={() => {
+                        haptics.tap();
+                        void state.skip();
+                      }}
+                    />
+                  </View>
+                ) : null}
                 <View style={{ flex: 1 }}>
                   <Button
-                    variant="tonal"
-                    label={state.phase === 'work' ? 'Skip to break' : 'End break'}
+                    variant={state.phase === 'stopwatch' ? 'tonal' : 'text'}
+                    label={state.phase === 'stopwatch' ? 'Stop and log' : 'Stop'}
+                    icon={state.phase === 'stopwatch' ? 'stop' : undefined}
                     onPress={() => {
-                      haptics.tap();
-                      void state.skip();
-                    }}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    variant="text"
-                    label="Stop"
-                    onPress={() => {
-                      haptics.warning();
+                      haptics.success();
                       void state.stop();
                     }}
                   />
@@ -132,20 +177,24 @@ export default function PomodoroScreen() {
 
         <View className="gap-3 rounded-3xl p-4" style={{ backgroundColor: colors.bg3, borderCurve: 'continuous' }}>
           <View className="flex-row justify-between">
-            <Stat label="Today" value={`${today.sessions}`} detail={`${today.minutes} min`} />
-            <Stat label="This week" value={`${week.reduce((sum, d) => sum + d.sessions, 0)}`} detail="blocks" />
+            <Stat label="Today" value={formatMinutes(today.minutes)} detail={`${today.sessions} pomodoros`} />
+            <Stat
+              label="This week"
+              value={formatMinutes(week.reduce((sum, d) => sum + d.minutes, 0))}
+              detail="focused"
+            />
             <Stat label="Streak" value={`${days}`} detail={days === 1 ? 'day' : 'days'} />
           </View>
           <View className="flex-row items-end justify-between" style={{ height: 72, paddingTop: 8 }}>
             {week.map((day) => (
               <View key={day.key} className="items-center gap-1" style={{ flex: 1 }}>
                 <View
-                  accessibilityLabel={`${day.date.toDateString()}: ${day.sessions} blocks`}
+                  accessibilityLabel={`${day.date.toDateString()}: ${formatMinutes(day.minutes)}`}
                   style={{
                     width: 18,
-                    height: Math.max(4, (day.sessions / best) * 48),
+                    height: Math.max(4, (day.minutes / best) * 48),
                     borderRadius: 6,
-                    backgroundColor: day.sessions ? colors.accent : colors.gray2,
+                    backgroundColor: day.minutes ? colors.accent : colors.gray2,
                   }}
                 />
                 <Text className="text-sf-text-3" style={{ fontSize: 11 }}>
@@ -156,11 +205,80 @@ export default function PomodoroScreen() {
           </View>
         </View>
 
+        <View className="gap-1">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sf-text text-lg font-semibold">Today&apos;s log</Text>
+            <View className="flex-row gap-2">
+              {MANUAL.map((minutes) => (
+                <Pressable
+                  key={minutes}
+                  onPress={() => {
+                    haptics.selection();
+                    state.logManual(minutes, task);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Log ${minutes} minutes by hand`}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 999,
+                    backgroundColor: colors.bg3,
+                    opacity: pressed ? 0.6 : 1,
+                  })}>
+                  <Text style={{ fontSize: 13, color: colors.text }}>+{formatMinutes(minutes)}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {todaySessions.length === 0 ? (
+            <Text className="text-sf-text-3 py-3 text-sm">
+              Nothing logged yet. Finished pomodoros and stopped stopwatches show up here.
+            </Text>
+          ) : (
+            todaySessions.map((session) => (
+              <Pressable
+                key={session.id}
+                onLongPress={() => setRemoving(session)}
+                accessibilityHint="Long-press to remove"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48 }}>
+                <MaterialCommunityIcons
+                  name={session.kind === 'pomodoro' ? 'timer-outline' : 'timer-play-outline'}
+                  size={20}
+                  color={colors.text2}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text className="text-sf-text text-base" numberOfLines={1}>
+                    {session.title ?? (session.kind === 'pomodoro' ? 'Pomodoro' : 'Stopwatch')}
+                  </Text>
+                  <Text className="text-sf-text-3 text-xs">
+                    {time.format(new Date(session.start))} – {time.format(new Date(session.end))}
+                  </Text>
+                </View>
+                <Text className="text-sf-text-2 text-base" style={{ fontVariant: ['tabular-nums'] }}>
+                  {formatMinutes(session.minutes)}
+                </Text>
+              </Pressable>
+            ))
+          )}
+        </View>
+
         <Text className="text-sf-text-3 text-center text-xs">
-          You get a notification when a block or break ends, even with the app closed. Change the lengths in
-          Settings.
+          The running timer shows on your lock screen and status bar. Change pomodoro lengths in Settings.
         </Text>
       </ScrollView>
+
+      <NativeAlert
+        visible={removing != null}
+        title="Remove this entry?"
+        message={removing ? `${formatMinutes(removing.minutes)} comes off today's total.` : ''}
+        confirmLabel="Remove"
+        dismissLabel="Keep"
+        onDismiss={() => setRemoving(null)}
+        onConfirm={() => {
+          if (removing) state.removeSession(removing.id);
+          setRemoving(null);
+        }}
+      />
     </SheetSurface>
   );
 }
@@ -169,7 +287,7 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   return (
     <View className="items-center" style={{ flex: 1 }}>
       <Text className="text-sf-text-2 text-xs">{label}</Text>
-      <Text className="text-sf-text" style={{ fontSize: 28, fontWeight: '600', fontVariant: ['tabular-nums'] }}>
+      <Text className="text-sf-text" style={{ fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'] }}>
         {value}
       </Text>
       <Text className="text-sf-text-3 text-xs">{detail}</Text>

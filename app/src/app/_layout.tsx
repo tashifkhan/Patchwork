@@ -19,6 +19,7 @@ import { flushOutbox } from '@/lib/outbox-sync';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient } from '@/lib/query-client';
 import { sheetScreenOptions } from '@/lib/screen-options';
+import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { Text, View } from '@/tw';
@@ -198,6 +199,25 @@ function NativeRuntimeCoordinator() {
     return () => {
       subscription.remove();
       clearInterval(timer);
+    };
+  }, []);
+
+  // A running focus timer survives relaunches: catch up on phases that ended
+  // while the app was closed and put the live timer back.
+  useEffect(() => {
+    if (process.env.EXPO_OS === 'web') return;
+    const wake = () => {
+      const timer = usePomodoroStore.getState();
+      void timer.settle().then(() => usePomodoroStore.getState().refreshLive());
+    };
+    const unsub = usePomodoroStore.persist.onFinishHydration(wake);
+    if (usePomodoroStore.persist.hasHydrated()) wake();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void usePomodoroStore.getState().settle();
+    });
+    return () => {
+      unsub();
+      subscription.remove();
     };
   }, []);
 

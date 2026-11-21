@@ -18,6 +18,8 @@ dependencies {
   // Jetpack WindowManager: FoldingFeature (hinge bounds, posture) for
   // Pixel Fold, Galaxy Z Fold and other foldables.
   implementation 'androidx.window:window:1.4.0'
+  // NotificationCompat for the live focus timer notification.
+  implementation 'androidx.core:core-ktx:1.13.1'
   implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 }
