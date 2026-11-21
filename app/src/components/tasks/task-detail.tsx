@@ -32,6 +32,7 @@ import { describeRrule, firstDue, repeatPresets } from '@/lib/recurrence';
 import { togglePatch } from '@/lib/task-actions';
 import { atDay } from '@/lib/when';
 import { Switch } from '@/components/ui/switch';
+import { ToggleChip } from '@/components/ui/toggle-chip';
 import { DURATION, SPRING } from '@/lib/motion';
 import { cancelTaskReminder } from '@/lib/notifications';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
@@ -629,8 +630,10 @@ function TaskDocument({
                 {[{ label: 'Never', rrule: null as string | null }, ...repeatPresets(draft.due_at)].map((preset) => {
                   const active = (preset.rrule ?? null) === (draft.rrule ?? null);
                   return (
-                    <Pressable
+                    <ToggleChip
                       key={preset.label}
+                      label={preset.label}
+                      selected={active}
                       onPress={() => {
                         haptics.selection();
                         // A repeat counts from a date; give it one if there's none yet.
@@ -640,18 +643,7 @@ function TaskDocument({
                             : latest.current.due_at;
                         change({ rrule: preset.rrule, due_at: due });
                       }}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 999,
-                        backgroundColor: active ? colors.selectionBg : colors.bg3,
-                      }}>
-                      <Text style={{ fontSize: 14, color: active ? colors.onSelectionBg : colors.text }}>
-                        {preset.label}
-                      </Text>
-                    </Pressable>
+                    />
                   );
                 })}
               </View>

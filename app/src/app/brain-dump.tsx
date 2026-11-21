@@ -232,7 +232,7 @@ function NoteCard({ day, onSave }: { day: DumpDay; onSave: () => void }) {
   return (
     <View
       style={{
-        borderRadius: 24,
+        borderRadius: 28,
         borderCurve: 'continuous',
         padding: 16,
         gap: 8,
