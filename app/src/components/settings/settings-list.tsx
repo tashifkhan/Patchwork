@@ -93,6 +93,11 @@ export function settingsColors(colors: ThemeColors, scheme: SchemeName): Setting
     // systemGroupedBackground / secondarySystemGroupedBackground. Light mode
     // puts white cells on gray; dark mode puts gray cells on black.
     const dark = scheme === 'dark';
+    if (!dark && lightness(colors.bg) < lightness(colors.bg2)) {
+      // Palettes like Paper tint the page and lift surfaces above it (cream
+      // page, near-white cards), the reverse of Apple's white-on-gray.
+      return { screen: colors.bg, cell: colors.bg3, pressed: colors.gray3, field: colors.bg2 };
+    }
     return {
       screen: dark ? colors.bg : colors.bg2,
       cell: dark ? colors.bg2 : colors.bg,
@@ -101,6 +106,13 @@ export function settingsColors(colors: ThemeColors, scheme: SchemeName): Setting
     };
   }
   return { screen: colors.bg, cell: colors.bg2, pressed: colors.bg3, field: colors.bg3 };
+}
+
+/** Rough lightness of a #RRGGBB color, 0..255. */
+function lightness(hex: string): number {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex);
+  if (!m) return 255;
+  return 0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16);
 }
 
 export function useSettingsColors(): SettingsColors {
