@@ -34,6 +34,7 @@ import { TaskDetailView, TaskPaneContext, type TaskPane } from '@/components/tas
 import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
+import { ConnectedButtonGroup } from '@/components/ui/button-group';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ElasticPressable } from '@/components/ui/motion';
 import { Fab } from '@/components/ui/fab';
@@ -1192,6 +1193,19 @@ const HEADER_SF = {
 function HeaderIcons({ items }: { items: { icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; label: string; href: keyof typeof HEADER_SF }[] }) {
   const { colors, scheme } = useTheme();
   const running = usePomodoroStore((s) => s.phase !== 'idle');
+  if (Platform.OS === 'android') {
+    // M3 Expressive connected button group; the timer button is "selected" while it runs.
+    return (
+      <ConnectedButtonGroup
+        items={items.map((item) => ({
+          icon: item.icon,
+          label: item.label,
+          selected: item.href === '/pomodoro' && running,
+          onPress: () => router.push(item.href),
+        }))}
+      />
+    );
+  }
   const buttons = items.map((item) => {
     const active = item.href === '/pomodoro' && running;
     return (
