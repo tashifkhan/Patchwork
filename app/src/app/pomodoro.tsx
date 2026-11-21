@@ -7,12 +7,12 @@ import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { FadeOut, useAnimatedStyle } from 'react-native-reanimated';
 
 import { ElasticPressable, RiseIn, Swap, useSpringValue } from '@/components/ui/motion';
 import { RollingClock } from '@/components/ui/rolling-clock';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { COLLAPSE_OUT, EXPAND_IN, listPlacement } from '@/lib/motion';
+import { COLLAPSE_OUT, EXPAND_IN, expandLayout, listPlacement } from '@/lib/motion';
 import { TimerProgress } from '@/components/ui/timer-progress';
 import { Glass } from '@/components/focus/clock-style';
 import { StopwatchFace, TimerFace } from '@/components/focus/expressive-faces';
@@ -177,7 +177,8 @@ export default function PomodoroScreen() {
         {EXPRESSIVE_FACES ? (
           <>
             {/* Android: Expressive Clock's faces and control row. */}
-            <RiseIn fromScale={0.94}>
+            {/* Switching mode lifts the new face in, like opening a screen in Paisa. */}
+            <RiseIn key={mode} fromScale={0.9} rise={20}>
               {mode === 'stopwatch' ? (
                 <StopwatchFace
                   size={faceSize}
@@ -199,13 +200,18 @@ export default function PomodoroScreen() {
               )}
             </RiseIn>
             {mode === 'pomodoro' && !running ? (
+              // Leaves fast, so the row below never slides over it while it fades.
+              <Animated.View entering={EXPAND_IN} exiting={FadeOut.duration(80)} layout={expandLayout()}>
               <PresetPills
                 values={[15, 25, 45, 60]}
                 selected={workMinutes}
                 format={(minutes) => `${minutes} min`}
                 onSelect={(minutes) => useSettingsStore.getState().setExtras({ pomodoroWorkMinutes: minutes })}
               />
+              </Animated.View>
             ) : null}
+            {/* Glides when the presets come and go, instead of jumping. */}
+            <Animated.View layout={expandLayout()}>
             <MorphControls
               expanded={running}
               start={{ label: 'Start', icon: 'play', tone: 'primary', onPress: toggle }}
@@ -228,6 +234,7 @@ export default function PomodoroScreen() {
                     ]
               }
             />
+            </Animated.View>
           </>
         ) : (
           <>
@@ -302,6 +309,7 @@ export default function PomodoroScreen() {
           </>
         )}
 
+        <Animated.View layout={expandLayout()}>
         <RiseIn index={1}>
         <Glass tint={colors.bg3} radius={28} borderAlpha={0.72} shadow={0} style={{ padding: 16, gap: 12 }}>
           <View className="flex-row justify-between">
@@ -330,6 +338,7 @@ export default function PomodoroScreen() {
         </Glass>
 
         </RiseIn>
+        </Animated.View>
 
         <RiseIn index={2} style={{ gap: 4 }}>
           <View className="flex-row items-center justify-between">

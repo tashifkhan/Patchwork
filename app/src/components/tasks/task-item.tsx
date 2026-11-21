@@ -8,7 +8,8 @@ import { useTheme } from '@/components/theme/context';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
 import { haptics } from '@/lib/haptics';
-import { useElasticPress } from '@/components/ui/elastic';
+import { PressGlow, useElasticPress } from '@/components/ui/elastic';
+import { withAlpha } from '@/lib/theme';
 import { DURATION, EASING, listPlacement, PAISA } from '@/lib/motion';
 import { describeWhen } from '@/lib/when';
 import { router } from 'expo-router';
@@ -89,6 +90,7 @@ function TaskItemComponent({
       {/* Dimming lives on an inner view: the layout animation owns the outer opacity. */}
       {/* Android rows dip like Paisa's cards; iOS rows keep the system highlight, as in Things. */}
       <Animated.View {...(ROW_ELASTIC ? press.handlers : null)} style={ROW_ELASTIC ? press.style : undefined}>
+      {ROW_ELASTIC ? <PressGlow press={press} color={withAlpha(colors.accent, 0.1)} radius={16} size={56} /> : null}
       <View
         className="flex-row items-center"
         accessibilityState={selected ? { selected: true } : undefined}

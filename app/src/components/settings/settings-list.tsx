@@ -29,7 +29,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
-import { useElasticPress } from '@/components/ui/elastic';
+import { PressGlow, useElasticPress } from '@/components/ui/elastic';
+import { RiseIn } from '@/components/ui/motion';
+import { withAlpha } from '@/lib/theme';
 import { haptics } from '@/lib/haptics';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -454,24 +456,27 @@ export function SettingsGroup({
           const top = first ? ANDROID_OUTER_RADIUS : ANDROID_INNER_RADIUS;
           const bottom = last ? ANDROID_OUTER_RADIUS : ANDROID_INNER_RADIUS;
           return (
-            <View
-              key={row.key ?? index}
-              style={{
-                backgroundColor: cell,
-                overflow: 'hidden',
-                borderTopLeftRadius: top,
-                borderTopRightRadius: top,
-                borderBottomLeftRadius: bottom,
-                borderBottomRightRadius: bottom,
-              }}>
-              {row}
-            </View>
+            // Paisa's riseIn, staggered down the group, once per mount.
+            <RiseIn key={row.key ?? index} index={index} fromScale={0.98} rise={8}>
+              <View
+                style={{
+                  backgroundColor: cell,
+                  overflow: 'hidden',
+                  borderTopLeftRadius: top,
+                  borderTopRightRadius: top,
+                  borderBottomLeftRadius: bottom,
+                  borderBottomRightRadius: bottom,
+                }}>
+                {row}
+              </View>
+            </RiseIn>
           );
         })}
       </View>
     );
   } else {
     body = (
+      <RiseIn fromScale={0.99} rise={6}>
       <View
         style={{
           backgroundColor: cell,
@@ -481,6 +486,7 @@ export function SettingsGroup({
         }}>
         {children}
       </View>
+      </RiseIn>
     );
   }
 
@@ -653,6 +659,7 @@ function RowPressable({
   const elastic = ANDROID && interactive;
   return (
     <Animated.View {...(elastic ? press.handlers : null)} style={elastic ? press.style : undefined}>
+    {elastic ? <PressGlow press={press} color={withAlpha(colors.accent, 0.1)} radius={20} size={60} /> : null}
     <Pressable
       onPressOut={press.release}
       onPress={onPress}

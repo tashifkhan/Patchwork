@@ -14,7 +14,7 @@ import Animated, {
 
 import { useTheme } from '@/components/theme/context';
 import { withAlpha } from '@/lib/theme';
-import { CLOCK_FONT, Glass } from '@/components/focus/clock-style';
+import { CLOCK_FONT } from '@/components/focus/clock-style';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
@@ -104,27 +104,25 @@ export function MorphControls({
         pointerEvents={expanded ? 'auto' : 'none'}
         style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: ROW_HEIGHT, flexDirection: 'row' }, trio]}>
         {actions.map((action) => (
-          <View key={action.label} style={{ flex: 1 }}>
-            <Pill action={action} fill compact />
-          </View>
+          <Pill key={action.label} action={action} fill compact grow />
         ))}
       </Animated.View>
     </View>
   );
 }
 
+/** M3 button roles: filled (primary), tonal (secondary container), outlined. */
 function useTone(tone: PillAction['tone']) {
   const { colors } = useTheme();
-  // WidePill: glass tinted with the container. Lap and Start share primaryContainer, Reset is the
-  // plain surface, Stop takes the tertiary-ish container while running.
   switch (tone) {
     case 'primary':
-    case 'tonal':
-      return { tint: colors.primaryContainer, ink: colors.onPrimaryContainer };
+      return { bg: colors.accent, ink: colors.onAccent, border: undefined, glow: 'rgba(255,255,255,0.22)' };
     case 'tertiary':
-      return { tint: colors.selectionBg, ink: colors.onSelectionBg };
+      return { bg: colors.accent, ink: colors.onAccent, border: undefined, glow: 'rgba(255,255,255,0.22)' };
+    case 'tonal':
+      return { bg: colors.selectionBg, ink: colors.onSelectionBg, border: undefined, glow: withAlpha(colors.accent, 0.16) };
     case 'outlined':
-      return { tint: colors.bg3, ink: colors.text };
+      return { bg: 'transparent', ink: colors.accent, border: colors.gray2, glow: withAlpha(colors.accent, 0.14) };
   }
 }
 
@@ -135,7 +133,7 @@ function PillBody({
 }: {
   action: PillAction;
   labelStyle?: ReturnType<typeof useAnimatedStyle>;
-  /** Three abreast: WidePill's compact 10dp padding instead of the idle pill's 28dp. */
+  /** Three abreast: tighter padding. */
   compact?: boolean;
 }) {
   const tone = useTone(action.tone);
@@ -145,46 +143,75 @@ function PillBody({
         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: compact ? 10 : 28, height: ROW_HEIGHT },
         labelStyle,
       ]}>
-      {action.icon ? <MaterialCommunityIcons name={action.icon} size={22} color={tone.ink} /> : null}
+      {action.icon ? <MaterialCommunityIcons name={action.icon} size={24} color={tone.ink} /> : null}
       <Text
         numberOfLines={1}
-        style={{ fontSize: 16, fontFamily: CLOCK_FONT.title, fontWeight: CLOCK_FONT.title ? undefined : '700', color: tone.ink }}>
+        style={{ fontSize: 16, fontFamily: CLOCK_FONT.title, fontWeight: CLOCK_FONT.title ? undefined : '600', color: tone.ink }}>
         {action.label}
       </Text>
     </Animated.View>
   );
 }
 
+/** M3 Expressive spatial spring (fast): shape and width changes under the finger. */
+const SHAPE_SPRING = { damping: 2 * 0.6 * Math.sqrt(800), stiffness: 800, mass: 1, reduceMotion: ReduceMotion.System };
+
+/**
+ * An M3 Expressive button: fully round at rest, squaring off to 16dp while
+ * held (the shape morph), and, inside a button group, widening while held so
+ * its neighbours give way. Keeps the elastic lean and the light under the finger.
+ */
 function Pill({
   action,
   fill,
   labelStyle,
   compact,
+  grow = false,
 }: {
   action: PillAction;
   fill?: boolean;
   labelStyle?: ReturnType<typeof useAnimatedStyle>;
   compact?: boolean;
+  /** In a group: widen while pressed. */
+  grow?: boolean;
 }) {
-  const { colors } = useTheme();
   const tone = useTone(action.tone);
-  // WidePill's luminousElasticClickable: a bigger lean than a card, and light under the finger.
-  const press = useElasticPress({ maxStretch: 0.09, maxTranslate: 2.4, pressedScale: 0.95, releaseOnDrag: true });
+  const press = useElasticPress({ maxStretch: 0.06, maxTranslate: 1.6, pressedScale: 0.97, releaseOnDrag: true });
+  const held = useSharedValue(0);
+  const shape = useAnimatedStyle(() => ({
+    borderRadius: ROW_HEIGHT / 2 - (ROW_HEIGHT / 2 - 16) * held.get(),
+  }));
+  const width = useAnimatedStyle(() => (fill ? { flexGrow: 1 + (grow ? 0.22 : 0) * held.get() } : {}));
   return (
-    <Animated.View {...press.handlers} style={[{ flex: fill ? 1 : undefined }, press.style]}>
+    <Animated.View {...press.handlers} style={[{ flexBasis: 0 }, fill ? { flexGrow: 1 } : null, width, press.style]}>
       <Pressable
         onPress={() => {
           haptics.tap();
           action.onPress();
         }}
-        onPressOut={press.release}
+        onPressIn={() => held.set(withSpring(1, SHAPE_SPRING))}
+        onPressOut={() => {
+          held.set(withSpring(0, SHAPE_SPRING));
+          press.release();
+        }}
         accessibilityRole="button"
         accessibilityLabel={action.label}
         style={{ flex: 1, height: ROW_HEIGHT }}>
-        <Glass tint={tone.tint} radius={ROW_HEIGHT / 2} borderAlpha={0.86} shadow={0} style={{ flex: 1, justifyContent: 'center' }}>
-          <PressGlow press={press} color={withAlpha(colors.accent, 0.18)} radius={ROW_HEIGHT / 2} size={36} />
+        <Animated.View
+          style={[
+            {
+              flex: 1,
+              justifyContent: 'center',
+              overflow: 'hidden',
+              backgroundColor: tone.bg,
+              borderWidth: tone.border ? 1 : 0,
+              borderColor: tone.border,
+            },
+            shape,
+          ]}>
+          <PressGlow press={press} color={tone.glow} radius={16} size={34} />
           <PillBody action={action} labelStyle={labelStyle} compact={compact} />
-        </Glass>
+        </Animated.View>
       </Pressable>
     </Animated.View>
   );

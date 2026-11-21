@@ -15,7 +15,9 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
+import { useTheme } from '@/components/theme/context';
 import { useElasticPress, type ElasticPressOptions, PressGlow } from '@/components/ui/elastic';
+import { withAlpha } from '@/lib/theme';
 import { PAISA, stagger, SWAP_IN, SWAP_OUT } from '@/lib/motion';
 
 /*
@@ -107,6 +109,9 @@ export function ElasticPressable({
   children?: ReactNode | ((state: { pressed: boolean }) => ReactNode);
 }) {
   const press = useElasticPress(PRESETS[variant]);
+  const { colors } = useTheme();
+  // Paisa's pressGlow is on every elastic control; Android gets it by default.
+  const light = glow ?? (Platform.OS === 'android' ? withAlpha(colors.accent, 0.14) : undefined);
   return (
     <Animated.View {...press.handlers} style={[containerStyle, press.style]}>
       <Pressable
@@ -118,7 +123,7 @@ export function ElasticPressable({
         style={style}>
         {(state) => (
           <>
-            {glow ? <PressGlow press={press} color={glow} radius={radius} /> : null}
+            {light ? <PressGlow press={press} color={light} radius={radius} /> : null}
             {typeof children === 'function' ? children(state) : children}
           </>
         )}
