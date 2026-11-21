@@ -444,6 +444,23 @@ function flattenRows(children: ReactNode): ReactElement[] {
 }
 
 /**
+ * The iOS inset-grouped card, shared by Settings and Boards. It stays an
+ * opaque cell on purpose, as in iOS 26 Settings: Liquid Glass belongs to the
+ * controls floating above content (bars, back buttons, tab bar, segmented
+ * controls, buttons). Tried as a glass panel, it had nothing to refract over
+ * the flat grouped background and rendered almost clear, so the rows lost
+ * their grouping even with a strong tint.
+ */
+export function GroupedCard({ children, radius = IOS_GROUP_RADIUS }: { children: ReactNode; radius?: number }) {
+  const { cell } = useSettingsColors();
+  return (
+    <View style={{ borderRadius: radius, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: cell }}>
+      {children}
+    </View>
+  );
+}
+
+/**
  * A cluster of rows. iOS: one rounded inset-grouped card with hairline
  * dividers. Android: each row becomes its own segment, so dividers inside the
  * group are dropped there.
@@ -493,15 +510,7 @@ export function SettingsGroup({
   } else {
     body = (
       <RiseIn fromScale={0.99} rise={6}>
-      <View
-        style={{
-          backgroundColor: cell,
-          borderRadius: IOS_GROUP_RADIUS,
-          borderCurve: 'continuous',
-          overflow: 'hidden',
-        }}>
-        {children}
-      </View>
+        <GroupedCard>{children}</GroupedCard>
       </RiseIn>
     );
   }

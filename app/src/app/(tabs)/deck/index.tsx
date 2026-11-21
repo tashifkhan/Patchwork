@@ -9,7 +9,7 @@ import { SymbolView, type SFSymbol } from 'expo-symbols';
 
 import { BoardTile } from '@/components/boards/board-tile';
 import { READABLE_MAX_WIDTH } from '@/hooks/use-adaptive-layout';
-import { useSettingsColors } from '@/components/settings/settings-list';
+import { GroupedCard, useSettingsColors } from '@/components/settings/settings-list';
 import { GlassIconButton } from '@/components/ui/glass-button';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -387,7 +387,7 @@ function BoardGroup({
         <Text style={{ fontSize: 13, color: colors.text2, paddingHorizontal: 16, textTransform: 'uppercase' }}>
           {title}
         </Text>
-        <View style={{ backgroundColor: grouped.cell, borderRadius: 26, borderCurve: 'continuous', overflow: 'hidden' }}>
+        <GroupedCard radius={26}>
           {boards.map((board, index) => {
             const starredBoard = favorites.includes(board.ref);
             return (
@@ -446,7 +446,7 @@ function BoardGroup({
               </View>
             );
           })}
-        </View>
+        </GroupedCard>
       </View>
     );
   }

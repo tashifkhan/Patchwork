@@ -13,6 +13,8 @@ import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { dictationBlocker, transcribeBrainDump } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import { MicPulse } from '@/components/tasks/dictation-sheet';
+import { GlassPillButton } from '@/components/ui/glass-button';
+import { useLiquidGlass } from '@/components/ui/glass-surface';
 import { useTheme } from '@/components/theme/context';
 import { ElasticPressable, TurningChevron } from '@/components/ui/motion';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
@@ -382,6 +384,15 @@ export function VoiceDumpSheet({
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
+const SF_FOR: Partial<Record<IconName, import('expo-symbols').SFSymbol>> = {
+  'text-box-plus-outline': 'text.badge.plus',
+  'cog-outline': 'gearshape',
+  'star-four-points-outline': 'sparkles',
+  'wifi-refresh': 'wifi',
+  microphone: 'mic.fill',
+  creation: 'sparkles',
+};
+
 /** M3 Expressive medium button: 52dp, fully round, squaring off while held. */
 function SheetButton({
   label,
@@ -397,8 +408,22 @@ function SheetButton({
   onPress: () => void;
 }) {
   const { colors } = useTheme();
+  const glass = useLiquidGlass();
   const filled = tone === 'filled';
   const ink = filled ? colors.onAccent : colors.text;
+  if (glass) {
+    return (
+      <GlassPillButton
+        label={label}
+        sf={icon ? SF_FOR[icon] : undefined}
+        prominent={filled}
+        disabled={disabled}
+        height={52}
+        style={{ flex: 1 }}
+        onPress={onPress}
+      />
+    );
+  }
   return (
     <ElasticPressable
       variant="control"

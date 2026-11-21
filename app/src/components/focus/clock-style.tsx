@@ -1,3 +1,4 @@
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { type ReactNode, useId, useState } from 'react';
 import { Platform, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
@@ -43,6 +44,9 @@ export function fontSizeForCap(capHeight: number) {
  * a bright 1.25dp edge (white at 82–86% on light, 14% on dark) and a soft
  * shadow tinted with the accent. Children sit on top.
  */
+/** iOS 26+ draws real Liquid Glass; elsewhere the drawn glass below. */
+const IOS_LIQUID_GLASS = Platform.OS === 'ios' && isLiquidGlassAvailable();
+
 export function Glass({
   tint,
   radius,
@@ -64,6 +68,18 @@ export function Glass({
   const id = useId().replace(/:/g, '');
   // Measured, not "100%": a percentage SVG resolves before layout and stops short of the edge.
   const [box, setBox] = useState({ width: 0, height: 0 });
+  if (IOS_LIQUID_GLASS) {
+    // iOS 26: the system's Liquid Glass instead of the drawn imitation.
+    return (
+      <GlassView
+        glassEffectStyle="regular"
+        tintColor={withAlpha(tint, 0.8)}
+        colorScheme={scheme}
+        style={[{ borderRadius: radius, borderCurve: 'continuous', overflow: 'hidden' }, style]}>
+        {children}
+      </GlassView>
+    );
+  }
   return (
     <View
       onLayout={(event) => {
