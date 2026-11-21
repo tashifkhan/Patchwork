@@ -28,6 +28,10 @@ import {
 import { addTaskToCalendar } from '@/lib/calendar';
 import { formatDateTime } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
+import { describeRrule, firstDue, repeatPresets } from '@/lib/recurrence';
+import { togglePatch } from '@/lib/task-actions';
+import { atDay } from '@/lib/when';
+import { Switch } from '@/components/ui/switch';
 import { DURATION, SPRING } from '@/lib/motion';
 import { cancelTaskReminder } from '@/lib/notifications';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
@@ -167,6 +171,8 @@ interface Draft {
   due_at: string | null;
   reminder_at: string | null;
   priority: number | null;
+  rrule: string | null;
+  pinned: boolean;
 }
 
 function draftFromTask(task: Task): Draft {
@@ -178,6 +184,8 @@ function draftFromTask(task: Task): Draft {
     due_at: task.due_at,
     reminder_at: task.reminder_at,
     priority: toPriorityBucket(task.priority),
+    rrule: task.rrule ?? null,
+    pinned: task.pinned ?? false,
   };
 }
 
@@ -191,6 +199,8 @@ function diffDraft(saved: Draft, next: Draft): TaskUpdate {
   if (next.due_at !== saved.due_at) patch.due_at = next.due_at;
   if (next.reminder_at !== saved.reminder_at) patch.reminder_at = next.reminder_at;
   if (next.priority !== saved.priority) patch.priority = next.priority;
+  if (next.rrule !== saved.rrule) patch.rrule = next.rrule;
+  if (next.pinned !== saved.pinned) patch.pinned = next.pinned;
   return patch;
 }
 
@@ -300,7 +310,7 @@ function TaskDocument({
         taskId: target.id === task.id ? taskId.current : target.id,
         accountId: target.account_id,
         patch: {
-          completed: !target.completed,
+          ...togglePatch(target).patch,
           etag: target.id === task.id ? etag.current : target.etag,
         },
       });
@@ -608,6 +618,52 @@ function TaskDocument({
               value={draft.reminder_at}
               onChange={(reminder_at) => change({ reminder_at })}
             />
+          </PropertyCell>
+          <PropertyCell>
+            <View className="gap-3">
+              <View className="flex-row items-center gap-3">
+                <MaterialCommunityIcons name="repeat" size={20} color={colors.accent} />
+                <Text className="text-sf-text flex-1 text-base">Repeat</Text>
+                <Text className="text-sf-text-2 text-sm">{describeRrule(draft.rrule) ?? 'Never'}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {[{ label: 'Never', rrule: null as string | null }, ...repeatPresets(draft.due_at)].map((preset) => {
+                  const active = (preset.rrule ?? null) === (draft.rrule ?? null);
+                  return (
+                    <Pressable
+                      key={preset.label}
+                      onPress={() => {
+                        haptics.selection();
+                        // A repeat counts from a date; give it one if there's none yet.
+                        const due =
+                          preset.rrule && !latest.current.due_at
+                            ? atDay(new Date(firstDue(preset.rrule) ?? Date.now()))
+                            : latest.current.due_at;
+                        change({ rrule: preset.rrule, due_at: due });
+                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: active ? colors.selectionBg : colors.bg3,
+                      }}>
+                      <Text style={{ fontSize: 14, color: active ? colors.onSelectionBg : colors.text }}>
+                        {preset.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </PropertyCell>
+          <PropertyCell>
+            <View className="flex-row items-center gap-3">
+              <MaterialCommunityIcons name="pin-outline" size={20} color={colors.accent} />
+              <Text className="text-sf-text flex-1 text-base">Pin to top</Text>
+              <Switch value={draft.pinned} onValueChange={(pinned) => change({ pinned })} />
+            </View>
           </PropertyCell>
           <PropertyCell last={!(draft.due_at || draft.reminder_at)}>
             <View className="gap-3">

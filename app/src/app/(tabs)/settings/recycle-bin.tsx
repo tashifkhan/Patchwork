@@ -1,0 +1,127 @@
+import { Fragment, useEffect, useMemo, useState } from 'react';
+
+import type { TaskList } from '@/api/types';
+import {
+  RowSeparator,
+  SettingsActionRow,
+  SettingsGroup,
+  SettingsRow,
+  SettingsScreen,
+} from '@/components/settings/settings-list';
+import { ListPicker } from '@/components/tasks/list-picker';
+import { NativeAlert } from '@/components/ui/native-alert';
+import { useRestoreTasks, useTaskLists } from '@/hooks/use-tasks';
+import { emptyRecycleBin, loadRecycleBin, useRecycleBinStore, type BinEntry } from '@/lib/recycle-bin';
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+function deletedAgo(iso: string) {
+  const days = Math.round((new Date(iso).getTime() - Date.now()) / 86_400_000);
+  if (days === 0) {
+    const hours = Math.round((new Date(iso).getTime() - Date.now()) / 3_600_000);
+    return hours === 0 ? 'just now' : relative.format(hours, 'hour');
+  }
+  return relative.format(days, 'day');
+}
+
+/**
+ * Deleted to-dos from the last 30 days. Tap one to put it back; if its list
+ * is gone, pick another one.
+ */
+export default function RecycleBinScreen() {
+  const entries = useRecycleBinStore((s) => s.entries);
+  const listsQuery = useTaskLists();
+  const restore = useRestoreTasks();
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
+  const [rehome, setRehome] = useState<BinEntry[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadRecycleBin();
+  }, []);
+
+  const lists = useMemo(() => (listsQuery.data ?? []).filter((list) => !list.is_deck), [listsQuery.data]);
+  const listIds = useMemo(() => new Set(lists.map((list) => list.id)), [lists]);
+
+  async function putBack(targets: BinEntry[], listId?: string) {
+    setMessage(null);
+    const orphaned = listId ? [] : targets.filter((entry) => !listIds.has(entry.task.list_id));
+    if (orphaned.length > 0 && listsQuery.data) {
+      setRehome(targets);
+      return;
+    }
+    const result = await restore.mutateAsync({ entries: targets, listId });
+    setMessage(
+      result.failed
+        ? `Restored ${result.restored}. ${result.failed} could not be restored. Check your connection and try again.`
+        : `Restored ${result.restored} to-do${result.restored === 1 ? '' : 's'}.`
+    );
+  }
+
+  return (
+    <SettingsScreen>
+      <SettingsGroup
+        title="Deleted to-dos"
+        footer={
+          message ??
+          'Deleted to-dos stay here for 30 days. Tap one to restore it to its list. Restored to-dos get their checklist back if it is still on the server.'
+        }>
+        {entries.length === 0 ? (
+          <SettingsRow icon="trash-can-outline" title="Nothing here" subtitle="Deleted to-dos show up here" />
+        ) : (
+          entries.map((entry, index) => (
+            <Fragment key={entry.id}>
+              {index > 0 ? <RowSeparator /> : null}
+              <SettingsRow
+                icon={entry.task.completed ? 'check-circle-outline' : 'restore'}
+                title={entry.task.title}
+                subtitle={`${entry.listName}${listIds.has(entry.task.list_id) ? '' : ' (list deleted)'} · ${deletedAgo(entry.deletedAt)}`}
+                disabled={restore.isPending}
+                onPress={() => void putBack([entry])}
+              />
+            </Fragment>
+          ))
+        )}
+      </SettingsGroup>
+
+      {entries.length > 0 ? (
+        <SettingsGroup>
+          <SettingsActionRow
+            title={restore.isPending ? 'Restoring…' : 'Restore all'}
+            loading={restore.isPending}
+            onPress={() => void putBack(entries)}
+            androidIcon="restore"
+          />
+          <RowSeparator />
+          <SettingsActionRow title="Empty recycle bin" destructive onPress={() => setConfirmEmpty(true)} />
+        </SettingsGroup>
+      ) : null}
+
+      <ListPicker
+        visible={rehome != null}
+        lists={lists}
+        selectedId={null}
+        title="Restore to"
+        onSelect={(list: TaskList) => {
+          const targets = rehome;
+          setRehome(null);
+          if (targets) void putBack(targets, list.id);
+        }}
+        onClose={() => setRehome(null)}
+      />
+
+      <NativeAlert
+        visible={confirmEmpty}
+        title="Empty the recycle bin?"
+        message={`${entries.length} to-do${entries.length === 1 ? '' : 's'} will be gone for good.`}
+        confirmLabel="Empty"
+        dismissLabel="Cancel"
+        onDismiss={() => setConfirmEmpty(false)}
+        onConfirm={() => {
+          setConfirmEmpty(false);
+          void emptyRecycleBin();
+        }}
+      />
+    </SettingsScreen>
+  );
+}

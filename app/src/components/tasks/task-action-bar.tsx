@@ -105,6 +105,100 @@ export function TaskActionBar({
 }
 
 /**
+ * Multi-select toolbar (long-press a to-do to start). Same surface as the
+ * single to-do bar: the main action, completing, is the filled pill.
+ */
+export function SelectionBar({
+  bottom,
+  count,
+  onComplete,
+  onMove,
+  onPin,
+  onMerge,
+  onDelete,
+  onCancel,
+}: {
+  bottom: number;
+  count: number;
+  onComplete: () => void;
+  onMove: () => void;
+  onPin: () => void;
+  /** Hidden below two selected. */
+  onMerge: () => void;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  const { colors } = useTheme();
+  const lift = useKeyboardLift(bottom);
+  const iconColor = GLASS ? colors.text : colors.onPrimaryContainer;
+  const disabled = count === 0;
+
+  return (
+    <>
+      {lift.marker}
+      <Animated.View
+        entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
+        exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
+        pointerEvents="box-none"
+        style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
+        <BarSurface>
+          <IconAction icon="close" sf="xmark" label="Cancel selection" color={iconColor} onPress={onCancel} />
+          <Pressable
+            disabled={disabled}
+            onPress={() => {
+              haptics.success();
+              onComplete();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Complete ${count} selected`}
+            android_ripple={{ color: colors.separator }}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              height: 48,
+              paddingLeft: 14,
+              paddingRight: 18,
+              borderRadius: pressed ? 12 : 24,
+              borderCurve: 'continuous',
+              overflow: 'hidden',
+              backgroundColor: colors.accent,
+              opacity: disabled ? 0.5 : pressed && Platform.OS === 'ios' ? 0.85 : 1,
+            })}>
+            <MaterialCommunityIcons name="check-all" size={20} color={colors.onAccent} />
+            <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>
+              {count}
+            </Text>
+          </Pressable>
+          {disabled ? null : (
+            <>
+              <IconAction icon="arrow-right" sf="arrow.right" label="Move selected" color={iconColor} onPress={onMove} />
+              <IconAction icon="pin-outline" sf="pin" label="Pin or unpin selected" color={iconColor} onPress={onPin} />
+              {count > 1 ? (
+                <IconAction
+                  icon="call-merge"
+                  sf="arrow.triangle.merge"
+                  label="Merge selected into one to-do"
+                  color={iconColor}
+                  onPress={onMerge}
+                />
+              ) : null}
+              <IconAction
+                icon="trash-can-outline"
+                sf="trash"
+                label="Delete selected"
+                color={GLASS ? colors.danger : colors.onPrimaryContainer}
+                onPress={onDelete}
+              />
+            </>
+          )}
+        </BarSurface>
+      </Animated.View>
+    </>
+  );
+}
+
+/**
  * iOS 26+: a Liquid Glass capsule, like the system's floating toolbars.
  * Android (and older iOS): the M3 vibrant floating toolbar.
  */

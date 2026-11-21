@@ -112,6 +112,21 @@ export async function syncTaskReminder(params: {
   return notificationIds[0] ?? null;
 }
 
+/** A single notification at `date` that isn't tied to a task (the focus timer). */
+export async function scheduleOneOffNotification(params: {
+  title: string;
+  body: string;
+  date: Date;
+}): Promise<string | null> {
+  const Notifications = await getNotifications();
+  if (!Notifications || params.date.getTime() <= Date.now()) return null;
+  if (!(await ensureNotificationPermissions())) return null;
+  return Notifications.scheduleNotificationAsync({
+    content: { title: params.title, body: params.body, data: { href: '/pomodoro' } },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: params.date },
+  }).catch(() => null);
+}
+
 async function cancelReminders(notificationIds: string[]): Promise<void> {
   await Promise.allSettled(notificationIds.map((id) => cancelReminder(id)));
 }
@@ -170,7 +185,8 @@ export async function syncTaskReminders(tasks: Task[]): Promise<void> {
 }
 
 export async function startNotificationResponseObserver(
-  onTaskUid: (taskUid: string) => void
+  onTaskUid: (taskUid: string) => void,
+  onPomodoro?: () => void
 ): Promise<() => void> {
   const Notifications = await getNotifications();
   if (!Notifications) return () => {};
@@ -181,6 +197,7 @@ export async function startNotificationResponseObserver(
     lastResponseId = response.notification.request.identifier;
     const taskUid = response.notification.request.content.data?.taskUid;
     if (typeof taskUid === 'string' && taskUid) onTaskUid(taskUid);
+    else if (response.notification.request.content.data?.href === '/pomodoro') onPomodoro?.();
   };
 
   handleResponse(await Notifications.getLastNotificationResponseAsync());

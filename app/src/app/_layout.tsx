@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
+import { ConfettiHost } from '@/components/ui/confetti';
 import { useTasks } from '@/hooks/use-tasks';
 import { DURATION } from '@/lib/motion';
 import { loadOutbox, useOutboxStore } from '@/lib/outbox';
@@ -135,7 +136,9 @@ export default function RootLayout() {
               name="edit-list"
               options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
             />
+            <Stack.Screen name="pomodoro" options={sheetScreenOptions([0.72, 1.0], 'Focus')} />
           </Stack>
+          <ConfettiHost />
           <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
         </ThemeProvider>
       </QueryClientProvider>
@@ -211,7 +214,7 @@ function NativeRuntimeCoordinator() {
         pathname: '/task/[uid]',
         params: { uid: taskUid },
       });
-    }).then((cleanup) => {
+    }, () => router.push('/pomodoro')).then((cleanup) => {
       if (active) stop = cleanup;
       else cleanup();
     });
