@@ -48,4 +48,21 @@ describe('markdown lists', () => {
     const lists = parseMarkdownLists('# Patchwork export\n\n## A\n- [ ] one\n');
     expect(lists.map((l) => l.name)).toEqual(['A']);
   });
+
+  test('titles with # and notes that look like items survive a round trip', () => {
+    const md = listsToMarkdown([
+      {
+        name: 'L',
+        tasks: [task('Review PR #42', { tags: ['work'], markdown: '- [ ] call Bob\n\\ odd line\nplain' })],
+      },
+    ]);
+    const [item] = parseMarkdownLists(md)[0].tasks;
+    expect(item).toEqual({
+      title: 'Review PR #42',
+      completed: false,
+      tags: ['work'],
+      notes: '- [ ] call Bob\n\\ odd line\nplain',
+      children: [],
+    });
+  });
 });

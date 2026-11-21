@@ -805,6 +805,7 @@ export default function TasksScreen() {
                   onReorder={handleReorder}
                   indicatorColor={colors.accent}
                   dragEnabled={expandedId == null && selection == null}
+                  onHold={startSelecting}
                   renderItem={(task) =>
                     task.id === expandedId ? (
                       <TaskCard
@@ -849,6 +850,7 @@ export default function TasksScreen() {
                   onReorder={handleReorder}
                   indicatorColor={colors.accent}
                   dragEnabled={expandedId == null && selection == null}
+                  onHold={startSelecting}
                   renderItem={(task) =>
                     task.id === expandedId ? (
                       <TaskCard

@@ -30,7 +30,8 @@ interface BrainDumpState {
   setText: (day: string, text: string) => void;
   /** Adds a line to today's page (the quick-capture field). */
   append: (text: string) => void;
-  markSorted: (day: string, result: { note: DumpDay['note']; taskCount: number }) => void;
+  /** `sentText` is the page as it was sent, so lines typed meanwhile still count as new. */
+  markSorted: (day: string, result: { note: DumpDay['note']; taskCount: number; sentText: string }) => void;
   setNote: (day: string, note: DumpDay['note']) => void;
   remove: (day: string) => void;
 }
@@ -69,7 +70,7 @@ export const useBrainDumpStore = create<BrainDumpState>()(
             note: result.note,
             taskCount: result.taskCount,
             sortedAt: Date.now(),
-            sortedText: get().days[day]?.text ?? null,
+            sortedText: result.sentText,
           }),
         setNote: (day, note) => patch(day, { note }),
         remove: (day) => {

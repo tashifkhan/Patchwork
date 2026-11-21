@@ -36,9 +36,13 @@ export function tasksToMarkdown(tasks: Task[], depth = 0): string {
   return tasks
     .map((task) => {
       const tags = task.tags.map((tag) => ` #${tag.replace(/\s+/g, '-')}`).join('');
-      const lines = [`${pad}- [${task.completed ? 'x' : ' '}] ${task.title.replace(/\n/g, ' ')}${tags}`];
+      // A "#42" in the title is escaped so it doesn't come back as a tag.
+      const title = task.title.replace(/\n/g, ' ').replace(/(^|\s)#(?=\S)/g, '$1\\#');
+      const lines = [`${pad}- [${task.completed ? 'x' : ' '}] ${title}${tags}`];
       const notes = task.markdown.trim();
-      if (notes) lines.push(...notes.split('\n').map((line) => `${pad}  ${line}`));
+      // Notes lines that look like list items (or start with the escape) get a
+      // backslash, or they'd read back as checklist items.
+      if (notes) lines.push(...notes.split('\n').map((line) => `${pad}  ${/^\s*([-*+]\s|\\)/.test(line) ? `\\${line}` : line}`));
       if (task.children.length) lines.push(tasksToMarkdown(task.children, depth + 1));
       return lines.join('\n');
     })
@@ -112,7 +116,9 @@ export function parseMarkdownLists(text: string, fallbackName = 'Imported'): Tex
     }
     const top = stack[stack.length - 1];
     if (top && /^\s+\S/.test(raw)) {
-      const line = raw.replace(/^\s{1,}/, (spaces) => spaces.slice(Math.min(spaces.length, top.indent + 2)));
+      const line = raw
+        .replace(/^\s{1,}/, (spaces) => spaces.slice(Math.min(spaces.length, top.indent + 2)))
+        .replace(/^(\s*)\\/, '$1');
       top.task.notes = top.task.notes ? `${top.task.notes}\n${line}` : line;
     } else if (top && raw.trim() === '' && top.task.notes) {
       top.task.notes += '\n';
@@ -139,7 +145,7 @@ function splitTags(body: string) {
     tags.unshift(m[1]);
     words.pop();
   }
-  return { title: words.join(' ').trim(), tags };
+  return { title: words.join(' ').replace(/(^|\s)\\#/g, '$1#').trim(), tags };
 }
 
 export function countTextTasks(tasks: TextTask[]): number {

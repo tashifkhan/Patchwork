@@ -708,7 +708,8 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
   // Read task fields from the VTODO with its VALARM sub-components removed:
   // an alarm carries its own DESCRIPTION, and a VTODO that lists the alarm
   // first would otherwise surface the reminder text as the task's notes.
-  const fields = parseIcs(calendarData.replace(ALARM_BLOCK, ''));
+  // VTIMEZONE goes too: its STANDARD/DAYLIGHT parts carry their own RRULE and DTSTART.
+  const fields = parseIcs(calendarData.replace(SUBCOMPONENT_BLOCK, ''));
   if (!fields.get('BEGIN')?.some((field) => field.value.toUpperCase() === 'VTODO')) return null;
   const alarmFields = parseIcs(calendarData);
   const description = icsText(fields, 'DESCRIPTION') ?? '';
@@ -824,12 +825,16 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
 }
 
 const ALARM_SLOT = 'X-PATCHWORK-VALARM-SLOT';
-const ALARM_BLOCK = /BEGIN:VALARM\r?\n[\s\S]*?END:VALARM/gi;
+/**
+ * Sub-components whose properties must never be mistaken for the VTODO's own:
+ * VALARM has a DESCRIPTION, VTIMEZONE has RRULE and DTSTART.
+ */
+const SUBCOMPONENT_BLOCK = /BEGIN:(VALARM|VTIMEZONE)\r?\n[\s\S]*?END:\1/gi;
 
 /** Runs `edit` over the VTODO with VALARM sub-components swapped for placeholders. */
 function editVtodoBody(calendarData: string, edit: (body: string) => string) {
   const alarms: string[] = [];
-  const masked = calendarData.replace(ALARM_BLOCK, (match) => {
+  const masked = calendarData.replace(SUBCOMPONENT_BLOCK, (match) => {
     alarms.push(match);
     return `${ALARM_SLOT}:${alarms.length - 1}`;
   });

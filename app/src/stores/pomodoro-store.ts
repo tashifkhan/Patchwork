@@ -165,14 +165,27 @@ export const usePomodoroStore = create<TimerState>()(
         }).catch(() => {});
       }
 
+      /**
+       * Switches phase synchronously (so two overlapping `settle()` calls
+       * can't both act on the old one), then swaps the end-of-phase
+       * notification.
+       */
       async function enter(phase: 'work' | 'break', now = Date.now()) {
-        await cancelReminder(get().notificationId).catch(() => {});
+        const previousId = get().notificationId;
         const phaseMinutes = minutesFor(phase);
         const endsAt = now + phaseMinutes * 60_000;
         set({ phase, endsAt, pausedRemaining: null, phaseMinutes, notificationId: null });
         syncLive();
+        void cancelReminder(previousId).catch(() => {});
+        await schedule(phase, endsAt);
+      }
+
+      /** Schedules the end notification, unless the phase changed while it was being scheduled. */
+      async function schedule(phase: 'work' | 'break', endsAt: number) {
         const id = await notifyAt(phase, endsAt, get().taskTitle);
-        set({ notificationId: id });
+        const current = get();
+        if (current.phase === phase && current.endsAt === endsAt) set({ notificationId: id });
+        else void cancelReminder(id).catch(() => {});
       }
 
       function log(session: Omit<FocusSession, 'id'>) {
@@ -186,7 +199,10 @@ export const usePomodoroStore = create<TimerState>()(
         };
         const cutoff = dayKey(new Date(Date.now() - 366 * 86_400_000));
         for (const k of Object.keys(history)) if (k < cutoff) delete history[k];
-        const entry: FocusSession = { ...session, id: `${session.start.toString(36)}-${Math.round(session.minutes * 60)}` };
+        const entry: FocusSession = {
+          ...session,
+          id: `${session.start.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        };
         set({ history, sessions: [entry, ...get().sessions].slice(0, MAX_SESSIONS) });
       }
 
@@ -220,14 +236,14 @@ export const usePomodoroStore = create<TimerState>()(
             set({ pausedElapsed: Date.now() - startedAt, startedAt: null });
           } else {
             if (endsAt == null) return;
-            await cancelReminder(notificationId).catch(() => {});
             set({ pausedRemaining: Math.max(0, endsAt - Date.now()), endsAt: null, notificationId: null });
+            void cancelReminder(notificationId).catch(() => {});
           }
           syncLive();
         },
 
         resume: async () => {
-          const { phase, pausedRemaining, pausedElapsed, taskTitle } = get();
+          const { phase, pausedRemaining, pausedElapsed } = get();
           if (phase === 'stopwatch') {
             if (pausedElapsed == null) return;
             set({ startedAt: Date.now() - pausedElapsed, pausedElapsed: null });
@@ -238,8 +254,7 @@ export const usePomodoroStore = create<TimerState>()(
           const endsAt = Date.now() + pausedRemaining;
           set({ endsAt, pausedRemaining: null });
           syncLive();
-          const id = await notifyAt(phase, endsAt, taskTitle);
-          set({ notificationId: id });
+          await schedule(phase, endsAt);
         },
 
         skip: async () => {
@@ -258,9 +273,9 @@ export const usePomodoroStore = create<TimerState>()(
               log({ kind: 'stopwatch', start, end: Date.now(), minutes: elapsed / 60_000, taskUid: s.taskUid, title: s.taskTitle });
             }
           }
-          await cancelReminder(s.notificationId).catch(() => {});
           set({ ...IDLE });
           syncLive();
+          await cancelReminder(s.notificationId).catch(() => {});
         },
 
         settle: async (now = Date.now()) => {

@@ -1,12 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, StyleSheet } from 'react-native';
+import { AppState, Modal, StyleSheet } from 'react-native';
 import { create } from 'zustand';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
-import { DURATION } from '@/lib/motion';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -93,12 +91,20 @@ export function AppLockGate() {
     return () => sub.remove();
   }, [delay, enabled, unlock]);
 
-  if (!hydrated || !enabled || (!locked && !covered)) return null;
+  const visible = hydrated && enabled && (locked || covered);
+  // A native Modal, not an overlay view: sheets (focus timer, to-do detail)
+  // are native modals too, and an overlay would sit underneath them.
   return (
-    <Animated.View
-      entering={FadeIn.duration(DURATION.short2)}
-      exiting={FadeOut.duration(DURATION.short4)}
-      style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, zIndex: 1000 }]}>
+    <Modal
+      visible={visible}
+      transparent={false}
+      // No animation for the app-switcher cover: the snapshot is taken right away.
+      animationType={locked ? 'fade' : 'none'}
+      statusBarTranslucent
+      navigationBarTranslucent
+      presentationStyle="fullScreen"
+      onRequestClose={() => {}}>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]}>
       <View className="flex-1 items-center justify-center gap-5 px-10">
         <View
           style={{
@@ -119,6 +125,7 @@ export function AppLockGate() {
           </View>
         ) : null}
       </View>
-    </Animated.View>
+      </View>
+    </Modal>
   );
 }

@@ -24,7 +24,13 @@ export default function ScanScreen() {
   const handled = useRef(false);
   const frames = useRef(new FrameCollector());
   const [progress, setProgress] = useState<{ have: number; total: number } | null>(null);
-  const importer = useImportConfirm(() => router.back());
+  const importer = useImportConfirm(
+    () => router.back(),
+    // Backed out or failed: scan again.
+    () => {
+      handled.current = false;
+    }
+  );
 
   function onScan(data: string) {
     if (handled.current) return;

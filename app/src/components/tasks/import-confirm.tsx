@@ -14,12 +14,17 @@ import { LOCAL_ACCOUNT_ID } from '@/lib/local-tasks';
  * doesn't exist is created in the only CalDAV account, or on this device
  * when there are several (or none). "Pick a list" puts everything in one.
  */
-export function useImportConfirm(onDone?: (result: { created: number; failed: number }) => void) {
+export function useImportConfirm(
+  /** After the result message is dismissed. */
+  onDone?: (result: { created: number; failed: number }) => void,
+  /** The user backed out before anything was imported. */
+  onCancel?: () => void
+) {
   const listsQuery = useTaskLists();
   const importTasks = useImportTasks();
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [picking, setPicking] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ message: string; outcome: { created: number; failed: number } | null } | null>(null);
 
   const lists = useMemo(() => (listsQuery.data ?? []).filter((list) => !list.is_deck), [listsQuery.data]);
   const remoteAccounts = [...new Set(lists.map((l) => l.account_id).filter((id) => id && id !== LOCAL_ACCOUNT_ID))];
@@ -30,19 +35,24 @@ export function useImportConfirm(onDone?: (result: { created: number; failed: nu
     const current = plan;
     setPlan(null);
     if (!current) return;
-    const outcome = await importTasks.mutateAsync({
-      plan: current,
-      lists,
-      newListAccountId,
-      intoListId: target?.id,
-    });
-    haptics.success();
-    setResult(
-      outcome.failed
-        ? `Imported ${outcome.created}. ${outcome.failed} could not be saved; check your connection.`
-        : `Imported ${outcome.created} to-do${outcome.created === 1 ? '' : 's'}.`
-    );
-    onDone?.(outcome);
+    try {
+      const outcome = await importTasks.mutateAsync({
+        plan: current,
+        lists,
+        newListAccountId,
+        intoListId: target?.id,
+      });
+      haptics.success();
+      setResult({
+        message: outcome.failed
+          ? `Imported ${outcome.created}. ${outcome.failed} could not be saved; check your connection.`
+          : `Imported ${outcome.created} to-do${outcome.created === 1 ? '' : 's'}.`,
+        outcome,
+      });
+    } catch (cause) {
+      // Usually a list that couldn't be created on the server.
+      setResult({ message: cause instanceof Error ? cause.message : 'The import failed.', outcome: null });
+    }
   }
 
   const summary = plan
@@ -77,13 +87,19 @@ export function useImportConfirm(onDone?: (result: { created: number; failed: nu
         onClose={() => {
           setPicking(false);
           setPlan(null);
+          onCancel?.();
         }}
       />
       <NativeAlert
         visible={result != null}
         title="Import"
-        message={result ?? ''}
-        onDismiss={() => setResult(null)}
+        message={result?.message ?? ''}
+        onDismiss={() => {
+          const outcome = result?.outcome;
+          setResult(null);
+          if (outcome) onDone?.(outcome);
+          else onCancel?.();
+        }}
       />
     </>
   );

@@ -24,6 +24,8 @@ export interface TimerNotification {
   countDown: boolean;
   /** Paused timers show `text` with no running clock. */
   paused: boolean;
+  /** Epoch ms after which the system removes the notification (countdowns). */
+  timeoutAt?: number | null;
 }
 
 type NativeModule = {
