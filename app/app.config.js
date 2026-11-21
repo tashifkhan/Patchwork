@@ -29,7 +29,20 @@ module.exports = ({ config }) => {
     plugins: [
       ...(config.plugins ?? []),
       'expo-background-task',
-      'expo-font',
+      [
+        'expo-font',
+        {
+          // Google Sans Flex cuts for the focus timer (see assets/fonts/OFL.txt).
+          fonts: [
+            './assets/fonts/PatchworkClock-Stopwatch.ttf',
+            './assets/fonts/PatchworkClock-TimerRun.ttf',
+            './assets/fonts/PatchworkClock-TimerIdle.ttf',
+            './assets/fonts/PatchworkClock-Title.ttf',
+            './assets/fonts/PatchworkClock-Label.ttf',
+            './assets/fonts/PatchworkClock-Body.ttf',
+          ],
+        },
+      ],
       'expo-image',
       'expo-secure-store',
       [
