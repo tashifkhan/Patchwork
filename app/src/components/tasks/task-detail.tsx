@@ -706,6 +706,17 @@ function TaskDocument({
             />
           ) : null}
           {!task.parent_uid && boardsTab ? <MoveToDeck task={task} inline /> : null}
+          <Pressable
+            onPress={() => {
+              flush();
+              router.push({ pathname: '/share-tasks', params: { uid: task.uid } });
+            }}
+            accessibilityRole="button"
+            android_ripple={{ color: colors.separator }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56 }}>
+            <MaterialCommunityIcons name="qrcode" size={20} color={colors.accent} />
+            <Text className="text-sf-text text-base">Share as QR code or text</Text>
+          </Pressable>
         </PropertyGroup>
 
         {process.env.EXPO_OS !== 'web' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}

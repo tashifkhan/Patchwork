@@ -85,6 +85,32 @@ export default function EditListScreen() {
             loading={busy && !deleteVisible}
             onPress={submit}
           />
+          <View className="flex-row gap-3">
+            <View style={{ flex: 1 }}>
+              <Button
+                variant="tonal"
+                icon="qrcode"
+                label="Share"
+                disabled={busy || !listId}
+                onPress={() => {
+                  router.back();
+                  router.push({ pathname: '/share-tasks', params: { listId } });
+                }}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                variant="tonal"
+                icon="text-box-edit-outline"
+                label="Edit as text"
+                disabled={busy || !listId}
+                onPress={() => {
+                  router.back();
+                  router.push({ pathname: '/list-text', params: { listId } });
+                }}
+              />
+            </View>
+          </View>
           <Button
             variant="danger"
             label="Delete list"
