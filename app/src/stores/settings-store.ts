@@ -33,6 +33,10 @@ export interface ExtraPreferences {
   fontFamily: string | null;
   /** Multiplies every text size. 0.85–1.3. */
   fontScale: number;
+  /** Daily nudges to empty your head into the brain dump. */
+  brainDumpReminders: boolean;
+  /** `HH:MM`, local time, one notification each. */
+  brainDumpTimes: string[];
 }
 
 export const DEFAULT_EXTRAS: ExtraPreferences = {
@@ -45,6 +49,8 @@ export const DEFAULT_EXTRAS: ExtraPreferences = {
   appLockDelaySeconds: 30,
   fontFamily: null,
   fontScale: 1,
+  brainDumpReminders: false,
+  brainDumpTimes: ['08:30', '21:30'],
 };
 export type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
 

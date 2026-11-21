@@ -72,6 +72,7 @@ import {
   liftOpenSubtasks,
   type BucketKey,
 } from '@/lib/task-buckets';
+import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -669,12 +670,22 @@ export default function TasksScreen() {
             gap: 12,
             opacity: expandedId ? 0.38 : 1,
           }}>
-          <ListHero
-            title={heroTitle}
-            subtitle={heroSubtitle}
-            kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
-            onPress={() => setListSwitcherOpen(true)}
-          />
+          <View className="flex-row items-start justify-between gap-2">
+            <View style={{ flexShrink: 1 }}>
+              <ListHero
+                title={heroTitle}
+                subtitle={heroSubtitle}
+                kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
+                onPress={() => setListSwitcherOpen(true)}
+              />
+            </View>
+            {process.env.EXPO_OS !== 'web' ? (
+              <View className="flex-row" style={{ marginTop: Platform.OS === 'ios' ? 4 : 2 }}>
+                <HeaderIcon icon="head-lightbulb-outline" label="Brain dump" href="/brain-dump" />
+                <HeaderIcon icon="timer-outline" label="Focus timer" href="/pomodoro" />
+              </View>
+            ) : null}
+          </View>
           {/* Background refresh: under the title, clear of the status bar and cutout. */}
           {isFetching && !isLoading && !pulling ? <LoadingBar style={{ marginTop: -4 }} /> : null}
           <TagFilterTabs
@@ -1154,6 +1165,41 @@ export default function TasksScreen() {
         )}
       </View>
     </View>
+  );
+}
+
+/** Quiet icon button in the title row: an M3 standard icon button / a Things toolbar glyph. */
+function HeaderIcon({
+  icon,
+  label,
+  href,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: string;
+  href: '/brain-dump' | '/pomodoro';
+}) {
+  const { colors } = useTheme();
+  const running = usePomodoroStore((s) => href === '/pomodoro' && s.phase !== 'idle');
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.tap();
+        router.push(href);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={running ? `${label}, running` : label}
+      android_ripple={{ color: colors.separator, borderless: true, radius: 22 }}
+      style={({ pressed }) => ({
+        width: 44,
+        height: 44,
+        borderRadius: pressed ? 12 : 22,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: running ? colors.selectionBg : 'transparent',
+        opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
+      })}>
+      <MaterialCommunityIcons name={icon} size={24} color={running ? colors.onSelectionBg : colors.text2} />
+    </Pressable>
   );
 }
 

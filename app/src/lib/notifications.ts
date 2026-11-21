@@ -127,6 +127,40 @@ export async function scheduleOneOffNotification(params: {
   }).catch(() => null);
 }
 
+const DAILY_KEY_PREFIX = 'patchwork.daily.';
+
+/**
+ * Replaces the repeating daily notifications stored under `key` with one per
+ * `HH:MM` in `times`. An empty list (or notifications off) just cancels them.
+ */
+export async function syncDailyNotifications(
+  key: string,
+  times: string[],
+  content: { title: string; body: string; href: string }
+): Promise<void> {
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
+  const storageKey = `${DAILY_KEY_PREFIX}${key}`;
+  const previous = await AsyncStorage.getItem(storageKey).catch(() => null);
+  const ids: string[] = previous ? (JSON.parse(previous) as string[]) : [];
+  await cancelReminders(ids);
+  await AsyncStorage.removeItem(storageKey);
+  if (times.length === 0 || !useSettingsStore.getState().notificationsEnabled) return;
+  if (!(await ensureNotificationPermissions())) return;
+  const next: string[] = [];
+  for (const time of times) {
+    const [hour, minute] = time.split(':').map((part) => Number.parseInt(part, 10));
+    if (!(hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59)) continue;
+    next.push(
+      await Notifications.scheduleNotificationAsync({
+        content: { title: content.title, body: content.body, data: { href: content.href } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute },
+      })
+    );
+  }
+  await AsyncStorage.setItem(storageKey, JSON.stringify(next));
+}
+
 async function cancelReminders(notificationIds: string[]): Promise<void> {
   await Promise.allSettled(notificationIds.map((id) => cancelReminder(id)));
 }
@@ -186,7 +220,7 @@ export async function syncTaskReminders(tasks: Task[]): Promise<void> {
 
 export async function startNotificationResponseObserver(
   onTaskUid: (taskUid: string) => void,
-  onPomodoro?: () => void
+  onHref?: (href: string) => void
 ): Promise<() => void> {
   const Notifications = await getNotifications();
   if (!Notifications) return () => {};
@@ -197,7 +231,10 @@ export async function startNotificationResponseObserver(
     lastResponseId = response.notification.request.identifier;
     const taskUid = response.notification.request.content.data?.taskUid;
     if (typeof taskUid === 'string' && taskUid) onTaskUid(taskUid);
-    else if (response.notification.request.content.data?.href === '/pomodoro') onPomodoro?.();
+    else {
+      const href = response.notification.request.content.data?.href;
+      if (typeof href === 'string' && href.startsWith('/')) onHref?.(href);
+    }
   };
 
   handleResponse(await Notifications.getLastNotificationResponseAsync());
