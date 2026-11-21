@@ -32,6 +32,7 @@ import {
   SPEECH_DB,
   formatRecordingClock,
   meterToLevel,
+  prepareWithTimeout,
 } from '@/lib/voice-recording';
 import { Text, TextInput, View } from '@/tw';
 
@@ -101,7 +102,7 @@ export function VoiceDumpSheet({
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+      await prepareWithTimeout(recorder.prepareToRecordAsync());
       if (cancelled.current) return;
       recorder.record();
       haptics.impact('medium');

@@ -49,10 +49,12 @@ export function TaskActionBar({
   return (
     <>
       {lift.marker}
+      {/* The fade-out lives on a wrapper: the inner view owns opacity for its entrance. */}
       <Animated.View
         exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
         pointerEvents="box-none"
-        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
+        style={{ position: 'absolute', left: 0, right: 0, bottom }}>
+        <Animated.View pointerEvents="box-none" style={[{ alignItems: 'center' }, lift.style]}>
         <BarSurface>
           <ElasticPressable
             variant="control"
@@ -101,6 +103,7 @@ export function TaskActionBar({
             />
           ) : null}
         </BarSurface>
+        </Animated.View>
       </Animated.View>
     </>
   );
@@ -138,10 +141,12 @@ export function SelectionBar({
   return (
     <>
       {lift.marker}
+      {/* The fade-out lives on a wrapper: the inner view owns opacity for its entrance. */}
       <Animated.View
         exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
         pointerEvents="box-none"
-        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
+        style={{ position: 'absolute', left: 0, right: 0, bottom }}>
+        <Animated.View pointerEvents="box-none" style={[{ alignItems: 'center' }, lift.style]}>
         <BarSurface>
           <IconAction icon="close" sf="xmark" label="Cancel selection" color={iconColor} onPress={onCancel} />
           <ElasticPressable
@@ -193,6 +198,7 @@ export function SelectionBar({
             </>
           )}
         </BarSurface>
+        </Animated.View>
       </Animated.View>
     </>
   );
