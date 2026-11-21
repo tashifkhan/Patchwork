@@ -6,7 +6,7 @@ import { router, type ErrorBoundaryProps } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { AppState, Pressable } from 'react-native';
+import { AppState, Platform, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplash } from '@/components/splash/animated-splash';
@@ -20,7 +20,7 @@ import { loadOutbox, useOutboxStore } from '@/lib/outbox';
 import { flushOutbox } from '@/lib/outbox-sync';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient } from '@/lib/query-client';
-import { sheetScreenOptions } from '@/lib/screen-options';
+import { ANDROID_PUSH, sheetScreenOptions } from '@/lib/screen-options';
 import { syncBrainDumpReminders } from '@/stores/brain-dump-store';
 import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -96,7 +96,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <NativeRuntimeCoordinator />
         <ThemeProvider>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack screenOptions={{ headerShown: false, ...(Platform.OS === 'android' ? { animation: ANDROID_PUSH } : null) }}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen
               name="new-task"

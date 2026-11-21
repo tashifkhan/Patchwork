@@ -7,6 +7,7 @@ import { initials, nameColor, type BoardCardItem } from '@/features/boards/model
 import { useTheme } from '@/components/theme/context';
 import { formatRelativeDue } from '@/lib/format';
 import { Text, View } from '@/tw';
+import { ELASTIC_CARD, ElasticView } from '@/components/ui/motion';
 
 /**
  * A card on a board column, laid out like the Jira app: title on top, then a
@@ -30,6 +31,7 @@ export const BoardCard = memo(function BoardCard({
 
   return (
     <View style={{ borderRadius: 18, overflow: 'hidden', backgroundColor: colors.bg, borderCurve: 'continuous' }}>
+      <ElasticView {...ELASTIC_CARD}>
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
@@ -112,6 +114,7 @@ export const BoardCard = memo(function BoardCard({
           ) : null}
         </View>
       </Pressable>
+      </ElasticView>
     </View>
   );
 });

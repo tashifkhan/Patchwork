@@ -14,9 +14,17 @@
  * - `toggle()`     – a state flip that "lands" (checkbox, switch).
  * - `impact()`     – physical events: drag pickup/drop, sheet snap.
  * - `success()` / `warning()` / `error()` – outcome notifications.
+ * - `longPress()` – entering a selection or contextual mode.
+ *
+ * On Android these go through the system's own haptic constants (the
+ * `View.performHapticFeedback` set Paisa uses from Compose: SEGMENT_TICK,
+ * CONTEXT_CLICK, TOGGLE_ON/OFF, CONFIRM, REJECT, LONG_PRESS), so they feel
+ * like the rest of the phone instead of generic vibration pulses. iOS keeps
+ * the UIKit feedback generators.
  */
 
 import * as Haptics from 'expo-haptics';
+import { AndroidHaptics } from 'expo-haptics';
 import { Platform } from 'react-native';
 
 import { useSettingsStore } from '@/stores/settings-store';
@@ -36,14 +44,28 @@ function run(fn: () => Promise<void>): void {
   void fn().catch(() => {});
 }
 
+const ANDROID = Platform.OS === 'android';
+
+function android(type: AndroidHaptics): void {
+  run(() => Haptics.performAndroidHapticsAsync(type));
+}
+
 /** Discrete value change: tab switch, chip select, segmented control, picker. */
 export function selection(): void {
+  if (ANDROID) return android(AndroidHaptics.Segment_Tick);
   run(() => Haptics.selectionAsync());
 }
 
 /** Standard button / row press. */
 export function tap(): void {
+  if (ANDROID) return android(AndroidHaptics.Context_Click);
   run(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+}
+
+/** Entering a selection or contextual mode (long-press). */
+export function longPress(): void {
+  if (ANDROID) return android(AndroidHaptics.Long_Press);
+  run(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 }
 
 /**
@@ -51,6 +73,7 @@ export function tap(): void {
  * Completing is firmer than un-completing so the two read differently.
  */
 export function toggle(on: boolean): void {
+  if (ANDROID) return android(on ? AndroidHaptics.Toggle_On : AndroidHaptics.Toggle_Off);
   run(() =>
     Haptics.impactAsync(
       on ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
@@ -62,6 +85,16 @@ export function toggle(on: boolean): void {
 export function impact(
   style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft' = 'medium'
 ): void {
+  if (ANDROID) {
+    // Heavy is a drag pickup in this app; the rest are presses of rising weight.
+    return android(
+      style === 'heavy'
+        ? AndroidHaptics.Drag_Start
+        : style === 'light' || style === 'soft'
+          ? AndroidHaptics.Clock_Tick
+          : AndroidHaptics.Context_Click
+    );
+  }
   const map = {
     light: Haptics.ImpactFeedbackStyle.Light,
     medium: Haptics.ImpactFeedbackStyle.Medium,
@@ -74,16 +107,19 @@ export function impact(
 
 /** Operation completed successfully (task saved, sync finished). */
 export function success(): void {
+  if (ANDROID) return android(AndroidHaptics.Confirm);
   run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
 }
 
 /** Operation completed with a caveat, or a guard blocked the action. */
 export function warning(): void {
+  if (ANDROID) return android(AndroidHaptics.Reject);
   run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
 }
 
 /** Operation failed. */
 export function error(): void {
+  if (ANDROID) return android(AndroidHaptics.Reject);
   run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
 }
 
@@ -92,6 +128,7 @@ export const haptics = {
   tap,
   toggle,
   impact,
+  longPress,
   success,
   warning,
   error,

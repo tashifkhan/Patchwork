@@ -26,7 +26,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import Animated from 'react-native-reanimated';
+
 import { useTheme } from '@/components/theme/context';
+import { useElasticPress } from '@/components/ui/elastic';
+import { haptics } from '@/lib/haptics';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
@@ -643,7 +647,12 @@ function RowPressable({
   const { colors } = useTheme();
   const { pressed: pressedColor } = useSettingsColors();
   const interactive = Boolean(onPress) && !disabled;
+  // Paisa's elasticCard on Android: the row dips under the finger and springs
+  // back. iOS keeps the Settings-style cell highlight.
+  const press = useElasticPress({ maxStretch: 0.012, maxTranslate: 1, pressedScale: 0.98, releaseOnDrag: true });
+  const elastic = ANDROID && interactive;
   return (
+    <Animated.View {...(elastic ? press.handlers : null)} style={elastic ? press.style : undefined}>
     <Pressable
       onPress={onPress}
       disabled={!interactive}
@@ -671,6 +680,7 @@ function RowPressable({
         </>
       )}
     </Pressable>
+    </Animated.View>
   );
 }
 
@@ -718,13 +728,18 @@ export function SettingsRow({ onPress, disabled, selected, ...layout }: Settings
  */
 export function SettingsToggleRow({
   value,
-  onValueChange,
+  onValueChange: setValue,
   disabled,
   ...layout
 }: Omit<SettingsRowProps, 'onPress' | 'trailing' | 'showChevron' | 'selected' | 'value'> & {
   value: boolean;
   onValueChange: (value: boolean) => void;
 }) {
+  // Paisa's haptics.toggle: on and off feel different.
+  const onValueChange = (next: boolean) => {
+    haptics.toggle(next);
+    setValue(next);
+  };
   const control = ANDROID ? (
     <View pointerEvents="none" importantForAccessibility="no-hide-descendants">
       <Switch value={value} onValueChange={onValueChange} disabled={disabled} />

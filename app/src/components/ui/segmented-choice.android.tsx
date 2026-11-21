@@ -7,6 +7,7 @@ import {
 import { fillMaxWidth } from '@expo/ui/jetpack-compose/modifiers';
 
 import { useTheme } from '@/components/theme/context';
+import { haptics } from '@/lib/haptics';
 import { View } from '@/tw';
 
 
@@ -46,7 +47,10 @@ export function SegmentedChoice<T>({
               <SegmentedButton
                 key={option.label}
                 selected={selected}
-                onClick={() => onChange(option.value)}
+                onClick={() => {
+                  haptics.selection();
+                  onChange(option.value);
+                }}
                 colors={{
                   activeContainerColor: colors.primaryContainer,
                   activeContentColor: colors.onPrimaryContainer,

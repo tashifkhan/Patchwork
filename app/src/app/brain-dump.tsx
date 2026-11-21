@@ -11,7 +11,10 @@ import { ListPicker } from '@/components/tasks/list-picker';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
+import { ElasticPressable, RiseIn, Swap, TurningChevron } from '@/components/ui/motion';
 import { SheetSurface } from '@/components/ui/sheet-surface';
+import { COLLAPSE_OUT, EXPAND_IN, expandLayout, PAISA } from '@/lib/motion';
+import Animated, { ZoomIn } from 'react-native-reanimated';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
 import { flattenTasks } from '@/lib/task-buckets';
@@ -117,7 +120,8 @@ export default function BrainDumpScreen() {
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20, gap: 16, paddingTop: 12 }}>
-        <View style={{ backgroundColor: colors.bg3, borderRadius: 24, borderCurve: 'continuous', padding: 16, gap: 6 }}>
+        <RiseIn>
+        <View style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous', padding: 16, gap: 6 }}>
           <Text className="text-sf-text-2 text-xs font-semibold uppercase" style={{ letterSpacing: 0.8 }}>
             {dayLabel(today)}
           </Text>
@@ -134,6 +138,7 @@ export default function BrainDumpScreen() {
           />
           {text.trim() ? <TextStats text={text} color={colors.text3} /> : null}
         </View>
+        </RiseIn>
 
         <Button
           label={busy ? 'Sorting…' : pending ? 'Sort into to-dos and notes' : entry?.sortedAt ? 'All sorted' : 'Sort into to-dos and notes'}
@@ -148,7 +153,12 @@ export default function BrainDumpScreen() {
         {message ? <Text className="text-sf-text-2 text-sm">{message}</Text> : null}
 
         {entry?.note ? (
-          <NoteCard day={entry} onSave={() => setSaveNoteFor(entry)} />
+          // A fresh sort springs the note in; later sorts swap it in place.
+          <Animated.View entering={ZoomIn.springify().damping(PAISA.rise.damping).stiffness(PAISA.rise.stiffness)} layout={expandLayout()}>
+            <Swap swapKey={entry.sortedAt ?? 0}>
+              <NoteCard day={entry} onSave={() => setSaveNoteFor(entry)} />
+            </Swap>
+          </Animated.View>
         ) : null}
 
         {!remindersOn ? (
@@ -170,10 +180,15 @@ export default function BrainDumpScreen() {
             <Text className="text-sf-text text-lg font-semibold" style={{ paddingTop: 8 }}>
               Earlier
             </Text>
-            {past.map((day) => (
-              <View key={day.day}>
-                <Pressable
-                  onPress={() => setOpenDay((open) => (open === day.day ? null : day.day))}
+            {past.map((day, index) => (
+              <RiseIn key={day.day} index={index}>
+              <Animated.View layout={expandLayout()}>
+                <ElasticPressable
+                  variant="card"
+                  onPress={() => {
+                    haptics.tap();
+                    setOpenDay((open) => (open === day.day ? null : day.day));
+                  }}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: openDay === day.day }}
                   style={{ minHeight: 52, justifyContent: 'center' }}>
@@ -185,22 +200,19 @@ export default function BrainDumpScreen() {
                         {day.taskCount ? ` · ${day.taskCount} to-do${day.taskCount === 1 ? '' : 's'}` : ''}
                       </Text>
                     </View>
-                    <MaterialCommunityIcons
-                      name={openDay === day.day ? 'chevron-up' : 'chevron-down'}
-                      size={20}
-                      color={colors.text3}
-                    />
+                    <TurningChevron expanded={openDay === day.day} color={colors.text3} />
                   </View>
-                </Pressable>
+                </ElasticPressable>
                 {openDay === day.day ? (
-                  <View className="gap-3 pb-3">
+                  <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT} style={{ gap: 12, paddingBottom: 12 }}>
                     {day.note ? <NoteCard day={day} onSave={() => setSaveNoteFor(day)} /> : null}
                     <Text selectable className="text-sf-text-2 text-sm">
                       {day.text}
                     </Text>
-                  </View>
+                  </Animated.View>
                 ) : null}
-              </View>
+              </Animated.View>
+              </RiseIn>
             ))}
           </View>
         ) : null}

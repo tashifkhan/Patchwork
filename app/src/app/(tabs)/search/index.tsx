@@ -29,6 +29,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useTabBarChromeStore } from '@/stores/tab-bar-chrome-store';
 import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
+import { ELASTIC_CONTROL, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 
 const RECENTS_KEY = 'search:recents';
 const MAX_RECENTS = 6;
@@ -623,6 +624,7 @@ function GroupRow({
 }) {
   const { colors } = useTheme();
   return (
+    <ElasticView {...ELASTIC_CONTROL}>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
@@ -670,6 +672,7 @@ function GroupRow({
         ) : null}
       </View>
     </Pressable>
+    </ElasticView>
   );
 }
 
@@ -700,6 +703,7 @@ function ResultRowView({
   const snippet = makeSnippet(row.node.descriptionText, descMatch);
 
   return (
+    <ElasticView {...ELASTIC_ROW}>
     <Pressable
       onPress={() => onPress(row.node)}
       android_ripple={{ color: colors.separator }}
@@ -774,6 +778,7 @@ function ResultRowView({
         <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text3} />
       </View>
     </Pressable>
+    </ElasticView>
   );
 }
 

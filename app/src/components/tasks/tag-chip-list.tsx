@@ -5,6 +5,7 @@ import { Platform, Pressable } from 'react-native';
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
 import { ScrollView, Text, View } from '@/tw';
+import { ELASTIC_CONTROL, ElasticView } from '@/components/ui/motion';
 
 interface TagChipListProps {
   tags: string[];
@@ -70,6 +71,7 @@ export function FilterChip({
   const ink = selected ? colors.onSelectionBg : colors.text2;
 
   return (
+    <ElasticView {...ELASTIC_CONTROL}>
     <Pressable
       onPress={
         onPress
@@ -108,6 +110,7 @@ export function FilterChip({
         <Text style={{ fontSize: 12, color: ink, fontVariant: ['tabular-nums'] }}>{count}</Text>
       ) : null}
     </Pressable>
+    </ElasticView>
   );
 }
 
@@ -158,6 +161,7 @@ function TabPill({
 }) {
   const { colors } = useTheme();
   return (
+    <ElasticView {...ELASTIC_CONTROL}>
     <Pressable
       onPress={() => {
         haptics.selection();
@@ -205,5 +209,6 @@ function TabPill({
         {label}
       </Text>
     </Pressable>
+    </ElasticView>
   );
 }

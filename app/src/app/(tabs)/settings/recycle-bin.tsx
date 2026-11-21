@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { TaskList } from '@/api/types';
 import {
@@ -12,6 +12,8 @@ import { ListPicker } from '@/components/tasks/list-picker';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useRestoreTasks, useTaskLists } from '@/hooks/use-tasks';
 import { emptyRecycleBin, loadRecycleBin, useRecycleBinStore, type BinEntry } from '@/lib/recycle-bin';
+import Animated from 'react-native-reanimated';
+import { COLLAPSE_OUT, listPlacement } from '@/lib/motion';
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
@@ -70,7 +72,8 @@ export default function RecycleBinScreen() {
           <SettingsRow icon="trash-can-outline" title="Nothing here" subtitle="Deleted to-dos show up here" />
         ) : (
           entries.map((entry, index) => (
-            <Fragment key={entry.id}>
+            // Restored rows leave and the rest close the gap, on Paisa's list spring.
+            <Animated.View key={entry.id} layout={listPlacement()} exiting={COLLAPSE_OUT}>
               {index > 0 ? <RowSeparator /> : null}
               <SettingsRow
                 icon={entry.task.completed ? 'check-circle-outline' : 'restore'}
@@ -79,7 +82,7 @@ export default function RecycleBinScreen() {
                 disabled={restore.isPending}
                 onPress={() => void putBack([entry])}
               />
-            </Fragment>
+            </Animated.View>
           ))
         )}
       </SettingsGroup>

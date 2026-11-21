@@ -7,7 +7,12 @@ import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+
+import { ElasticPressable, RiseIn, Swap, useSpringValue } from '@/components/ui/motion';
+import { RollingClock } from '@/components/ui/rolling-clock';
 import { SheetSurface } from '@/components/ui/sheet-surface';
+import { COLLAPSE_OUT, EXPAND_IN, listPlacement } from '@/lib/motion';
 import { TimerProgress } from '@/components/ui/timer-progress';
 import { haptics } from '@/lib/haptics';
 import {
@@ -109,16 +114,17 @@ export default function PomodoroScreen() {
         ) : null}
 
         <View className="items-center gap-2" style={{ paddingTop: running ? 16 : 0 }}>
-          <Text className="text-sm font-semibold uppercase" style={{ letterSpacing: 1.2, color: tint }}>
-            {label}
-            {paused ? ' · Paused' : ''}
-          </Text>
-          <Text
-            accessibilityRole="timer"
-            className="text-sf-text"
-            style={{ fontSize: 72, fontWeight: '200', fontVariant: ['tabular-nums'] }}>
-            {formatClock(display)}
-          </Text>
+          <Swap swapKey={`${label}${paused}`}>
+            <Text className="text-sm font-semibold uppercase" style={{ letterSpacing: 1.2, color: tint }}>
+              {label}
+              {paused ? ' · Paused' : ''}
+            </Text>
+          </Swap>
+          <RollingClock
+            text={formatClock(display)}
+            countDown={state.phase !== 'stopwatch'}
+            style={{ fontSize: 72, fontWeight: '200', color: colors.text }}
+          />
           {mode === 'pomodoro' ? (
             <TimerProgress progress={progress} color={tint} trackColor={colors.primaryContainer} />
           ) : state.phase === 'stopwatch' && !paused && Platform.OS === 'android' ? (
@@ -127,7 +133,7 @@ export default function PomodoroScreen() {
           ) : null}
         </View>
 
-        <View className="gap-3">
+        <Swap swapKey={running ? 'running' : 'idle'} style={{ gap: 12 }}>
           {!running ? (
             <Button
               label={mode === 'stopwatch' ? 'Start stopwatch' : `Start ${workMinutes} minute focus`}
@@ -174,8 +180,9 @@ export default function PomodoroScreen() {
               </View>
             </>
           )}
-        </View>
+        </Swap>
 
+        <RiseIn index={1}>
         <View className="gap-3 p-4" style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous' }}>
           <View className="flex-row justify-between">
             <Stat label="Today" value={formatMinutes(today.minutes)} detail={`${today.sessions} pomodoros`} />
@@ -189,14 +196,10 @@ export default function PomodoroScreen() {
           <View className="flex-row items-end justify-between" style={{ height: 72, paddingTop: 8 }}>
             {week.map((day) => (
               <View key={day.key} className="items-center gap-1" style={{ flex: 1 }}>
-                <View
-                  accessibilityLabel={`${day.date.toDateString()}: ${formatMinutes(day.minutes)}`}
-                  style={{
-                    width: 18,
-                    height: Math.max(4, (day.minutes / best) * 48),
-                    borderRadius: 6,
-                    backgroundColor: day.minutes ? colors.accent : colors.gray2,
-                  }}
+                <Bar
+                  label={`${day.date.toDateString()}: ${formatMinutes(day.minutes)}`}
+                  height={Math.max(4, (day.minutes / best) * 48)}
+                  color={day.minutes ? colors.accent : colors.gray2}
                 />
                 <Text className="text-sf-text-3" style={{ fontSize: 11 }}>
                   {weekday.format(day.date)}
@@ -206,15 +209,18 @@ export default function PomodoroScreen() {
           </View>
         </View>
 
-        <View className="gap-1">
+        </RiseIn>
+
+        <RiseIn index={2} style={{ gap: 4 }}>
           <View className="flex-row items-center justify-between">
             <Text className="text-sf-text text-lg font-semibold">Today&apos;s log</Text>
             <View className="flex-row gap-2">
               {MANUAL.map((minutes) => (
-                <Pressable
+                <ElasticPressable
+                  variant="control"
                   key={minutes}
                   onPress={() => {
-                    haptics.selection();
+                    haptics.success();
                     state.logManual(minutes, task);
                   }}
                   accessibilityRole="button"
@@ -227,7 +233,7 @@ export default function PomodoroScreen() {
                     opacity: pressed ? 0.6 : 1,
                   })}>
                   <Text style={{ fontSize: 13, color: colors.text }}>+{formatMinutes(minutes)}</Text>
-                </Pressable>
+                </ElasticPressable>
               ))}
             </View>
           </View>
@@ -237,9 +243,12 @@ export default function PomodoroScreen() {
             </Text>
           ) : (
             todaySessions.map((session) => (
+              <Animated.View key={session.id} layout={listPlacement()} entering={EXPAND_IN} exiting={COLLAPSE_OUT}>
               <Pressable
-                key={session.id}
-                onLongPress={() => setRemoving(session)}
+                onLongPress={() => {
+                  haptics.longPress();
+                  setRemoving(session);
+                }}
                 accessibilityHint="Long-press to remove"
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48 }}>
                 <MaterialCommunityIcons
@@ -259,9 +268,10 @@ export default function PomodoroScreen() {
                   {formatMinutes(session.minutes)}
                 </Text>
               </Pressable>
+              </Animated.View>
             ))
           )}
-        </View>
+        </RiseIn>
 
         <Text className="text-sf-text-3 text-center text-xs">
           The running timer shows on your lock screen and status bar. Change pomodoro lengths in Settings.
@@ -281,6 +291,18 @@ export default function PomodoroScreen() {
         }}
       />
     </SheetSurface>
+  );
+}
+
+/** A day's bar in the week chart; grows to its height with Paisa's expand spring. */
+function Bar({ label, height, color }: { label: string; height: number; color: string }) {
+  const h = useSpringValue(height, 'expand');
+  const style = useAnimatedStyle(() => ({ height: h.get() }));
+  return (
+    <Animated.View
+      accessibilityLabel={label}
+      style={[{ width: 18, borderRadius: 6, backgroundColor: color }, style]}
+    />
   );
 }
 
