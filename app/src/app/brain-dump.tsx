@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Keyboard, Pressable } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Keyboard, Pressable, type TextInput as RNTextInput } from 'react-native';
 
 import { sortBrainDump } from '@/api/ai';
 import { ApiError } from '@/api/client';
@@ -9,12 +9,11 @@ import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { TextStats } from '@/components/tasks/markdown-notes';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { useTheme } from '@/components/theme/context';
-import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { ElasticPressable, RiseIn, Swap, TurningChevron } from '@/components/ui/motion';
+import { ElasticPressable, RiseIn, Swap, TurningChevron, useSpringValue } from '@/components/ui/motion';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, expandLayout, PAISA } from '@/lib/motion';
-import Animated, { ZoomIn } from 'react-native-reanimated';
+import Animated, { SlideInDown, SlideOutDown, useAnimatedStyle, ZoomIn } from 'react-native-reanimated';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
 import { flattenTasks } from '@/lib/task-buckets';
@@ -63,6 +62,8 @@ export default function BrainDumpScreen() {
   const [saveNoteFor, setSaveNoteFor] = useState<DumpDay | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [openDay, setOpenDay] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const input = useRef<RNTextInput>(null);
 
   const past = useMemo(
     () =>
@@ -111,6 +112,17 @@ export default function BrainDumpScreen() {
     }
   }
 
+  const thoughts = pending ? pending.split('\n').filter((line) => line.trim()).length : 0;
+  const shortDate = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date());
+
+  /** Starts a new line with a prompt word and puts the cursor after it. */
+  function startLine(prompt: string) {
+    haptics.selection();
+    const next = text.trim() ? `${text.replace(/\s+$/, '')}\n${prompt}: ` : `${prompt}: `;
+    setText(today, next);
+    requestAnimationFrame(() => input.current?.focus());
+  }
+
   return (
     <SheetSurface title="Brain dump" subtitle="Everything on your mind. Sort it when you're done.">
       <Stack.Screen options={{ title: 'Brain dump' }} />
@@ -119,38 +131,63 @@ export default function BrainDumpScreen() {
         style={{ backgroundColor: 'transparent' }}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20, gap: 16, paddingTop: 12 }}>
+        contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 20, gap: 16, paddingTop: 8 }}>
+        {/* Where you are: the day, and how much is waiting to be sorted. */}
         <RiseIn>
-        <View style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous', padding: 16, gap: 6 }}>
-          <Text className="text-sf-text-2 text-xs font-semibold uppercase" style={{ letterSpacing: 0.8 }}>
-            {dayLabel(today)}
-          </Text>
-          <TextInput
-            value={text}
-            onChangeText={(next) => setText(today, next)}
-            multiline
-            placeholder={'call the landlord about the leak\nidea: weekly review on sundays?\nbuy a birthday gift for sam before friday\nfeeling behind on the report…'}
-            placeholderTextColor={colors.text3}
-            textAlignVertical="top"
-            accessibilityLabel="Brain dump for today"
-            className="text-sf-text"
-            style={{ fontSize: 17, lineHeight: 24, minHeight: 180, paddingVertical: 4 }}
-          />
-          {text.trim() ? <TextStats text={text} color={colors.text3} /> : null}
-        </View>
+          <View className="flex-row items-center" style={{ gap: 8 }}>
+            <InfoChip icon="calendar-today" label={shortDate} />
+            {thoughts ? (
+              <Animated.View entering={ZoomIn.springify().damping(PAISA.arrow.damping).stiffness(PAISA.arrow.stiffness)}>
+                <InfoChip icon="lightbulb-on-outline" label={`${thoughts} to sort`} tone="accent" />
+              </Animated.View>
+            ) : entry?.sortedAt ? (
+              <InfoChip icon="check-all" label="All sorted" />
+            ) : null}
+          </View>
         </RiseIn>
 
-        <Button
-          label={busy ? 'Sorting…' : pending ? 'Sort into to-dos and notes' : entry?.sortedAt ? 'All sorted' : 'Sort into to-dos and notes'}
-          icon="creation"
-          loading={busy}
-          disabled={!pending || busy}
-          onPress={() => void sort()}
-        />
-        {entry?.sortedAt && pending ? (
-          <Text className="text-sf-text-3 text-xs">Only what you added since the last sort goes to the AI.</Text>
+        <RiseIn index={1}>
+          <DumpCard focused={focused}>
+            <TextInput
+              ref={input}
+              value={text}
+              onChangeText={(next) => setText(today, next)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              multiline
+              placeholder="What's on your mind?"
+              placeholderTextColor={colors.text3}
+              textAlignVertical="top"
+              accessibilityLabel="Brain dump for today"
+              className="text-sf-text"
+              style={{ fontSize: 18, lineHeight: 26, minHeight: text.trim() ? 160 : 72, paddingVertical: 4 }}
+            />
+            {text.trim() ? (
+              <View className="flex-row items-center justify-between">
+                <TextStats text={text} color={colors.text3} />
+                {entry?.sortedAt && pending ? (
+                  <Text style={{ fontSize: 12, color: colors.text3 }}>Only new lines get sorted</Text>
+                ) : null}
+              </View>
+            ) : (
+              // M3 suggestion chips: a nudge for an empty page.
+              <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT} style={{ gap: 8 }}>
+                <Text style={{ fontSize: 13, color: colors.text2 }}>Start with</Text>
+                <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                  {PROMPTS.map((prompt) => (
+                    <SuggestionChip key={prompt.label} icon={prompt.icon} label={prompt.label} onPress={() => startLine(prompt.label)} />
+                  ))}
+                </View>
+              </Animated.View>
+            )}
+          </DumpCard>
+        </RiseIn>
+
+        {message ? (
+          <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT}>
+            <Text style={{ fontSize: 14, color: colors.text2, paddingHorizontal: 4 }}>{message}</Text>
+          </Animated.View>
         ) : null}
-        {message ? <Text className="text-sf-text-2 text-sm">{message}</Text> : null}
 
         {entry?.note ? (
           // A fresh sort springs the note in; later sorts swap it in place.
@@ -162,61 +199,103 @@ export default function BrainDumpScreen() {
         ) : null}
 
         {!remindersOn ? (
-          <Pressable
-            onPress={() => router.push('/settings/productivity')}
-            accessibilityRole="button"
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-            <View className="flex-row items-center gap-3" style={{ minHeight: 48 }}>
-              <MaterialCommunityIcons name="bell-plus-outline" size={20} color={colors.accent} />
-              <Text style={{ color: colors.accent, fontSize: 15, fontWeight: '600', flex: 1 }}>
-                Remind me to brain dump each morning and night
-              </Text>
-            </View>
-          </Pressable>
+          <RiseIn index={2}>
+            <ElasticPressable
+              variant="card"
+              radius={20}
+              onPress={() => router.push('/settings/productivity')}
+              accessibilityRole="button"
+              style={{ borderRadius: 20, backgroundColor: colors.bg3, padding: 16, overflow: 'hidden' }}>
+              <View className="flex-row items-center" style={{ gap: 16 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.selectionBg, alignItems: 'center', justifyContent: 'center' }}>
+                  <MaterialCommunityIcons name="bell-ring-outline" size={22} color={colors.onSelectionBg} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>Make it a habit</Text>
+                  <Text style={{ fontSize: 14, color: colors.text2 }}>A nudge each morning and night</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={colors.text3} />
+              </View>
+            </ElasticPressable>
+          </RiseIn>
         ) : null}
 
         {past.length > 0 ? (
-          <View className="gap-1">
-            <Text className="text-sf-text text-lg font-semibold" style={{ paddingTop: 8 }}>
-              Earlier
-            </Text>
-            {past.map((day, index) => (
-              <RiseIn key={day.day} index={index}>
-              <Animated.View layout={expandLayout()}>
-                <ElasticPressable
-                  variant="card"
-                  onPress={() => {
-                    haptics.tap();
-                    setOpenDay((open) => (open === day.day ? null : day.day));
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: openDay === day.day }}
-                  style={{ minHeight: 52, justifyContent: 'center' }}>
-                  <View className="flex-row items-center gap-3">
-                    <View style={{ flex: 1 }}>
-                      <Text className="text-sf-text text-base">{dayLabel(day.day)}</Text>
-                      <Text className="text-sf-text-3 text-xs" numberOfLines={1}>
-                        {day.note?.title ?? day.text.split('\n')[0]}
-                        {day.taskCount ? ` · ${day.taskCount} to-do${day.taskCount === 1 ? '' : 's'}` : ''}
-                      </Text>
-                    </View>
-                    <TurningChevron expanded={openDay === day.day} color={colors.text3} />
-                  </View>
-                </ElasticPressable>
-                {openDay === day.day ? (
-                  <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT} style={{ gap: 12, paddingBottom: 12 }}>
-                    {day.note ? <NoteCard day={day} onSave={() => setSaveNoteFor(day)} /> : null}
-                    <Text selectable className="text-sf-text-2 text-sm">
-                      {day.text}
-                    </Text>
-                  </Animated.View>
-                ) : null}
-              </Animated.View>
-              </RiseIn>
-            ))}
+          <View style={{ gap: 8, paddingTop: 8 }}>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.accent, paddingHorizontal: 4 }}>Earlier</Text>
+            <View style={{ gap: 2 }}>
+              {past.map((day, index) => {
+                const top = index === 0 ? 20 : 4;
+                const bottom = index === past.length - 1 ? 20 : 4;
+                const [, mo, d] = day.day.split('-').map(Number);
+                return (
+                  <RiseIn key={day.day} index={index} fromScale={0.98} rise={8}>
+                    <Animated.View
+                      layout={expandLayout()}
+                      style={{
+                        backgroundColor: colors.bg3,
+                        borderTopLeftRadius: top,
+                        borderTopRightRadius: top,
+                        borderBottomLeftRadius: bottom,
+                        borderBottomRightRadius: bottom,
+                        overflow: 'hidden',
+                      }}>
+                      <ElasticPressable
+                        variant="card"
+                        radius={top}
+                        onPress={() => {
+                          haptics.tap();
+                          setOpenDay((open) => (open === day.day ? null : day.day));
+                        }}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: openDay === day.day }}
+                        style={{ minHeight: 64, justifyContent: 'center', paddingHorizontal: 16 }}>
+                        <View className="flex-row items-center" style={{ gap: 16 }}>
+                          {/* Date tile, like a calendar leaf. */}
+                          <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.selectionBg, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 15, fontWeight: '700', color: colors.onSelectionBg, lineHeight: 17 }}>{d}</Text>
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: colors.onSelectionBg, lineHeight: 12 }}>
+                              {new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(2024, mo - 1, 1)).toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1, gap: 2 }}>
+                            <Text numberOfLines={1} style={{ fontSize: 16, color: colors.text }}>
+                              {day.note?.title ?? day.text.split('\n')[0]}
+                            </Text>
+                            <Text style={{ fontSize: 14, color: colors.text2 }}>
+                              {dayLabel(day.day)}
+                              {day.taskCount ? ` · ${day.taskCount} to-do${day.taskCount === 1 ? '' : 's'}` : ''}
+                            </Text>
+                          </View>
+                          <TurningChevron expanded={openDay === day.day} color={colors.text3} />
+                        </View>
+                      </ElasticPressable>
+                      {openDay === day.day ? (
+                        <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT} style={{ gap: 12, padding: 16, paddingTop: 0 }}>
+                          {day.note ? <NoteCard day={day} onSave={() => setSaveNoteFor(day)} /> : null}
+                          <Text selectable style={{ fontSize: 14, lineHeight: 20, color: colors.text2 }}>
+                            {day.text}
+                          </Text>
+                        </Animated.View>
+                      ) : null}
+                    </Animated.View>
+                  </RiseIn>
+                );
+              })}
+            </View>
           </View>
         ) : null}
       </ScrollView>
+
+      {/* The one action, pinned: it rises in only when there's something new to sort. */}
+      {pending || busy ? (
+        <Animated.View
+          entering={SlideInDown.springify().damping(PAISA.rise.damping).stiffness(PAISA.rise.stiffness)}
+          exiting={SlideOutDown.duration(160)}
+          style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 }}>
+          <SortButton busy={busy} count={thoughts} onPress={() => void sort()} />
+        </Animated.View>
+      ) : null}
 
       <ListPicker
         visible={saveNoteFor != null}
@@ -274,4 +353,134 @@ function mergeNotes(
   if (!previous) return next;
   if (!next) return previous;
   return { title: previous.title, markdown: `${previous.markdown}\n\n${next.markdown}` };
+}
+
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+const PROMPTS: { label: string; icon: IconName }[] = [
+  { label: 'Errands', icon: 'cart-outline' },
+  { label: 'Work', icon: 'briefcase-outline' },
+  { label: 'Ideas', icon: 'lightbulb-outline' },
+  { label: 'Follow-ups', icon: 'account-arrow-right-outline' },
+  { label: 'On my mind', icon: 'head-heart-outline' },
+];
+
+/** The writing surface: lights up with a 2dp accent outline while focused, on a spring. */
+function DumpCard({ focused, children }: { focused: boolean; children: React.ReactNode }) {
+  const { colors } = useTheme();
+  const on = useSpringValue(focused ? 1 : 0, 'expand');
+  const ring = useAnimatedStyle(() => ({
+    borderColor: withAlphaWorklet(colors.accent, on.get()),
+  }));
+  return (
+    <Animated.View
+      style={[
+        { backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous', borderWidth: 2, padding: 18, gap: 12 },
+        ring,
+      ]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Fades a #RRGGBB colour on the UI thread (Reanimated can't call the JS helper). */
+function withAlphaWorklet(color: string, alpha: number) {
+  'worklet';
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(color);
+  if (!m) return alpha > 0.5 ? color : 'transparent';
+  return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+/** M3 assist chip for status: 32dp, 8dp corners, leading icon. */
+function InfoChip({ icon, label, tone = 'neutral' }: { icon: IconName; label: string; tone?: 'neutral' | 'accent' }) {
+  const { colors } = useTheme();
+  const accent = tone === 'accent';
+  return (
+    <View
+      className="flex-row items-center"
+      style={{
+        height: 32,
+        paddingLeft: 8,
+        paddingRight: 12,
+        gap: 6,
+        borderRadius: 8,
+        backgroundColor: accent ? colors.selectionBg : 'transparent',
+        borderWidth: accent ? 0 : 1,
+        borderColor: colors.gray2,
+      }}>
+      <MaterialCommunityIcons name={icon} size={18} color={accent ? colors.onSelectionBg : colors.accent} />
+      <Text style={{ fontSize: 14, fontWeight: '500', color: accent ? colors.onSelectionBg : colors.text }}>{label}</Text>
+    </View>
+  );
+}
+
+/** M3 suggestion chip: outlined, 8dp corners that round out under the finger. */
+function SuggestionChip({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <ElasticPressable
+      variant="control"
+      radius={8}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Start a line about ${label}`}
+      style={({ pressed }) => ({
+        height: 32,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingLeft: 8,
+        paddingRight: 12,
+        borderRadius: pressed ? 16 : 8,
+        borderWidth: 1,
+        borderColor: colors.gray2,
+        overflow: 'hidden',
+      })}>
+      <MaterialCommunityIcons name={icon} size={18} color={colors.accent} />
+      <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text }}>{label}</Text>
+    </ElasticPressable>
+  );
+}
+
+/**
+ * M3 Expressive large filled button (56dp, full round, squaring off while
+ * held). The label counts what will be sorted; while sorting it swaps for a
+ * progress label.
+ */
+function SortButton({ busy, count, onPress }: { busy: boolean; count: number; onPress: () => void }) {
+  const { colors } = useTheme();
+  const [dots, setDots] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => setDots((d) => (d + 1) % 4), 350);
+    return () => clearInterval(timer);
+  }, [busy]);
+  return (
+    <ElasticPressable
+      variant="control"
+      radius={28}
+      glow="rgba(255,255,255,0.22)"
+      disabled={busy}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={busy ? 'Sorting' : `Sort ${count} thought${count === 1 ? '' : 's'} into to-dos and notes`}
+      style={({ pressed }) => ({
+        height: 56,
+        borderRadius: pressed ? 16 : 28,
+        backgroundColor: colors.accent,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        overflow: 'hidden',
+        opacity: busy ? 0.85 : 1,
+      })}>
+      <MaterialCommunityIcons name="creation" size={22} color={colors.onAccent} />
+      <Swap swapKey={busy ? 'busy' : 'idle'}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: colors.onAccent }}>
+          {busy ? `Sorting${'.'.repeat(dots)}` : count ? `Sort ${count} thought${count === 1 ? '' : 's'}` : 'Sort'}
+        </Text>
+      </Swap>
+    </ElasticPressable>
+  );
 }
