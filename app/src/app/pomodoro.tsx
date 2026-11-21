@@ -252,13 +252,20 @@ export default function PomodoroScreen() {
                 accessibilityHint="Long-press to remove"
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48 }}>
                 <MaterialCommunityIcons
-                  name={session.kind === 'pomodoro' ? 'timer-outline' : 'timer-play-outline'}
+                  name={
+                    session.kind === 'pomodoro'
+                      ? 'timer-outline'
+                      : session.kind === 'manual'
+                        ? 'clock-plus-outline'
+                        : 'timer-play-outline'
+                  }
                   size={20}
                   color={colors.text2}
                 />
                 <View style={{ flex: 1 }}>
                   <Text className="text-sf-text text-base" numberOfLines={1}>
-                    {session.title ?? (session.kind === 'pomodoro' ? 'Pomodoro' : 'Stopwatch')}
+                    {session.title ??
+                      (session.kind === 'pomodoro' ? 'Pomodoro' : session.kind === 'manual' ? 'Added by hand' : 'Stopwatch')}
                   </Text>
                   <Text className="text-sf-text-3 text-xs">
                     {time.format(new Date(session.start))} – {time.format(new Date(session.end))}
@@ -309,7 +316,10 @@ function Bar({ label, height, color }: { label: string; height: number; color: s
 function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <View className="items-center" style={{ flex: 1 }}>
-      <Text className="text-sf-text-2 text-xs">{label}</Text>
+      {/* Android clipped "This week" to "This" without an explicit single line. */}
+      <Text className="text-sf-text-2" numberOfLines={1} style={{ fontSize: 12 }}>
+        {label}
+      </Text>
       <Text className="text-sf-text" style={{ fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'] }}>
         {value}
       </Text>

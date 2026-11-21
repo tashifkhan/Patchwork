@@ -4,9 +4,11 @@ import { useMemo } from 'react';
 
 import { Text, View } from '@/tw';
 
-// UTF-8, so titles with accents or emoji scan back unchanged.
-// eslint-disable-next-line import/no-named-as-default-member -- the factory's own encoder switch
-qrcodeFactory.stringToBytes = qrcodeFactory.stringToBytesFuncs['UTF-8'];
+// UTF-8, so titles with accents or emoji scan back unchanged. Set directly:
+// Metro loads the package's ESM build, which has no `stringToBytesFuncs`,
+// but both builds read `stringToBytes` when encoding.
+// eslint-disable-next-line import/no-named-as-default-member -- the factory's own encoder hook
+qrcodeFactory.stringToBytes = (text: string) => Array.from(new TextEncoder().encode(text));
 
 /** About what a phone camera still reads reliably at error level L. */
 export const QR_MAX_BYTES = 2_300;

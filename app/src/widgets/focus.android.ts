@@ -4,7 +4,7 @@ import { hideTimerNotification, showTimerNotification } from '../../modules/patc
 
 import type { LiveTimer } from './live-timer';
 
-const LABEL = { focus: 'Focus', break: 'Break', stopwatch: 'Tracking time' } as const;
+const LABEL = { focus: 'Focus block', break: 'Break', stopwatch: 'Tracking time' } as const;
 
 export async function showLiveTimer(timer: LiveTimer) {
   showTimerNotification({

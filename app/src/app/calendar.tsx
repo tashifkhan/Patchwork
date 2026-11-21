@@ -149,7 +149,8 @@ export default function CalendarScreen() {
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 48, maxWidth: 640, width: '100%', alignSelf: 'center' }}>
-      <Stack.Screen options={{ title: monthTitle.format(month) }} />
+      {/* The month is named on the page, under the arrows; the bar just says where you are. */}
+      <Stack.Screen options={{ title: 'Calendar' }} />
       <View className="flex-row items-center justify-between" style={{ paddingVertical: 8 }}>
         <IconButton icon="chevron-left" label="Previous month" onPress={() => shift(-1)} />
         <Pressable
