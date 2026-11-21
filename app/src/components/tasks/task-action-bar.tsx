@@ -1,14 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Platform, useWindowDimensions, type View as RNView } from 'react-native';
 import Animated, {
   FadeOut,
-  SlideInDown,
   useAnimatedKeyboard,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -50,10 +50,9 @@ export function TaskActionBar({
     <>
       {lift.marker}
       <Animated.View
-        entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
         exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
         pointerEvents="box-none"
-        style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
+        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
         <BarSurface>
           <ElasticPressable
             variant="control"
@@ -140,10 +139,9 @@ export function SelectionBar({
     <>
       {lift.marker}
       <Animated.View
-        entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
         exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
         pointerEvents="box-none"
-        style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
+        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
         <BarSurface>
           <IconAction icon="close" sf="xmark" label="Cancel selection" color={iconColor} onPress={onCancel} />
           <ElasticPressable
@@ -281,12 +279,22 @@ function IconAction({
 /** Gap kept between the bar and the top of the keyboard. */
 const KEYBOARD_GAP = 10;
 
+/** How far the bar rises, and how small it starts, as it appears. */
+const ENTER_RISE = 24;
+const ENTER_SCALE = 0.92;
+
 /**
- * Bottom offset that rides above the keyboard, frame by frame with it.
+ * Position and entrance for a bar pinned above the keyboard.
  *
  * Neither platform shrinks the screen for the keyboard any more: iOS overlays
  * it, and Android draws edge-to-edge (API 35+), so `adjustResize` no longer
- * resizes the window. A bar pinned to the bottom would sit behind the keys.
+ * resizes the window. A bar pinned to the bottom would sit behind the keys,
+ * so it rides the keyboard frame by frame.
+ *
+ * Both the lift and the entrance are transforms in one animated style. A
+ * layout `entering` animation used to own the view while the keyboard opened,
+ * so the bar slid in behind the keys and only jumped above them once its
+ * spring settled. Transforms also skip a layout pass per keyboard frame.
  *
  * The keyboard height counts from the bottom of the window, but the screen
  * this bar sits in can end higher up, above Android's bottom navigation bar.
@@ -299,9 +307,14 @@ function useKeyboardLift(bottom: number) {
   const anchor = useRef<RNView>(null);
   const { height: windowHeight } = useWindowDimensions();
   const belowScreen = useSharedValue(0);
+  const enter = useSharedValue(0);
   // Reanimated's Android height starts above the gesture/nav bar; add it back
   // so both platforms count from the window's bottom edge.
   const navBar = Platform.OS === 'android' ? insets.bottom : 0;
+
+  useEffect(() => {
+    enter.set(withSpring(1, SPRING.spatial));
+  }, [enter]);
 
   const measure = useCallback(() => {
     anchor.current?.measureInWindow((_x, y) => {
@@ -309,12 +322,15 @@ function useKeyboardLift(bottom: number) {
     });
   }, [belowScreen, windowHeight]);
 
-  const style = useAnimatedStyle(() => ({
-    bottom:
-      keyboard.height.value > 0
-        ? Math.max(bottom, keyboard.height.value + navBar - belowScreen.value + KEYBOARD_GAP)
-        : bottom,
-  }));
+  const style = useAnimatedStyle(() => {
+    const kb = keyboard.height.value;
+    const lift = kb > 0 ? Math.max(0, kb + navBar - belowScreen.value + KEYBOARD_GAP - bottom) : 0;
+    const e = enter.get();
+    return {
+      opacity: Math.min(1, e * 1.6),
+      transform: [{ translateY: -lift + (1 - e) * ENTER_RISE }, { scale: ENTER_SCALE + (1 - ENTER_SCALE) * e }],
+    };
+  });
 
   // A zero-height marker on the screen's bottom edge, for the measurement.
   const marker = (
