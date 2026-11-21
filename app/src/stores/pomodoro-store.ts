@@ -9,7 +9,7 @@ import { endLiveTimer, showLiveTimer } from '@/widgets/focus';
 /**
  * The focus timer, in two modes:
  *
- * - Pomodoro (Karui): a work block then a break, with a notification at the
+ * - Pomodoro: a work block then a break, with a notification at the
  *   end of each so it works with the app closed.
  * - Stopwatch (TickTick): counts up until you stop it, then logs the time.
  *
@@ -64,6 +64,8 @@ interface TimerState {
   skip: () => Promise<void>;
   /** Stop and reset. A stopwatch run is logged; a half-done pomodoro block isn't. */
   stop: () => Promise<void>;
+  /** Stop without logging anything. */
+  discard: () => Promise<void>;
   /** Advance past countdown phases that ended while the app wasn't looking. */
   settle: (now?: number) => Promise<void>;
   /** Add time by hand, e.g. work done away from the phone. */
@@ -71,6 +73,11 @@ interface TimerState {
   removeSession: (id: string) => void;
   /** Re-show the lock screen / status bar timer, e.g. after a relaunch. */
   refreshLive: () => void;
+  /**
+   * Points the idle timer at a to-do (or none), so the next pomodoro or
+   * stopwatch logs against it. Ignored while a timer runs.
+   */
+  selectTask: (task: { uid: string; title: string } | null) => void;
 }
 
 export function dayKey(date: Date) {
@@ -265,6 +272,7 @@ export const usePomodoroStore = create<TimerState>()(
 
         stop: async () => {
           const s = get();
+          const keep = { taskUid: s.taskUid, taskTitle: s.taskTitle };
           if (s.phase === 'stopwatch') {
             const elapsed = s.pausedElapsed ?? (s.startedAt != null ? Date.now() - s.startedAt : 0);
             const start = s.runStart ?? Date.now() - elapsed;
@@ -273,7 +281,15 @@ export const usePomodoroStore = create<TimerState>()(
               log({ kind: 'stopwatch', start, end: Date.now(), minutes: elapsed / 60_000, taskUid: s.taskUid, title: s.taskTitle });
             }
           }
-          set({ ...IDLE });
+          // The to-do stays picked, so the next session logs against it too.
+          set({ ...IDLE, ...keep });
+          syncLive();
+          await cancelReminder(s.notificationId).catch(() => {});
+        },
+
+        discard: async () => {
+          const s = get();
+          set({ ...IDLE, taskUid: s.taskUid, taskTitle: s.taskTitle });
           syncLive();
           await cancelReminder(s.notificationId).catch(() => {});
         },
@@ -298,7 +314,7 @@ export const usePomodoroStore = create<TimerState>()(
               return;
             }
           }
-          set({ ...IDLE });
+          set({ ...IDLE, taskUid, taskTitle });
           syncLive();
         },
 
@@ -307,6 +323,11 @@ export const usePomodoroStore = create<TimerState>()(
         },
 
         refreshLive: () => syncLive(),
+
+        selectTask: (t) => {
+          if (get().phase !== 'idle') return;
+          set(task(t));
+        },
 
         removeSession: (id) => {
           const session = get().sessions.find((entry) => entry.id === id);

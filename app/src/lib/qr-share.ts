@@ -5,18 +5,23 @@ import { flattenTasks } from '@/lib/task-buckets';
 import type { TextTask } from '@/lib/task-text';
 
 /**
- * Karui's QR format, so the two apps can scan each other's codes.
+ * The QR format for sharing a list between phones.
  *
- * A tab is JSON: `{ v: 1, t: "Tab", m: null, n: [{ i, x, c, u, p?, s?, r?, tm? }] }`
+ * A list is JSON: `{ v: 1, t: "Tab", m: null, n: [{ i, x, c, u, p?, s?, r?, tm? }] }`
  * where `x` is the note text, `c` done, `p` pinned, `s` a `YYYY-MM-DD` date,
  * `r` a repeat token (`1d`, `wmo`…) and `tm` an `HH:MM` time. Anything over
- * 1250 bytes is split into frames: `KARUI1/<id>/<seq>/<total>/<chunk>`.
+ * 1250 bytes is split into frames: `<prefix>/<id>/<seq>/<total>/<chunk>`.
  */
 
-const PREFIX = 'KARUI1';
+/**
+ * Marks a frame of a multi-code list. The value is part of the format that
+ * other apps already read and write, so it can't change.
+ */
+export const FRAME_PREFIX = 'KARUI1';
+const PREFIX = FRAME_PREFIX;
 const MAX_CHUNK_BYTES = 1250;
 
-interface KaruiNote {
+interface SharedNote {
   i: number;
   x: string;
   c: 0 | 1;
@@ -27,25 +32,25 @@ interface KaruiNote {
   tm?: string;
 }
 
-export interface KaruiPayload {
+export interface SharePayload {
   v: 1;
   t: string;
   m: null;
-  n: KaruiNote[];
+  n: SharedNote[];
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** A list as a Karui tab. Checklist items become their own notes, indented with "  - ". */
-export function buildKaruiPayload(name: string, tasks: Task[]): string {
+/** A list as a share payload. Checklist items become their own notes, indented with "  - ". */
+export function buildSharePayload(name: string, tasks: Task[]): string {
   const now = Date.now();
-  const notes: KaruiNote[] = [];
+  const notes: SharedNote[] = [];
   let id = now;
   const add = (task: Task, depth: number) => {
     const text = [depth ? `${'  '.repeat(depth - 1)}- ${task.title}` : task.title, task.markdown.trim()]
       .filter(Boolean)
       .join('\n');
-    const note: KaruiNote = { i: (id += 1), x: text, c: task.completed ? 1 : 0, u: now };
+    const note: SharedNote = { i: (id += 1), x: text, c: task.completed ? 1 : 0, u: now };
     if (task.pinned) note.p = 1;
     if (task.due_at) {
       const d = new Date(task.due_at);
@@ -56,11 +61,11 @@ export function buildKaruiPayload(name: string, tasks: Task[]): string {
     task.children.forEach((child) => add(child, depth + 1));
   };
   tasks.forEach((task) => add(task, 0));
-  return JSON.stringify({ v: 1, t: name, m: null, n: notes } satisfies KaruiPayload);
+  return JSON.stringify({ v: 1, t: name, m: null, n: notes } satisfies SharePayload);
 }
 
 /** One string per QR frame. A short payload is a single bare JSON frame. */
-export function karuiFrames(payload: string, maxBytes = MAX_CHUNK_BYTES): string[] {
+export function shareFrames(payload: string, maxBytes = MAX_CHUNK_BYTES): string[] {
   const encoder = new TextEncoder();
   if (encoder.encode(payload).length <= maxBytes) return [payload];
   const id = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -110,11 +115,11 @@ export class FrameCollector {
   }
 }
 
-/** Reads a Karui tab payload into an import plan, or null when it isn't one. */
-export function planFromKarui(text: string): ImportPlan | null {
-  let payload: Partial<KaruiPayload>;
+/** Reads a shared list payload into an import plan, or null when it isn't one. */
+export function planFromSharePayload(text: string): ImportPlan | null {
+  let payload: Partial<SharePayload>;
   try {
-    payload = JSON.parse(text) as Partial<KaruiPayload>;
+    payload = JSON.parse(text) as Partial<SharePayload>;
   } catch {
     return null;
   }
@@ -122,7 +127,7 @@ export function planFromKarui(text: string): ImportPlan | null {
   const tasks: (TextTask & { due?: string | null; rrule?: string | null; pinned?: boolean })[] = [];
   for (const note of payload.n) {
     if (!note || typeof note.x !== 'string' || !note.x.trim()) continue;
-    // Locked Karui tabs travel encrypted; there's no way to read those here.
+    // Notes from a locked list travel encrypted; there's no way to read those here.
     if (note.x.startsWith('[enc]')) continue;
     const [first, ...rest] = note.x.replace(/^\d{4}-\d{2}-\d{2}\s+/, '').split('\n');
     tasks.push({
@@ -133,10 +138,10 @@ export function planFromKarui(text: string): ImportPlan | null {
       children: [],
       pinned: note.p === 1,
       rrule: note.r ? shorthandToRrule(note.r) : null,
-      due: karuiDue(note.s, note.tm),
+      due: sharedDue(note.s, note.tm),
     });
   }
-  const plan = planFromLists([{ name: typeof payload.t === 'string' && payload.t ? payload.t : 'Karui', tasks }]);
+  const plan = planFromLists([{ name: typeof payload.t === 'string' && payload.t ? payload.t : 'Scanned', tasks }]);
   // planFromLists only knows the text fields; add dates, repeats and pins.
   plan.lists[0]?.tasks.forEach((entry, index) => {
     const source = tasks[index];
@@ -145,16 +150,16 @@ export function planFromKarui(text: string): ImportPlan | null {
   return plan;
 }
 
-function karuiDue(date?: string, time?: string): string | null {
+function sharedDue(date?: string, time?: string): string | null {
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const [y, m, d] = date.split('-').map(Number);
   const [h, mi] = time && /^\d{2}:\d{2}$/.test(time) ? time.split(':').map(Number) : [23, 59];
   return new Date(y, m - 1, d, h, mi).toISOString();
 }
 
-/** Every to-do in the list as Karui frames, open ones only unless asked. */
-export function listToKaruiFrames(name: string, tasks: Task[]) {
-  return karuiFrames(buildKaruiPayload(name, tasks));
+/** A list's to-dos as QR frames. */
+export function listToShareFrames(name: string, tasks: Task[]) {
+  return shareFrames(buildSharePayload(name, tasks));
 }
 
 export const countTasks = (tasks: Task[]) => flattenTasks(tasks).length;

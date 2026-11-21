@@ -398,3 +398,21 @@ function isLightColor(hex: string): boolean {
   const l = (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / 255;
   return l > 0.65;
 }
+
+/**
+ * `color` at `alpha` (0–1). Handles #RGB/#RRGGBB/#RRGGBBAA and rgb()/rgba();
+ * anything else (platform colours) comes back unchanged.
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+  const rgb = color.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${a})`;
+  return color;
+}

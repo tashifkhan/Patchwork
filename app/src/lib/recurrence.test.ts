@@ -55,7 +55,7 @@ describe('next due date', () => {
   });
 });
 
-describe('karui shorthand', () => {
+describe('repeat shorthand', () => {
   test('maps every token form', () => {
     expect(shorthandToRrule('3d')).toBe('FREQ=DAILY;INTERVAL=3');
     expect(shorthandToRrule('1w')).toBe('FREQ=WEEKLY');

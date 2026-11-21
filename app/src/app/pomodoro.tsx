@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { AppState, Platform, Pressable } from 'react-native';
+import { AppState, Platform, Pressable, useWindowDimensions } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { RollingClock } from '@/components/ui/rolling-clock';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, listPlacement } from '@/lib/motion';
 import { TimerProgress } from '@/components/ui/timer-progress';
+import { StopwatchFace, TimerFace } from '@/components/focus/expressive-faces';
+import { MorphControls, PresetPills, type PillAction } from '@/components/focus/morph-controls';
 import { haptics } from '@/lib/haptics';
 import {
   formatClock,
@@ -26,6 +28,9 @@ import {
 } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { ScrollView, Text, View } from '@/tw';
+
+/** Android draws Expressive Clock's faces; iOS keeps the Things-style readout. */
+const EXPRESSIVE_FACES = Platform.OS === 'android';
 
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
 const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -84,6 +89,20 @@ export default function PomodoroScreen() {
   const days = streak(state.history);
   const todaySessions = useMemo(() => sessionsOn(state.sessions, new Date()), [state.sessions]);
   const tint = state.phase === 'break' ? colors.green : colors.accent;
+  const { width: windowWidth } = useWindowDimensions();
+  const faceSize = Math.min(windowWidth - 40, 380);
+  /** Tapping the face or Start: start, pause or resume, whichever fits. */
+  const toggle = () => {
+    if (!running) {
+      haptics.impact('medium');
+      void (mode === 'stopwatch' ? state.startStopwatch(task) : state.start(task));
+    } else {
+      void (paused ? state.resume() : state.pause());
+    }
+  };
+  const pauseAction: PillAction = paused
+    ? { label: 'Resume', icon: 'play', tone: 'primary', onPress: () => void state.resume() }
+    : { label: 'Pause', icon: 'pause', tone: 'tertiary', onPress: () => void state.pause() };
   const label =
     state.phase === 'work'
       ? 'Focus'
@@ -94,7 +113,15 @@ export default function PomodoroScreen() {
           : 'Ready';
 
   return (
-    <SheetSurface title="Focus timer" subtitle={state.taskTitle ?? 'Time spent today, by block or by stopwatch'}>
+    <SheetSurface
+      title="Focus timer"
+      subtitle={
+        running && state.taskTitle
+          ? state.taskTitle
+          : task
+            ? 'Pomodoro or stopwatch, logged against this to-do'
+            : 'Time spent today, by block or by stopwatch'
+      }>
       <Stack.Screen options={{ title: 'Focus' }} />
       <ScrollView
         className="flex-1"
@@ -110,9 +137,98 @@ export default function PomodoroScreen() {
               value={chosenMode}
               onChange={setChosenMode}
             />
+            {task ? (
+              <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT} layout={listPlacement()} style={{ paddingTop: 12 }}>
+                <View
+                  className="flex-row items-center gap-2"
+                  style={{
+                    alignSelf: 'flex-start',
+                    maxWidth: '100%',
+                    paddingLeft: 12,
+                    paddingRight: 6,
+                    minHeight: 36,
+                    borderRadius: 18,
+                    backgroundColor: colors.selectionBg,
+                  }}>
+                  <MaterialCommunityIcons name="checkbox-blank-circle-outline" size={16} color={colors.onSelectionBg} />
+                  <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 14, fontWeight: '600', color: colors.onSelectionBg }}>
+                    {task.title}
+                  </Text>
+                  <ElasticPressable
+                    variant="button"
+                    onPress={() => {
+                      haptics.tap();
+                      state.selectTask(null);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Don't log against this to-do"
+                    hitSlop={8}
+                    style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                    <MaterialCommunityIcons name="close" size={16} color={colors.onSelectionBg} />
+                  </ElasticPressable>
+                </View>
+              </Animated.View>
+            ) : null}
           </View>
         ) : null}
 
+        {EXPRESSIVE_FACES ? (
+          <>
+            {/* Android: Expressive Clock's faces and control row. */}
+            <RiseIn fromScale={0.94}>
+              {mode === 'stopwatch' ? (
+                <StopwatchFace
+                  size={faceSize}
+                  startedAt={state.phase === 'stopwatch' ? state.startedAt : null}
+                  pausedElapsed={state.phase === 'stopwatch' ? state.pausedElapsed : null}
+                  running={state.phase === 'stopwatch' && !paused}
+                  onToggle={toggle}
+                />
+              ) : (
+                <TimerFace
+                  size={faceSize}
+                  text={formatClock(display)}
+                  caption={paused ? 'PAUSED' : state.phase === 'work' ? 'FOCUS' : state.phase === 'break' ? 'BREAK' : 'READY'}
+                  progress={state.phase === 'idle' ? 1 : 1 - progress}
+                  running={(state.phase === 'work' || state.phase === 'break') && !paused}
+                  color={tint}
+                  onToggle={toggle}
+                />
+              )}
+            </RiseIn>
+            {mode === 'pomodoro' && !running ? (
+              <PresetPills
+                values={[15, 25, 45, 60]}
+                selected={workMinutes}
+                format={(minutes) => `${minutes} min`}
+                onSelect={(minutes) => useSettingsStore.getState().setExtras({ pomodoroWorkMinutes: minutes })}
+              />
+            ) : null}
+            <MorphControls
+              expanded={running}
+              start={{ label: 'Start', icon: 'play', tone: 'primary', onPress: toggle }}
+              actions={
+                state.phase === 'stopwatch'
+                  ? [
+                      { label: 'Discard', tone: 'outlined', onPress: () => void state.discard() },
+                      { label: 'Log', icon: 'check', tone: 'tonal', onPress: () => { haptics.success(); void state.stop(); } },
+                      pauseAction,
+                    ]
+                  : [
+                      {
+                        label: state.phase === 'break' ? 'End' : 'Skip',
+                        icon: 'skip-next',
+                        tone: 'tonal',
+                        onPress: () => void state.skip(),
+                      },
+                      { label: 'Stop', tone: 'outlined', onPress: () => void state.stop() },
+                      pauseAction,
+                    ]
+              }
+            />
+          </>
+        ) : (
+          <>
         <View className="items-center gap-2" style={{ paddingTop: running ? 16 : 0 }}>
           <Swap swapKey={`${label}${paused}`}>
             <Text className="text-sm font-semibold uppercase" style={{ letterSpacing: 1.2, color: tint }}>
@@ -181,6 +297,8 @@ export default function PomodoroScreen() {
             </>
           )}
         </Swap>
+          </>
+        )}
 
         <RiseIn index={1}>
         <View className="gap-3 p-4" style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous' }}>

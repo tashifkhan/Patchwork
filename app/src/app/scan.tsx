@@ -10,13 +10,13 @@ import { Button } from '@/components/ui/button';
 import { planFromText } from '@/lib/backup';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { EXPRESSIVE } from '@/lib/motion';
-import { FrameCollector, planFromKarui } from '@/lib/karui-qr';
+import { FrameCollector, planFromSharePayload } from '@/lib/qr-share';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
 
 /**
- * Scans a QR code from Patchwork's Share or from Karui (same format, one or
- * several codes), or any code holding a Markdown checklist, and imports it.
+ * Scans a QR code from Patchwork's Share (one code, or several for a long
+ * list), or any code holding a Markdown checklist, and imports it.
  */
 /** The scan frame. It gives a springy bump each time another code is read. */
 function Viewfinder({ pulse, color }: { pulse: number; color: string }) {
@@ -49,7 +49,7 @@ export default function ScanScreen() {
 
   function onScan(data: string) {
     if (handled.current) return;
-    // Karui splits long lists over several codes; keep scanning until all are in.
+    // Long lists come as several codes; keep scanning until all are in.
     const { complete, progress: next } = frames.current.add(data);
     if (next) {
       haptics.tap();
@@ -57,7 +57,7 @@ export default function ScanScreen() {
     }
     if (!complete) return;
     try {
-      const plan = planFromKarui(complete) ?? planFromText(complete, 'Scanned');
+      const plan = planFromSharePayload(complete) ?? planFromText(complete, 'Scanned');
       if (plan.total === 0) {
         setMessage("That code doesn't hold any to-dos.");
         return;
@@ -98,7 +98,7 @@ export default function ScanScreen() {
           {message ??
             (progress && progress.have < progress.total
               ? `Got ${progress.have} of ${progress.total} codes. Keep pointing at the screen.`
-              : 'Point at a Patchwork or Karui QR code')}
+              : 'Point at a Patchwork QR code')}
         </Text>
       </View>
       {importer.element}

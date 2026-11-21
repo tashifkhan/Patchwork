@@ -4,7 +4,7 @@ import { flattenTasks } from '@/lib/task-buckets';
 
 /**
  * Backups and moving to-dos between apps. JSON keeps every field Patchwork
- * knows; Markdown is the Karui/Obsidian-friendly checklist format.
+ * knows; Markdown is a plain checklist most notes apps can open.
  *
  * Imports always create new to-dos (fresh UIDs), so importing the same file
  * twice duplicates rather than overwrites.

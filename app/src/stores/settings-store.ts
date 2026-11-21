@@ -15,7 +15,7 @@ import type {
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-/** Preferences for the features carried over from Karui. Set together with `setExtras`. */
+/** Preferences for the productivity, privacy and look extras. Set together with `setExtras`. */
 export interface ExtraPreferences {
   /** Calendar grid and "next week" start on Monday instead of Sunday. */
   weekStartsMonday: boolean;

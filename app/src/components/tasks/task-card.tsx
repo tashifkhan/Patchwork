@@ -590,11 +590,11 @@ export function TaskCard({
           {task && !task.completed && process.env.EXPO_OS !== 'web' ? (
             <FooterButton
               icon="timer-outline"
-              label="Focus on this to-do"
+              label="Time this to-do with a pomodoro or stopwatch"
               onPress={() => {
-                haptics.impact('medium');
+                haptics.tap();
                 commit();
-                void usePomodoroStore.getState().start({ uid: task.uid, title: title.trim() || task.title });
+                usePomodoroStore.getState().selectTask({ uid: task.uid, title: title.trim() || task.title });
                 router.push('/pomodoro');
               }}
             />

@@ -257,7 +257,7 @@ const TEXT_SIZES = [
   { label: 'Larger', value: 1.3 },
 ];
 
-/** Karui's font picker and text size, applied to every text in the app. */
+/** Font choice and text size, applied to every text in the app. */
 function TypographyGroup() {
   const { colors } = useTheme();
   const fontFamily = useSettingsStore((s) => s.fontFamily);

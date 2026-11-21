@@ -29,7 +29,7 @@ const stamp = () => new Date().toISOString().slice(0, 10);
 
 /**
  * Backup and moving to-dos in and out: a full JSON backup, a Markdown
- * checklist (Karui, Obsidian and most notes apps read it), pasted text, and
+ * checklist (Obsidian and most notes apps read it), pasted text, and
  * QR codes from another phone.
  */
 export default function BackupSettingsScreen() {
@@ -115,7 +115,7 @@ export default function BackupSettingsScreen() {
         <SettingsRow
           icon="qrcode-scan"
           title="Scan a QR code"
-          subtitle="From Patchwork or Karui on another phone"
+          subtitle="From Patchwork on another phone"
           showChevron
           onPress={() => router.push('/scan')}
         />
