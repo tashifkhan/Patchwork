@@ -97,7 +97,7 @@ export default function RootLayout() {
         <NativeRuntimeCoordinator />
         <ThemeProvider>
           <Stack screenOptions={{ headerShown: false, ...(Platform.OS === 'android' ? { animation: ANDROID_PUSH } : null) }}>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Tasks' }} />
             <Stack.Screen
               name="new-task"
               options={sheetScreenOptions([0.72, 1.0], 'New Task')}

@@ -165,6 +165,22 @@ const SF_ICONS: Partial<Record<IconName, SFSymbol>> = {
   'cube-outline': 'cube.fill',
   'shape-outline': 'square.on.circle.fill',
   'router-network': 'point.3.connected.trianglepath.dotted',
+  'timer-outline': 'timer',
+  'head-lightbulb-outline': 'brain.head.profile.fill',
+  'calendar-month-outline': 'calendar',
+  'party-popper': 'party.popper.fill',
+  'volume-high': 'speaker.wave.2.fill',
+  'code-json': 'curlybraces',
+  'language-markdown-outline': 'doc.plaintext.fill',
+  'file-import-outline': 'doc.badge.plus',
+  'qrcode-scan': 'qrcode.viewfinder',
+  'clipboard-arrow-down-outline': 'doc.on.clipboard.fill',
+  'cloud-sync-outline': 'arrow.triangle.2.circlepath.icloud.fill',
+  cellphone: 'iphone',
+  'arrow-down': 'arrow.down',
+  'arrow-up': 'arrow.up',
+  close: 'xmark',
+  restore: 'arrow.uturn.backward',
 };
 
 /**
