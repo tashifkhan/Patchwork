@@ -1,16 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-  AudioQuality,
-  IOSOutputFormat,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
-  type RecordingOptions,
 } from 'expo-audio';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking, Modal, Platform, Pressable } from 'react-native';
+import { Linking, Modal, Pressable } from 'react-native';
 import Animated, {
   FadeIn,
   SlideInDown,
@@ -35,42 +32,11 @@ import {
 } from '@/lib/connectivity';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
+import { MAX_SECONDS, RECORDING, RECORDING_MIME_TYPE, SPEECH_DB, meterToLevel } from '@/lib/voice-recording';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { Text, View } from '@/tw';
 
-/**
- * Loudest level (dBFS) a recording must reach to count as speech. Room noise
- * sits well below this; a silent mic reads about -90. Models invent to-dos
- * from silence, so quiet recordings never leave the phone.
- */
-const SPEECH_DB = -42;
-
-/** Long enough for a rambling list, short enough to stay under inline upload limits. */
-const MAX_SECONDS = 5 * 60;
-
-/**
- * Small mono speech files in formats the audio models accept: AAC (ADTS) on
- * Android, 16-bit WAV on iOS. 16 kHz mono is what speech models resample to anyway.
- */
-const RECORDING: RecordingOptions = {
-  extension: Platform.OS === 'ios' ? '.wav' : '.aac',
-  sampleRate: 16000,
-  numberOfChannels: 1,
-  bitRate: 48000,
-  isMeteringEnabled: true,
-  android: { extension: '.aac', outputFormat: 'aac_adts', audioEncoder: 'aac', sampleRate: 16000 },
-  ios: {
-    extension: '.wav',
-    outputFormat: IOSOutputFormat.LINEARPCM,
-    audioQuality: AudioQuality.MEDIUM,
-    sampleRate: 16000,
-    linearPCMBitDepth: 16,
-    linearPCMIsBigEndian: false,
-    linearPCMIsFloat: false,
-  },
-  web: { mimeType: 'audio/webm' },
-};
-const MIME_TYPE = Platform.OS === 'ios' ? 'audio/wav' : 'audio/aac';
+const MIME_TYPE = RECORDING_MIME_TYPE;
 
 type Phase = 'starting' | 'recording' | 'working' | 'done' | 'error';
 
@@ -417,17 +383,21 @@ export function DictationSheet({
   );
 }
 
-/** Metering is dBFS (about -60 silent to 0 loud); map to 0..1 for the pulse. */
-function meterToLevel(metering?: number) {
-  if (metering == null) return 0.15;
-  return Math.max(0, Math.min(1, (metering + 55) / 50));
-}
-
 /**
  * The big mic. A soft halo breathes while recording and swells with your
  * voice; tapping it while recording is the same as Done.
  */
-function MicPulse({ level, active, onPress }: { level: number; active: boolean; onPress: () => void }) {
+export function MicPulse({
+  level,
+  active,
+  onPress,
+  label,
+}: {
+  level: number;
+  active: boolean;
+  onPress: () => void;
+  label?: string;
+}) {
   const { colors } = useTheme();
   const voice = useSharedValue(0);
   const breath = useSharedValue(0);
@@ -468,7 +438,7 @@ function MicPulse({ level, active, onPress }: { level: number; active: boolean; 
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={active ? 'Stop and create to-dos' : 'Start dictating'}
+        accessibilityLabel={label ?? (active ? 'Stop and create to-dos' : 'Start dictating')}
         style={({ pressed }) => ({
           width: 96,
           height: 96,
