@@ -34,10 +34,12 @@ import { TaskDetailView, TaskPaneContext, type TaskPane } from '@/components/tas
 import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
+import { SmartTiles } from '@/components/tasks/smart-tiles';
 import { ConnectedButtonGroup } from '@/components/ui/button-group';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ElasticPressable } from '@/components/ui/motion';
 import { Fab } from '@/components/ui/fab';
+import { Frost } from '@/components/ui/frost';
 import { DictateFab } from '@/components/tasks/dictate-fab';
 import { DictationSheet } from '@/components/tasks/dictation-sheet';
 import { OutboxBanner } from '@/components/tasks/outbox-banner';
@@ -47,6 +49,7 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { READABLE_MAX_WIDTH, useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { celebrate, playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
+import { matchesSmart, smartCounts, type SmartKey } from '@/lib/smart-lists';
 import { completionPercent, togglePatch } from '@/lib/task-actions';
 import {
   useTabBarContentPadding,
@@ -131,7 +134,11 @@ export default function TasksScreen() {
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [moveListId, setMoveListId] = useState<string | null>(null);
   const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
+  /** The smart tile filtering the to-dos (Today, Scheduled, All, Overdue), if any. */
+  const [smart, setSmart] = useState<SmartKey | null>(null);
   const [pulling, setPulling] = useState(false);
+  /** iOS: rows have scrolled up under the status bar, so it frosts over. */
+  const [underStatusBar, setUnderStatusBar] = useState(false);
   const insets = useSafeAreaInsets();
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
   /** Multi-select: ids of the chosen to-dos, or null when not selecting. */
@@ -207,7 +214,8 @@ export default function TasksScreen() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [allIssues, repoFilter]);
 
-  const visibleTasks = useMemo(
+  /** To-dos in the chosen list and tag, before a smart tile narrows them. */
+  const baseTasks = useMemo(
     () =>
       allTasks.filter((task) => {
         if (selectedListId?.startsWith('gh:')) return false;
@@ -217,6 +225,11 @@ export default function TasksScreen() {
       }),
     [allTasks, selectedListId, selectedTag]
   );
+  const visibleTasks = useMemo(
+    () => (smart ? baseTasks.filter((task) => matchesSmart(task, smart)) : baseTasks),
+    [baseTasks, smart]
+  );
+  const smartTileCounts = useMemo(() => smartCounts(baseTasks), [baseTasks]);
 
   const { buckets, completed, pinned } = useMemo(() => {
     const active = visibleTasks.filter((task) => !task.completed && !task.pinned);
@@ -600,7 +613,9 @@ export default function TasksScreen() {
 
   const isLoading = tasksQuery.isLoading;
   const isFetching = tasksQuery.isFetching || (githubEnabled && githubQuery.isFetching);
-  const isEmpty = visibleTasks.length === 0 && (!githubEnabled || githubIssues.length === 0);
+  const isEmpty = baseTasks.length === 0 && (!githubEnabled || githubIssues.length === 0);
+  /** A smart tile is on and nothing matches it, while the list itself has to-dos. */
+  const smartEmpty = smart != null && visibleTasks.length === 0 && baseTasks.length > 0;
   const showCenteredState = isEmpty && !githubEnabled && !isLoading;
   const needsCalDavAccount = isMissingCalDavAccountError(tasksQuery.error);
   const showingOffline = taskWarnings[0]?.startsWith("You're offline") ?? false;
@@ -630,6 +645,10 @@ export default function TasksScreen() {
         onScroll={(event) => {
           scrollY.current = event.nativeEvent.contentOffset.y;
           onTabBarScroll(event);
+          if (Platform.OS === 'ios') {
+            const under = event.nativeEvent.contentOffset.y + event.nativeEvent.contentInset.top > 8;
+            if (under !== underStatusBar) setUnderStatusBar(under);
+          }
         }}
         contentContainerStyle={{
           flexGrow: 1,
@@ -697,6 +716,18 @@ export default function TasksScreen() {
           </View>
           {/* Background refresh: under the title, clear of the status bar and cutout. */}
           {isFetching && !isLoading && !pulling ? <LoadingBar style={{ marginTop: -4 }} /> : null}
+          {!repoFilter && selection == null && !isLoading && !showCenteredState ? (
+            <SmartTiles
+              counts={smartTileCounts}
+              selected={smart}
+              onSelect={setSmart}
+              listCount={lists.length}
+              onOpenLists={() => {
+                if (closeCard()) return;
+                router.push('/lists');
+              }}
+            />
+          ) : null}
           <TagFilterTabs
             tags={repoFilter ? repoLabels : allTags}
             selectedTag={selectedTag}
@@ -794,6 +825,12 @@ export default function TasksScreen() {
           </View>
         ) : (
           <>
+            {smartEmpty ? (
+              <View style={{ alignItems: 'center', paddingVertical: 40, gap: 6 }}>
+                <MaterialCommunityIcons name="check-circle-outline" size={36} color={colors.text3} />
+                <Text style={{ color: colors.text2, fontSize: 15 }}>Nothing here. Enjoy the gap.</Text>
+              </View>
+            ) : null}
             {pinned.length > 0 ? (
               <Section
                 title="Pinned"
@@ -942,7 +979,7 @@ export default function TasksScreen() {
               </Section>
             ) : null}
 
-            {githubEnabled && !selectedList ? (
+            {githubEnabled && !selectedList && !smart ? (
               <GitHubSection
                 issues={githubIssues}
                 repoMode={repoFilter != null}
@@ -961,6 +998,21 @@ export default function TasksScreen() {
         )}
         </Pressable>
       </ScrollView>
+      {Platform.OS === 'ios' ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: insets.top,
+            overflow: 'hidden',
+            opacity: underStatusBar ? 1 : 0,
+          }}>
+          <Frost strength={0.2} intensity={80} />
+        </View>
+      ) : null}
       {process.env.EXPO_OS !== 'web' && expandedId == null && selection == null ? (
         <>
           <DictateFab onPress={() => setDictating(true)} />
