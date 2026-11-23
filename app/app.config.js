@@ -78,6 +78,19 @@ module.exports = ({ config }) => {
               },
             },
             {
+              name: 'BoardsWidget',
+              displayName: 'Board',
+              description: 'Columns and cards from your last opened board.',
+              ios: { supportedFamilies: ['systemSmall', 'systemMedium', 'systemLarge'] },
+              android: {
+                minWidth: 250,
+                minHeight: 180,
+                targetCellWidth: 4,
+                targetCellHeight: 3,
+                initialLayout: './src/widgets/BoardsWidget.android.tsx',
+              },
+            },
+            {
               name: 'LockWidget',
               displayName: 'Quick View',
               description: 'Lock Screen glance for your tasks.',
@@ -89,6 +102,7 @@ module.exports = ({ config }) => {
       ],
       './plugins/with-android-workmanager-dedupe',
       './plugins/with-android-wallpaper-recreate',
+      './plugins/with-android-local-ai',
     ],
   };
 };

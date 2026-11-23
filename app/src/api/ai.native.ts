@@ -8,9 +8,12 @@ import { generateText } from 'ai';
 import { ApiError } from './client';
 import { RELAYROOM_DEFAULT_URL, relayroomGenerate } from './relayroom';
 import type { AiDraftRequest, AiGeneratedTask, AiRefineRequest, AiTasksResponse, TaskList } from './types';
+import { generateLocal } from '../../modules/patchwork-local-ai/src';
+import { extractJsonText } from '@/lib/ai-json';
 import { DEFAULT_AI_MODELS, buildProvidersWithCustom, providerById, supportsAudio, supportsImage, type AiModelSelection } from '@/lib/ai-models';
 import { checkConnection, isNetworkError } from '@/lib/connectivity';
 import { getAiApiKey } from '@/lib/credentials';
+import { isOnDevice } from '@/lib/on-device-ai';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { useSettingsStore } from '@/stores/settings-store';
 
@@ -84,7 +87,7 @@ export async function dictateTasks(input: DictationInput): Promise<AiTasksRespon
 
 function heardNothing(responseText: string) {
   try {
-    const payload = JSON.parse(stripMarkdownFence(responseText)) as { transcript?: unknown };
+    const payload = JSON.parse(extractJsonText(responseText)) as { transcript?: unknown };
     return typeof payload.transcript === 'string' && payload.transcript.trim().length === 0;
   } catch {
     return false;
@@ -169,6 +172,18 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
     const timer =
       attachment?.kind === 'audio' ? setTimeout(() => controller.abort(), AUDIO_ATTEMPT_TIMEOUT_MS) : null;
     try {
+      // On-device: Gemini Nano or Apple Intelligence. No key, no network,
+      // so it skips the connectivity bookkeeping below. A failure (too
+      // long, not downloaded, busy) moves on to the next model like any other.
+      if (isOnDevice(selection)) {
+        const text = await generateLocal({
+          prompt,
+          imageBase64: attachment?.kind === 'image' ? attachment.data : undefined,
+        });
+        if (text.trim()) return text;
+        failures.push({ label, message: 'empty response', network: false });
+        continue;
+      }
       // RelayRoom: one gateway call; it picks the credential, enforces JSON
       // natively and records usage under the feature tag.
       if (providerById(selection.providerId, providers)?.kind === 'relayroom') {
@@ -455,7 +470,8 @@ function parseTaskJson(
   availableLists: TaskList[] = [],
   availableTags: string[] = []
 ): AiGeneratedTask[] {
-  const cleaned = stripMarkdownFence(responseText);
+  // Small on-device models wrap JSON in prose; take the JSON part.
+  const cleaned = extractJsonText(responseText);
   let payload: unknown;
   try {
     payload = JSON.parse(cleaned);
@@ -525,15 +541,6 @@ function validIsoDate(value: unknown) {
 
 function randomDraftId() {
   return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function stripMarkdownFence(value: string) {
-  const stripped = value.trim();
-  if (!stripped.startsWith('```')) return stripped;
-  const lines = stripped.split(/\r?\n/);
-  return lines.length >= 3 && lines.at(-1)?.trim() === '```'
-    ? lines.slice(1, -1).join('\n').trim()
-    : stripped;
 }
 
 function listContext(availableLists: TaskList[]) {

@@ -124,6 +124,14 @@ function TaskItemComponent({
             {task.tags.length > 0 ? (
               <MaterialCommunityIcons name="tag-outline" size={15} color={colors.text3} />
             ) : null}
+            {task.attachments?.length ? (
+              <MaterialCommunityIcons
+                name="paperclip"
+                size={15}
+                color={colors.text3}
+                accessibilityLabel={`${task.attachments.length} attachment${task.attachments.length === 1 ? '' : 's'}`}
+              />
+            ) : null}
             {childCount > 0 ? (
               <View className="flex-row items-center gap-0.5">
                 <MaterialCommunityIcons name="format-list-checks" size={15} color={colors.text3} />

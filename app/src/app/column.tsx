@@ -1,12 +1,13 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckStack, useDeleteDeckStack, useUpdateDeckStack } from '@/hooks/use-deck';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 export default function StackScreen() {
   const { colors } = useTheme();
@@ -67,12 +68,10 @@ export default function StackScreen() {
       title={editing ? 'Edit column' : 'New column'}
       subtitle={editing ? 'Rename, move or delete this column' : 'Add a column to the board'}>
       <Stack.Screen options={{ title: editing ? 'Edit Column' : 'New Column' }} />
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="gap-2 px-5 pt-4">
           <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Column name</Text>
@@ -130,7 +129,7 @@ export default function StackScreen() {
           message={errorMessage ?? ''}
           onDismiss={() => setErrorMessage(null)}
         />
-      </ScrollView>
+      </KeyboardScrollView>
     </SheetSurface>
   );
 }

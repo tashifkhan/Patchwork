@@ -8,7 +8,6 @@ import { router } from 'expo-router';
 import { useCallback, useRef, type ReactNode } from 'react';
 import { useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
@@ -59,11 +58,12 @@ export function SheetSurface({
   sheetGesturesEnabled = true,
 }: SheetSurfaceProps) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const sheetRef = useRef<ModalBottomSheetRef>(null);
   const closedRef = useRef(false);
-  const padBottom = bottomInset ?? Math.max(insets.bottom, 20);
+  // Compose's ModalBottomSheet already keeps content above the navigation bar
+  // (its default contentWindowInsets), so adding insets.bottom here doubled it.
+  const padBottom = bottomInset ?? 16;
 
   const dismiss = useCallback(() => {
     if (closedRef.current) return;

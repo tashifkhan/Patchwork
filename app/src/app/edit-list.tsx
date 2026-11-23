@@ -1,13 +1,14 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useDeleteTaskList, useUpdateTaskList } from '@/hooks/use-tasks';
 import { useUiStore } from '@/stores/ui-store';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 export default function EditListScreen() {
   const { colors } = useTheme();
@@ -50,12 +51,10 @@ export default function EditListScreen() {
   return (
     <SheetSurface title="Edit list" subtitle="Rename this list or delete it and its tasks">
       <Stack.Screen options={{ title: 'Edit List' }} />
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="gap-2 px-5 pt-4">
           <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">List name</Text>
@@ -108,7 +107,7 @@ export default function EditListScreen() {
           message={errorMessage ?? ''}
           onDismiss={() => setErrorMessage(null)}
         />
-      </ScrollView>
+      </KeyboardScrollView>
     </SheetSurface>
   );
 }

@@ -1,8 +1,19 @@
 import { ApiError } from './client';
-import type { Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate } from './types';
+import type {
+  AttachmentAccess,
+  AttachmentUpload,
+  Task,
+  TaskAttachment,
+  TaskCreate,
+  TaskList,
+  TaskListCreate,
+  TaskListUpdate,
+  TaskUpdate,
+} from './types';
 import { base64Encode } from '@/lib/base64';
 import { isNetworkError, knownOffline } from '@/lib/connectivity';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
+import { addAttachment, parseAttachments, removeAttachment } from '@/lib/ics-attachments';
 import {
   LOCAL_ACCOUNT_ID,
   cacheRemoteLists,
@@ -40,6 +51,9 @@ import { useSyncStatusStore } from '@/stores/sync-status-store';
 const DAV_NS = 'DAV:';
 const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
 const REQUEST_TIMEOUT_MS = 30_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
+/** Folder in the user's Nextcloud Files that holds one subfolder per task. */
+const ATTACHMENT_FOLDER = 'Tasks';
 
 export async function fetchTaskLists() {
   const accounts = await getAccounts();
@@ -254,7 +268,7 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
   }
   const client = await clientForTask(taskId, accountId);
   const existing = await client.fetchTaskByHref(taskId);
-  const calendarData = updateVtodo(existing.calendarData, payload);
+  let calendarData = updateVtodo(existing.calendarData, payload);
 
   if (payload.list_id && isLocalListId(payload.list_id)) {
     // Account to device: keep the uid so subtasks stay attached.
@@ -274,6 +288,15 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
 
   if (payload.list_id && payload.list_id !== existing.list.id) {
     const destination = await resolveListTarget(payload.list_id);
+    const crossAccount = destination.client.account.id !== client.account.id;
+    const before = parseVtodo(calendarData, client.absoluteUrl(taskId), null, existing.list);
+    // Images in the source account's Files would be unreachable with the new
+    // account's login, so copy them across when both ends are Nextcloud.
+    const carry =
+      crossAccount && before && isNextcloud(client) && isNextcloud(destination.client) && ownedAttachments(before).length
+        ? await copyAttachments(client, destination.client, calendarData, before)
+        : null;
+    if (carry) calendarData = carry.calendarData;
     const fileName = new URL(taskId).pathname.split('/').filter(Boolean).pop() ?? `${randomUuid()}.ics`;
     const destinationHref = `${destination.target.href.replace(/\/+$/, '')}/${fileName}`;
     const destinationUrl = destination.client.absoluteUrl(destinationHref);
@@ -283,6 +306,9 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
         'Content-Type': 'text/calendar; charset=utf-8',
         'If-None-Match': '*',
       },
+    }).catch(async (error: unknown) => {
+      await Promise.all((carry?.copied ?? []).map((copy) => destination.client.deleteFile(copy.path!).catch(() => {})));
+      throw error;
     });
 
     try {
@@ -291,7 +317,11 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
       });
     } catch (error) {
       await destination.client.request('DELETE', destinationUrl).catch(() => {});
+      await Promise.all((carry?.copied ?? []).map((copy) => destination.client.deleteFile(copy.path!).catch(() => {})));
       throw error;
+    }
+    if (carry && before) {
+      await client.deleteFile(`/${attachmentFolder(before.uid)}`).catch(() => {});
     }
 
     const moved = parseVtodo(
@@ -322,9 +352,19 @@ export async function deleteTask(taskId: string, accountId?: string, etag?: stri
   if (isPendingTaskId(taskId)) return removeEntry(pendingEntryId(taskId));
   if (isLocalTaskId(taskId)) return deleteLocalTask(taskId);
   const client = await clientForTask(taskId, accountId);
+  // Read the task first so its own image folder can go with it.
+  const owned = isNextcloud(client)
+    ? await client
+        .fetchTaskByHref(taskId)
+        .then(({ calendarData, list }) => parseVtodo(calendarData, client.absoluteUrl(taskId), null, list))
+        .catch(() => null)
+    : null;
   await client.request('DELETE', client.absoluteUrl(taskId), {
     headers: etag ? { 'If-Match': etag } : undefined,
   });
+  if (owned && ownedAttachments(owned).length) {
+    await client.deleteFile(`/${attachmentFolder(owned.uid)}`).catch(() => {});
+  }
 }
 
 /** Edit a to-do that is still waiting in the outbox; the change goes up with it. */
@@ -380,6 +420,92 @@ function taskToCreate(task: Task): TaskCreate {
   };
 }
 
+/** Image-loading details for a Nextcloud account, or null when attachments are unsupported. */
+export async function getAttachmentAccess(accountId: string | undefined): Promise<AttachmentAccess | null> {
+  if (!accountId) return null;
+  const account = (await getAccounts()).find((candidate) => candidate.id === accountId);
+  if (!account || account.serverType !== 'nextcloud') return null;
+  return new CalDavClient(account).attachmentAccess();
+}
+
+async function attachmentClient(taskId: string, accountId?: string) {
+  if (isPendingTaskId(taskId) || isLocalTaskId(taskId)) {
+    throw new ApiError(400, 'Images can only be attached to to-dos synced with Nextcloud.');
+  }
+  const client = await clientForTask(taskId, accountId);
+  if (!isNextcloud(client)) {
+    throw new ApiError(400, 'Images can only be attached to to-dos on a Nextcloud account.');
+  }
+  return client;
+}
+
+/**
+ * Upload an image to the account's Nextcloud Files and link it from the task.
+ * Needs a connection: there is no offline outbox for files.
+ */
+export async function addTaskAttachment(
+  taskId: string,
+  file: AttachmentUpload,
+  accountId?: string,
+  etag?: string | null
+): Promise<Task> {
+  if (knownOffline()) {
+    throw new ApiError(0, "You're offline. Attach the image again once you're connected.");
+  }
+  const client = await attachmentClient(taskId, accountId);
+  const existing = await client.fetchTaskByHref(taskId);
+  const current = parseVtodo(existing.calendarData, client.absoluteUrl(taskId), null, existing.list);
+  if (!current) throw new ApiError(500, 'Task could not be read');
+
+  const attachment = await client.uploadAttachment(current.uid, file);
+  const calendarData = addAttachment(updateVtodo(existing.calendarData, {}), attachment);
+  let response: Response;
+  try {
+    response = await client.request('PUT', client.absoluteUrl(taskId), {
+      body: calendarData,
+      headers: {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        ...(etag ? { 'If-Match': etag } : {}),
+      },
+    });
+  } catch (error) {
+    // Don't leave an orphan file behind when the task write fails.
+    if (attachment.path) await client.deleteFile(attachment.path).catch(() => {});
+    throw error;
+  }
+  const updated = parseVtodo(calendarData, client.absoluteUrl(taskId), response.headers.get('etag'), existing.list);
+  if (!updated) throw new ApiError(500, 'Updated task could not be parsed');
+  return updated;
+}
+
+/**
+ * Unlink an attachment. The file is deleted too, but only when Patchwork put
+ * it in this task's own folder; files linked from elsewhere stay in Files.
+ */
+export async function removeTaskAttachment(
+  taskId: string,
+  attachment: TaskAttachment,
+  accountId?: string,
+  etag?: string | null
+): Promise<Task> {
+  const client = await attachmentClient(taskId, accountId);
+  const existing = await client.fetchTaskByHref(taskId);
+  const calendarData = removeAttachment(updateVtodo(existing.calendarData, {}), attachment.url);
+  const response = await client.request('PUT', client.absoluteUrl(taskId), {
+    body: calendarData,
+    headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      ...(etag ? { 'If-Match': etag } : {}),
+    },
+  });
+  const updated = parseVtodo(calendarData, client.absoluteUrl(taskId), response.headers.get('etag'), existing.list);
+  if (!updated) throw new ApiError(500, 'Updated task could not be parsed');
+  if (attachment.path?.startsWith(`/${attachmentFolder(updated.uid)}/`)) {
+    await client.deleteFile(attachment.path).catch(() => {});
+  }
+  return updated;
+}
+
 export async function validateCalDavAccount(account: CalDavAccount): Promise<void> {
   const client = new CalDavClient(account);
   await client.listTaskCalendars();
@@ -426,7 +552,7 @@ class CalDavClient {
     }
   }
 
-  async request(method: string, url: string, options: RequestInit = {}) {
+  async request(method: string, url: string, options: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
     let safeUrl = url;
     try {
       safeUrl = assertUrlSameOrigin(url, this.origin);
@@ -437,7 +563,7 @@ class CalDavClient {
     // A stalled connection would otherwise hang a save forever instead of
     // failing over to the offline outbox.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
       response = await fetch(safeUrl, {
@@ -570,6 +696,138 @@ class CalDavClient {
       headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' },
     });
     return parseTaskReport(await response.text(), calendar, (href) => this.absoluteUrl(href));
+  }
+
+  /** `.../remote.php/dav/`, keeping any subpath the server is installed under. */
+  davRoot() {
+    const source = this.calendarHome ?? `${this.baseUrl}/remote.php/dav/`;
+    const marker = '/remote.php/dav/';
+    const index = source.toLowerCase().indexOf(marker);
+    return index >= 0 ? `${source.slice(0, index)}${marker}` : `${this.baseUrl}${marker}`;
+  }
+
+  serverRoot() {
+    return this.davRoot().slice(0, -'remote.php/dav/'.length);
+  }
+
+  private userIdPromise: Promise<string> | null = null;
+
+  /**
+   * The Nextcloud user id, which names the Files WebDAV folder. It can differ
+   * from the login name (email logins, LDAP), so ask the server.
+   */
+  userId() {
+    this.userIdPromise ??= (async () => {
+      const response = await this.request('PROPFIND', this.davRoot(), {
+        body: `<d:propfind xmlns:d="${DAV_NS}"><d:prop><d:current-user-principal /></d:prop></d:propfind>`,
+        headers: { Depth: '0', 'Content-Type': 'application/xml; charset=utf-8' },
+      });
+      const principal = readTagText(await response.text(), 'current-user-principal');
+      const href = principal ? readTagText(principal, 'href') : null;
+      const segment = href?.replace(/\/+$/, '').split('/').pop();
+      return segment ? decodeURIComponent(segment) : this.username;
+    })().catch((error) => {
+      this.userIdPromise = null;
+      throw error;
+    });
+    return this.userIdPromise;
+  }
+
+  async filesRoot() {
+    return `${this.davRoot()}files/${encodeURIComponent(await this.userId())}/`;
+  }
+
+  async attachmentAccess(): Promise<AttachmentAccess> {
+    return {
+      serverRoot: this.serverRoot(),
+      filesRoot: await this.filesRoot(),
+      origin: this.origin,
+      headers: { Authorization: this.authHeader, 'OCS-APIRequest': 'true' },
+    };
+  }
+
+  private async ensureFolder(path: string) {
+    try {
+      await this.request('MKCOL', `${await this.filesRoot()}${encodePath(path)}/`);
+    } catch (error) {
+      // 405 Method Not Allowed: the folder already exists.
+      if (!(error instanceof ApiError && error.status === 405)) throw error;
+    }
+  }
+
+  /** Uploads a picked file to Files/Tasks/<uid>/ and returns the ATTACH entry for it. */
+  async uploadAttachment(taskUid: string, file: AttachmentUpload): Promise<TaskAttachment> {
+    const blob = await (await fetch(file.uri)).blob();
+    return this.uploadBlob(taskUid, blob, file.name, file.mime);
+  }
+
+  async uploadBlob(taskUid: string, blob: Blob, fileName: string, mime: string): Promise<TaskAttachment> {
+    const folder = attachmentFolder(taskUid);
+    await this.ensureFolder(ATTACHMENT_FOLDER);
+    await this.ensureFolder(folder);
+    const filesRoot = await this.filesRoot();
+    const name = safeFileName(fileName) || 'image.jpg';
+    const dot = name.lastIndexOf('.');
+    const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      const candidate = attempt === 1 ? name : `${stem} (${attempt})${extension}`;
+      const path = `${folder}/${candidate}`;
+      const url = `${filesRoot}${encodePath(path)}`;
+      let response: Response;
+      try {
+        response = await this.request(
+          'PUT',
+          url,
+          { body: blob, headers: { 'Content-Type': mime, 'If-None-Match': '*' } },
+          UPLOAD_TIMEOUT_MS
+        );
+      } catch (error) {
+        // 412: a file with this name is already there; try the next name.
+        if (error instanceof ApiError && error.status === 412) continue;
+        throw error;
+      }
+      const fileId = parseFileId(response.headers.get('oc-fileid')) ?? (await this.fileIdOf(url));
+      return {
+        url: fileId ? `${this.serverRoot()}f/${fileId}` : url,
+        name: candidate,
+        mime,
+        path: `/${path}`,
+        file_id: fileId,
+        has_preview: mime.startsWith('image/'),
+      };
+    }
+    throw new ApiError(409, 'Too many files with this name on the task already.');
+  }
+
+  private async fileIdOf(url: string) {
+    try {
+      const response = await this.request('PROPFIND', url, {
+        body: `<d:propfind xmlns:d="${DAV_NS}" xmlns:oc="http://owncloud.org/ns"><d:prop><oc:fileid /></d:prop></d:propfind>`,
+        headers: { Depth: '0', 'Content-Type': 'application/xml; charset=utf-8' },
+      });
+      return readTagText(await response.text(), 'fileid');
+    } catch {
+      return null;
+    }
+  }
+
+  async downloadFile(path: string) {
+    const response = await this.request(
+      'GET',
+      `${await this.filesRoot()}${encodePath(path.replace(/^\/+/, ''))}`,
+      {},
+      UPLOAD_TIMEOUT_MS
+    );
+    return response.blob();
+  }
+
+  async deleteFile(path: string) {
+    try {
+      await this.request('DELETE', `${await this.filesRoot()}${encodePath(path.replace(/^\/+/, ''))}`);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
   }
 
   async fetchTaskByHref(href: string): Promise<{ calendarData: string; list: TaskList }> {
@@ -740,6 +998,7 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
     children: [],
     etag,
     updated_at: parseIcsDate(icsField(fields, 'LAST-MODIFIED')),
+    attachments: parseAttachments(calendarData),
   };
 }
 
@@ -1140,6 +1399,65 @@ function escapeRegExp(value: string) {
 
 function collectionHref(href: string) {
   return `${href.replace(/\/+$/, '')}/`;
+}
+
+function attachmentFolder(taskUid: string) {
+  return `${ATTACHMENT_FOLDER}/${safeFileName(taskUid)}`;
+}
+
+/** Attachments Patchwork uploaded into this task's own folder, which it may move or delete. */
+function ownedAttachments(task: Task) {
+  const folder = `/${attachmentFolder(task.uid)}/`;
+  return (task.attachments ?? []).filter((attachment) => attachment.path?.startsWith(folder));
+}
+
+function isNextcloud(client: CalDavClient) {
+  return client.account.serverType === 'nextcloud';
+}
+
+/**
+ * Copies a task's own images to another Nextcloud account and points its
+ * ATTACH lines at the copies. Links to anything else are left as they are.
+ */
+async function copyAttachments(source: CalDavClient, destination: CalDavClient, calendarData: string, task: Task) {
+  let next = calendarData;
+  const copied: TaskAttachment[] = [];
+  try {
+    for (const attachment of ownedAttachments(task)) {
+      const blob = await source.downloadFile(attachment.path!);
+      const copy = await destination.uploadBlob(
+        task.uid,
+        blob,
+        attachment.name,
+        attachment.mime ?? (blob.type || 'application/octet-stream')
+      );
+      copied.push(copy);
+      next = addAttachment(removeAttachment(next, attachment.url), copy);
+    }
+  } catch (error) {
+    await Promise.all(copied.map((copy) => destination.deleteFile(copy.path!).catch(() => {})));
+    throw error;
+  }
+  return { calendarData: next, copied };
+}
+
+function encodePath(path: string) {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+/** One path segment: no slashes, control characters, or names Nextcloud rejects. */
+function safeFileName(name: string) {
+  return name
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 120);
+}
+
+/** `OC-FileId` is the numeric id followed by the instance id, e.g. `00004821ocabc123`. */
+function parseFileId(header: string | null) {
+  const digits = header?.match(/^(\d+)/)?.[1];
+  return digits ? String(Number.parseInt(digits, 10)) : null;
 }
 
 function slugify(value: string) {

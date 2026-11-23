@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'codes.tashhif.patchwork'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.patchworklocalai"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // Gemini Nano through AICore. The AAR declares minSdk 26; the app keeps 24
+  // through `tools:overrideLibrary` (plugins/with-android-local-ai.js) and
+  // only touches these classes on Android 8.0 and newer.
+  //
+  // beta4 matches Paisa. beta5 needs Kotlin 2.4.
+  implementation 'com.google.mlkit:genai-prompt:1.0.0-beta4'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+}

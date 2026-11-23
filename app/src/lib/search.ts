@@ -1,10 +1,11 @@
 import Fuse, { type IFuseOptions } from 'fuse.js';
 
+import type { JiraIssue } from '@/api/jira';
 import type { DeckStack, Task } from '@/api/types';
 
 export interface SearchNode {
   id: string;
-  type: 'task' | 'subtask' | 'deck-card' | 'github-issue';
+  type: 'task' | 'subtask' | 'deck-card' | 'github-issue' | 'jira-issue';
   title: string;
   descriptionText: string;
   tags: string[];
@@ -17,6 +18,8 @@ export interface SearchNode {
   cardId?: number;
   githubIssueNumber?: number;
   githubRepo?: string;
+  jiraKey?: string;
+  jiraAccountId?: string;
 }
 
 export const fuseOptions: IFuseOptions<SearchNode> = {
@@ -96,4 +99,31 @@ export function buildSearchNodes(
 
 export function createSearchIndex(nodes: SearchNode[]) {
   return new Fuse(nodes, fuseOptions);
+}
+
+/**
+ * Jira results come from Jira's own text search (see `searchJiraIssues`), so they
+ * skip the local Fuse index: Jira already matched them, often on text the app
+ * never downloads, such as descriptions and comments.
+ */
+export function jiraSearchNodes(hits: { issue: JiraIssue; accountId: string }[]): SearchNode[] {
+  const seen = new Set<string>();
+  const nodes: SearchNode[] = [];
+  for (const { issue, accountId } of hits) {
+    const id = `jira-issue:${accountId}:${issue.key}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const project = issue.key.split('-')[0];
+    nodes.push({
+      id,
+      type: 'jira-issue',
+      title: issue.summary,
+      descriptionText: '',
+      tags: issue.labels,
+      listName: [issue.key, issue.statusName || project, issue.typeName].filter(Boolean).join(' · '),
+      jiraKey: issue.key,
+      jiraAccountId: accountId,
+    });
+  }
+  return nodes;
 }
