@@ -127,6 +127,10 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
       task = await api.addTaskAttachment(task.id, upload, account.id, task.etag);
       task = await api.addTaskAttachment(task.id, upload, account.id, task.etag);
       expect(task.attachments?.map((attachment) => attachment.name)).toEqual(['sink leak.png', 'sink leak (2).png']);
+      await expect(
+        api.addTaskAttachment(task.id, { ...upload, name: 'stale.png' }, account.id, '"stale-attachment-test"')
+      ).rejects.toMatchObject({ status: 412 });
+
       const [first, second] = task.attachments!;
       expect(first.path).toBe(`/Tasks/${task.uid}/sink leak.png`);
       expect(first.file_id).toMatch(/^\d+$/);
@@ -134,6 +138,8 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
 
       const access = (await api.getAttachmentAccess(account.id))!;
       expect(access).not.toBeNull();
+      expect((await fetch(`${access.filesRoot}Tasks/${encodeURIComponent(task.uid)}/stale.png`, { headers: access.headers })).status).toBe(404);
+
 
       // Basic auth with an app password must be enough for the preview endpoint.
       const preview = await fetch(attachmentPreviewUri(access, first, 128)!, { headers: access.headers });

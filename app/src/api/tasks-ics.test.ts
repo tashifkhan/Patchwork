@@ -74,3 +74,16 @@ test('a repeat anchor equal to DUE is not a time block', () => {
   expect(unblocked).toContain('DTSTART:20260720T090000Z');
   expect(parseVtodo(unblocked, 'h', null, list)!.start_at).toBeNull();
 });
+
+
+test('folds long UTF-8 properties on create and update', () => {
+  const title = '🚀'.repeat(32);
+  const notes = 'Literal END:VTODO in notes';
+  const { calendarData } = serializeVtodo({ list_id: 'a:l', title, markdown: notes });
+  const changed = updateVtodo(calendarData, { title: title + ' updated', reminder_at: '2026-07-20T09:00:00Z' });
+  for (const content of [calendarData, changed]) {
+    expect(content.split('\r\n').every((line) => new TextEncoder().encode(line).length <= 75)).toBe(true);
+    expect(parseVtodo(content, 'h', null, list)?.markdown).toBe(notes);
+  }
+  expect(parseVtodo(changed, 'h', null, list)?.title).toBe(title + ' updated');
+});

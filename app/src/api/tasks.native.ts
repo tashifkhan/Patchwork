@@ -13,7 +13,7 @@ import type {
 import { base64Encode } from '@/lib/base64';
 import { isNetworkError, knownOffline } from '@/lib/connectivity';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
-import { addAttachment, parseAttachments, removeAttachment } from '@/lib/ics-attachments';
+import { addAttachment, foldIcsLine, parseAttachments, removeAttachment } from '@/lib/ics-attachments';
 import {
   LOCAL_ACCOUNT_ID,
   cacheRemoteLists,
@@ -1092,7 +1092,7 @@ export function serializeVtodo(task: TaskCreate) {
     lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeIcs(task.title)}`, `TRIGGER:${formatIcsDate(task.reminder_at)}`, 'END:VALARM');
   }
   lines.push('END:VTODO', 'END:VCALENDAR', '');
-  return { uid, calendarData: lines.join('\r\n') };
+  return { uid, calendarData: lines.map(foldIcsLine).join('\r\n') };
 }
 
 export function updateVtodo(calendarData: string, patch: TaskUpdate) {
@@ -1181,11 +1181,11 @@ function setVAlarm(calendarData: string, reminderAt: string | null, title?: stri
   const alarm = [
     'BEGIN:VALARM',
     'ACTION:DISPLAY',
-    `DESCRIPTION:${escapeIcs(summary)}`,
+    foldIcsLine(`DESCRIPTION:${escapeIcs(summary)}`),
     `TRIGGER:${formatIcsDate(reminderAt)}`,
     'END:VALARM',
   ].join('\r\n');
-  return withoutAlarm.replace(/END:VTODO/i, `${alarm}\r\nEND:VTODO`);
+  return withoutAlarm.replace(/^END:VTODO(?=\r?$)/im, (end) => `${alarm}\r\n${end}`);
 }
 
 /**
@@ -1196,7 +1196,7 @@ function setVAlarm(calendarData: string, reminderAt: string | null, title?: stri
  * behind, so a tag the user removed reappeared on the next sync.
  */
 function setIcsField(calendarData: string, name: string, value: string | null, escape = true) {
-  const line = value == null || value === '' ? null : `${name}:${escape ? escapeIcs(value) : value}`;
+  const line = value == null || value === '' ? null : foldIcsLine(`${name}:${escape ? escapeIcs(value) : value}`);
   const regex = new RegExp(
     `^${name}(?:;[^:]*)?:.*(?:\\r?\\n[ \\t].*)*(?:\\r?\\n|$)`,
     'gim'
@@ -1211,7 +1211,7 @@ function setIcsField(calendarData: string, name: string, value: string | null, e
   });
   if (found) return next;
   if (!line) return calendarData;
-  return calendarData.replace(/END:VTODO/i, `${line}\r\nEND:VTODO`);
+  return calendarData.replace(/^END:VTODO(?=\r?$)/im, (end) => `${line}\r\n${end}`);
 }
 
 interface IcsField {

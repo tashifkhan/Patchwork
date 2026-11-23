@@ -44,7 +44,7 @@ export function parseAttachments(calendarData: string): TaskAttachment[] {
 /** Appends one `ATTACH` line to the VTODO, folded to 75 octets. */
 export function addAttachment(calendarData: string, attachment: TaskAttachment) {
   const line = foldIcsLine(formatAttachment(attachment));
-  return calendarData.replace(/\r?\nEND:VTODO/i, `\r\n${line}\r\nEND:VTODO`);
+  return calendarData.replace(/^END:VTODO(?=\r?$)/im, (end) => `${line}\r\n${end}`);
 }
 
 /** Removes every `ATTACH` line pointing at `url`, leaving alarm attachments alone. */
