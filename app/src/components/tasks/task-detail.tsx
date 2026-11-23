@@ -1,8 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, router } from 'expo-router';
 import { createContext, use, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable } from 'react-native';
+import { Keyboard, Linking, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,7 +16,7 @@ import { TimeBlockField } from '@/components/tasks/time-block-field';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
-import { TaskAttachments } from '@/components/tasks/task-attachments';
+import { TaskAttachments, type AttachmentSource } from '@/components/tasks/task-attachments';
 import { TaskActionBar } from '@/components/tasks/task-action-bar';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
@@ -25,6 +27,9 @@ import { useDeviceCalendars } from '@/hooks/use-calendars';
 import {
   useAddAttachment,
   useAttachmentAccess,
+  useDiscardQueuedAttachment,
+  useDownloadAttachment,
+  useQueuedAttachments,
   useRemoveAttachment,
 } from '@/hooks/use-task-attachments';
 import {
@@ -34,6 +39,8 @@ import {
   useTasks,
   useUpdateTask,
 } from '@/hooks/use-tasks';
+import { attachmentFileUri } from '@/lib/attachment-urls';
+import { isNetworkError } from '@/lib/connectivity';
 import { addTaskToCalendar } from '@/lib/calendar';
 import { formatDateTime } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
@@ -248,17 +255,27 @@ function TaskDocument({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
-  const [uploading, setUploading] = useState<string[]>([]);
-  const attachmentAccess = useAttachmentAccess(
-    task.pending_sync || !task.account_id ? undefined : task.account_id,
-  ).data;
+  const [uploading, setUploading] = useState<AttachmentUpload[]>([]);
+  const attachmentAccess = useAttachmentAccess(task.account_id).data ?? null;
+  const queuedAttachments = useQueuedAttachments(task.uid, task.account_id);
   const addAttachment = useAddAttachment();
   const removeAttachment = useRemoveAttachment();
+  const discardAttachment = useDiscardQueuedAttachment();
+  const downloadAttachment = useDownloadAttachment();
 
   const saved = useRef<Draft>(draftFromTask(task));
   const latest = useRef<Draft>(draft);
-  const currentTask = useRef({ id: task.id, accountId: task.account_id, etag: task.etag });
+  const identity = { id: task.id, accountId: task.account_id, etag: task.etag };
+  const currentTask = useRef(identity);
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const lastFetched = useRef(identity);
+  useEffect(() => {
+    const previous = lastFetched.current;
+    const current = currentTask.current;
+    const fetched = { id: task.id, accountId: task.account_id, etag: task.etag };
+    if (current.id === previous.id && current.etag === previous.etag) currentTask.current = fetched;
+    lastFetched.current = fetched;
+  }, [task.id, task.account_id, task.etag]);
 
   function rememberTask(updated: Task) {
     currentTask.current = { id: updated.id, accountId: updated.account_id, etag: updated.etag };
@@ -313,45 +330,55 @@ function TaskDocument({
     });
   }
 
-  async function pickImages(source: 'library' | 'camera') {
+  async function pickAttachment(source: AttachmentSource) {
     haptics.tap();
+    Keyboard.dismiss();
     try {
-      // The system photo picker grants access to selected items. Only opening
-      // the camera needs an upfront permission request.
-      if (source === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) {
-        setAlert({ title: 'Camera access', message: 'Allow camera access in Settings to attach a photo.' });
-        return;
-      }
-      const result = source === 'camera'
-        ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
-        : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            quality: 0.8,
-            allowsMultipleSelection: true,
-            selectionLimit: 10,
-          });
-      if (result.canceled) return;
-
-      for (const asset of result.assets) {
-        const file = uploadFromAsset(asset);
-        setUploading((current) => [...current, file.uri]);
-        void writeAfterDraft(async () => {
+      const files = source === 'files' ? await pickDocuments() : await pickPhotos(source);
+      for (const file of files) {
+        setUploading((current) => [...current, file]);
+        void queueWrite(async () => {
+          try {
+            await saveDraft(latest.current);
+          } catch (error) {
+            if (!isNetworkError(error)) throw error;
+          }
           const { id, accountId, etag } = currentTask.current;
-          rememberTask(await addAttachment.mutateAsync({ taskId: id, accountId, etag, file }));
+          const updated = await addAttachment.mutateAsync({
+            taskId: id,
+            target: { uid: task.uid, title: latest.current.title || task.title, account_id: accountId, account_name: task.account_name },
+            etag,
+            file,
+          });
+          if (updated) rememberTask(updated);
         })
-          .catch((error: unknown) => showWriteError(error, 'Could not attach image'))
-          .finally(() => setUploading((current) => current.filter((uri) => uri !== file.uri)));
+          .catch((error: unknown) => showWriteError(error, 'Could not attach file'))
+          .finally(() => setUploading((current) => current.filter((candidate) => candidate !== file)));
       }
     } catch (error) {
-      showWriteError(error, 'Could not open the image picker');
+      showWriteError(error, 'Could not open the picker');
     }
   }
 
-  function detachImage(attachment: TaskAttachment) {
+  function detachAttachment(attachment: TaskAttachment) {
     void writeAfterDraft(async () => {
       const { id, accountId, etag } = currentTask.current;
       rememberTask(await removeAttachment.mutateAsync({ taskId: id, accountId, etag, attachment }));
-    }).catch((error: unknown) => showWriteError(error, 'Could not remove image'));
+    }).catch((error: unknown) => showWriteError(error, 'Could not remove attachment'));
+  }
+
+  async function openAttachment(attachment: TaskAttachment) {
+    if (task.account_id && attachmentAccess && attachmentFileUri(attachmentAccess, attachment)) {
+      if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing files is unavailable on this device.');
+      const uri = await downloadAttachment.mutateAsync({ accountId: task.account_id, attachment });
+      await Sharing.shareAsync(uri, { mimeType: attachment.mime ?? undefined, dialogTitle: attachment.name });
+      return;
+    }
+    const url = new URL(attachment.url);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) {
+      throw new Error('This attachment has no web link that Patchwork can open.');
+    }
+    await Linking.openURL(url.href);
   }
 
   function pickTags() {
@@ -498,13 +525,18 @@ function TaskDocument({
     </>
   );
 
-  const attachments = attachmentAccess ? (
+  const attachments = attachmentAccess || task.attachments?.length || queuedAttachments.length ? (
     <TaskAttachments
       access={attachmentAccess}
       attachments={task.attachments ?? []}
       uploading={uploading}
-      onPick={pickImages}
-      onRemove={detachImage}
+      queued={queuedAttachments}
+      onPick={pickAttachment}
+      onRemove={detachAttachment}
+      onOpen={openAttachment}
+      onDiscardQueued={(entry) => {
+        void discardAttachment.mutateAsync(entry.id).catch((error: unknown) => showWriteError(error, 'Could not discard file'));
+      }}
     />
   ) : null;
 
@@ -1006,6 +1038,32 @@ function TaskDocument({
   );
 }
 
+async function pickDocuments(): Promise<AttachmentUpload[]> {
+  const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+  if (result.canceled) return [];
+  return result.assets.map((asset) => ({
+    uri: asset.uri,
+    name: asset.name,
+    mime: asset.mimeType ?? 'application/octet-stream',
+  }));
+}
+
+async function pickPhotos(source: 'library' | 'camera'): Promise<AttachmentUpload[]> {
+  // The system photo picker grants access only to the selected items.
+  if (source === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) {
+    throw new ApiError(403, 'Allow camera access in Settings to attach a photo.');
+  }
+  const result = source === 'camera'
+    ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+    : await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+      });
+  return result.canceled ? [] : result.assets.map(uploadFromAsset);
+}
+
 const EXTENSION_MIME: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -1021,7 +1079,7 @@ const EXTENSION_MIME: Record<string, string> = {
  * extension and type follow the file it hands back, not the original name.
  */
 function uploadFromAsset(asset: ImagePicker.ImagePickerAsset): AttachmentUpload {
-  const extension = asset.uri.split(/[?#]/)[0]?.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const extension = /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(asset.uri)?.[1]?.toLowerCase() ?? 'jpg';
   const mime = EXTENSION_MIME[extension] ?? asset.mimeType ?? 'image/jpeg';
   const stem = asset.fileName?.replace(/\.[^.]+$/, '') || `IMG_${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`;
   return { uri: asset.uri, name: `${stem}.${extension}`, mime };

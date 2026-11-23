@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
 import type { Task, TaskCreate } from '@/api/types';
+import { attachmentAsLink } from '@/lib/ics-attachments';
 
 /**
  * Deleted to-dos, kept on this device for 30 days so a mistaken delete can be
@@ -80,6 +81,7 @@ export function taskSnapshot(task: Task): TaskCreate & { uid: string } {
     sort_order: task.sort_order,
     pinned: task.pinned,
     rrule: task.rrule,
+    attachments: task.attachments?.filter((item) => !item.path && !item.file_id).map(attachmentAsLink),
   };
 }
 
@@ -92,7 +94,9 @@ export function addToRecycleBin(tasks: Task[]) {
     listName: task.list_name,
     accountName: task.account_name,
     task: taskSnapshot(task),
-    ...(task.attachments?.length ? { attachmentSource: { account_id: task.account_id, attachments: task.attachments } } : {}),
+    ...(task.attachments?.some((item) => item.path || item.file_id)
+      ? { attachmentSource: { account_id: task.account_id, attachments: task.attachments } }
+      : {}),
   }));
   return save((entries) => [...added, ...entries.filter((entry) => !added.some((a) => a.task.uid === entry.task.uid))]);
 }

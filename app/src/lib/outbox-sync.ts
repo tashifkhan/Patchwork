@@ -1,7 +1,7 @@
 import { ApiError } from '@/api/client';
 import { createGitHubIssue } from '@/api/github';
 import { createJiraIssue, type JiraIssueCreate } from '@/api/jira';
-import { createRemoteTask } from '@/api/tasks';
+import { createRemoteTask, sendQueuedAttachment } from '@/api/tasks';
 import type { GitHubIssue, GitHubIssueCreate } from '@/api/types';
 import type { GitHubRepositorySelection } from '@/features/github/types';
 import { checkConnection, isNetworkError, knownOffline } from '@/lib/connectivity';
@@ -44,7 +44,7 @@ async function run(retryFailed: boolean): Promise<FlushResult> {
   for (const entry of [...entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
     try {
       await send(entry);
-      await removeEntry(entry.id);
+      if (entry.kind !== 'attachment') await removeEntry(entry.id);
       sentKinds.add(entry.kind);
       result.sent += 1;
     } catch (error) {
@@ -61,7 +61,7 @@ async function run(retryFailed: boolean): Promise<FlushResult> {
     }
   }
 
-  if (sentKinds.has('task')) {
+  if (sentKinds.has('task') || sentKinds.has('attachment')) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
   }
   if (sentKinds.has('github-issue')) {
@@ -119,6 +119,9 @@ async function send(entry: OutboxEntry) {
         if (error instanceof ApiError && error.status === 412) return;
         throw error;
       }
+      return;
+    case 'attachment':
+      await sendQueuedAttachment(entry);
       return;
     case 'github-issue':
       await createGitHubIssue(entry.repository, entry.issue);

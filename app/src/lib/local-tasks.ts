@@ -163,6 +163,7 @@ export async function createLocalTask(payload: TaskCreate): Promise<Task> {
     rrule: payload.rrule ?? null,
     parent_uid: payload.parent_uid ?? null,
     children: [],
+    attachments: payload.attachments,
     etag: null,
     updated_at: now,
   };

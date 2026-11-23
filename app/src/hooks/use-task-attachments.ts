@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { addTaskAttachment, getAttachmentAccess, removeTaskAttachment } from '@/api/tasks';
-import type { AttachmentUpload, Task, TaskAttachment } from '@/api/types';
+import { useShallow } from 'zustand/react/shallow';
+
+import {
+  addTaskAttachment,
+  discardQueued,
+  downloadTaskAttachment,
+  getAttachmentAccess,
+  removeTaskAttachment,
+} from '@/api/tasks';
+import type { AttachmentTarget, AttachmentUpload, Task, TaskAttachment } from '@/api/types';
+import { useOutboxStore, type OutboxAttachmentEntry } from '@/lib/outbox';
 import { queryKeys } from '@/lib/query-client';
 
 /**
@@ -11,9 +20,10 @@ import { queryKeys } from '@/lib/query-client';
 export function useAttachmentAccess(accountId: string | undefined) {
   return useQuery({
     queryKey: ['attachment-access', accountId ?? null],
+    networkMode: 'always',
     queryFn: () => getAttachmentAccess(accountId),
     enabled: Boolean(accountId),
-    staleTime: Infinity,
+    staleTime: 60_000,
     retry: 1,
   });
 }
@@ -21,9 +31,13 @@ export function useAttachmentAccess(accountId: string | undefined) {
 export function useAddAttachment() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { taskId: string; file: AttachmentUpload; accountId?: string; etag?: string | null }) =>
-      addTaskAttachment(vars.taskId, vars.file, vars.accountId, vars.etag),
-    onSuccess: (updated, vars) => showNow(client, vars.taskId, updated),
+    networkMode: 'always',
+    mutationFn: (vars: { taskId: string; target: AttachmentTarget; file: AttachmentUpload; etag?: string | null }) =>
+      addTaskAttachment(vars.taskId, vars.target, vars.file, vars.etag),
+    // Null means it was queued; the outbox store shows it until it uploads.
+    onSuccess: (updated, vars) => {
+      if (updated) showNow(client, vars.taskId, updated);
+    },
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.tasks }),
   });
 }
@@ -39,6 +53,29 @@ export function useRemoveAttachment() {
     }) => removeTaskAttachment(vars.taskId, vars.attachment, vars.accountId, vars.etag),
     onSuccess: (updated, vars) => showNow(client, vars.taskId, updated),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.tasks }),
+  });
+}
+
+/** Files picked offline for this to-do, still waiting in the outbox. */
+export function useQueuedAttachments(taskUid: string, accountId?: string): OutboxAttachmentEntry[] {
+  return useOutboxStore(
+    useShallow((state) =>
+      state.entries.filter(
+        (entry): entry is OutboxAttachmentEntry => entry.kind === 'attachment' && entry.taskUid === taskUid && entry.accountId === accountId,
+      ),
+    ),
+  );
+}
+
+export function useDiscardQueuedAttachment() {
+  return useMutation({ networkMode: 'always', mutationFn: (entryId: string) => discardQueued(entryId) });
+}
+
+/** Downloads a Files attachment and returns its local URI, for the share sheet. */
+export function useDownloadAttachment() {
+  return useMutation({
+    mutationFn: (vars: { accountId: string; attachment: TaskAttachment }) =>
+      downloadTaskAttachment(vars.accountId, vars.attachment),
   });
 }
 

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
 import type { JiraIssueCreate } from '@/api/jira';
-import type { GitHubIssueCreate, Task, TaskCreate } from '@/api/types';
+import type { AttachmentUpload, GitHubIssueCreate, Task, TaskCreate } from '@/api/types';
 import type { GitHubRepositorySelection } from '@/features/github/types';
 
 /**
@@ -40,9 +40,24 @@ export interface OutboxJiraEntry extends EntryBase {
   input: JiraIssueCreate;
 }
 
-export type OutboxEntry = OutboxTaskEntry | OutboxGitHubEntry | OutboxJiraEntry;
+/** A file picked while offline, waiting to go up to the task's Nextcloud Files. */
+export interface OutboxAttachmentEntry extends EntryBase {
+  kind: 'attachment';
+  uploadId: string;
+  /** The task's server href, or the `outbox://` id of a to-do that hasn't synced yet. */
+  taskId: string;
+  taskUid: string;
+  taskTitle: string;
+  accountId: string;
+  accountName?: string;
+  /** A copy of the picked file in the app's documents folder, so it survives restarts. */
+  file: AttachmentUpload;
+}
+
+export type OutboxEntry = OutboxTaskEntry | OutboxGitHubEntry | OutboxJiraEntry | OutboxAttachmentEntry;
 type NewEntry =
   | Omit<OutboxTaskEntry, keyof EntryBase>
+  | Omit<OutboxAttachmentEntry, keyof EntryBase>
   | Omit<OutboxGitHubEntry, keyof EntryBase>
   | Omit<OutboxJiraEntry, keyof EntryBase>;
 
@@ -83,8 +98,8 @@ async function mutate(change: (entries: OutboxEntry[]) => OutboxEntry[]) {
   await loadOutbox();
   const run = writing.then(async () => {
     const next = change(useOutboxStore.getState().entries);
-    useOutboxStore.setState({ entries: next });
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    useOutboxStore.setState({ entries: next });
   });
   writing = run.catch(() => {});
   await run;
@@ -149,6 +164,7 @@ export function pendingTask(entry: OutboxTaskEntry): Task {
     etag: null,
     updated_at: entry.createdAt,
     pending_sync: true,
+    attachments: payload.attachments,
   };
 }
 
@@ -159,6 +175,11 @@ export function describeEntry(entry: OutboxEntry): { title: string; destination:
       return {
         title: entry.payload.title,
         destination: [entry.listName, entry.accountName].filter(Boolean).join(' · '),
+      };
+    case 'attachment':
+      return {
+        title: entry.file.name,
+        destination: [entry.taskTitle, entry.accountName].filter(Boolean).join(' · '),
       };
     case 'github-issue':
       return { title: entry.issue.title, destination: `GitHub · ${entry.repository.fullName}` };
