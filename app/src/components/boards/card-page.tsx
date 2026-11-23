@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { type ReactNode, useState } from 'react';
 import { Pressable, TextInput } from 'react-native';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -40,6 +39,7 @@ export function CardPage({
   onSave,
   onMove,
   onDelete,
+  onBack,
 }: {
   card: DeckCard;
   columnTitle: string;
@@ -56,6 +56,7 @@ export function CardPage({
   onSave: () => void;
   onMove: () => void;
   onDelete: () => void;
+  onBack: () => void;
 }) {
   const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
@@ -65,7 +66,10 @@ export function CardPage({
   // Above the floating navbar when it's on, like the other action bars.
   const barBottom = useTabBarFabOffset();
   const tone = columnTone(colors, dark, columnIndex);
-  const ink = dark ? colors.text : mixHex(tone.dot, '#000000', 0.25);
+  // A quiet tint of the column's colour: full tone in light mode, a low wash
+  // over the surface in dark mode so the header doesn't shout.
+  const headerBg = dark ? mixHex(colors.bg2, tone.dot, 0.16) : tone.bg;
+  const chipBg = withAlpha(dark ? '#FFFFFF' : '#FFFFFF', dark ? 0.08 : 0.65);
   const labels = (card.labels ?? []).filter((label) => label.title);
   const people = (card.assignedUsers ?? []).map((user) => user.participant?.displayname).filter(Boolean) as string[];
   const comments = typeof card.commentsCount === 'number' ? card.commentsCount : 0;
@@ -73,7 +77,7 @@ export function CardPage({
   const due = formatRelativeDue(card.duedate ?? null);
   const subtasks = checklistItems(description) ?? [];
   const done = subtasks.filter((sub) => sub.done).length;
-  const headerStyle = useAnimatedStyle(() => ({ backgroundColor: withTiming(tone.bg, { duration: 300 }) }), [tone.bg]);
+  const headerStyle = useAnimatedStyle(() => ({ backgroundColor: withTiming(headerBg, { duration: 300 }) }), [headerBg]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -88,17 +92,17 @@ export function CardPage({
         <Animated.View
           style={[
             {
-              paddingTop: insets.top + 8,
+              paddingTop: insets.top + 6,
               paddingHorizontal: 20,
-              paddingBottom: 24,
-              borderBottomLeftRadius: 36,
-              borderBottomRightRadius: 36,
-              gap: 14,
+              paddingBottom: 22,
+              borderBottomLeftRadius: 32,
+              borderBottomRightRadius: 32,
+              gap: 16,
             },
             headerStyle,
           ]}>
           <View className="flex-row items-center" style={{ gap: 8 }}>
-            <RoundButton icon="arrow-left" label="Back" ink={colors.text} onPress={() => router.back()} />
+            <RoundButton icon="arrow-left" label="Back" ink={colors.text} fill={chipBg} onPress={onBack} />
             <View style={{ flex: 1 }} />
             {/* The column, as a pill: tap to move the card. */}
             <Pressable
@@ -111,17 +115,17 @@ export function CardPage({
               style={({ pressed }) => ({
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 6,
-                height: 36,
-                paddingLeft: 12,
-                paddingRight: 8,
-                borderRadius: 18,
-                backgroundColor: withAlpha(dark ? '#FFFFFF' : '#FFFFFF', dark ? 0.1 : 0.6),
+                gap: 8,
+                height: 40,
+                paddingLeft: 14,
+                paddingRight: 10,
+                borderRadius: 20,
+                backgroundColor: chipBg,
                 opacity: pressed ? 0.7 : 1,
               })}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tone.dot }} />
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: tone.dot }} />
               <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{columnTitle}</Text>
-              <MaterialCommunityIcons name="chevron-down" size={18} color={colors.text2} />
+              <MaterialCommunityIcons name="swap-horizontal" size={18} color={colors.text2} />
             </Pressable>
           </View>
 
@@ -133,25 +137,19 @@ export function CardPage({
               placeholder="Card title"
               placeholderTextColor={withAlpha(colors.text, 0.4)}
               accessibilityLabel="Title"
-              style={{ fontSize: 28, lineHeight: 34, fontWeight: '800', letterSpacing: -0.5, color: colors.text, padding: 0 }}
+              style={{ fontSize: 30, lineHeight: 36, fontWeight: '800', letterSpacing: -0.6, color: colors.text, padding: 0 }}
             />
           </RiseIn>
 
           {labels.length ? (
-            <View className="flex-row flex-wrap" style={{ gap: 6 }}>
+            <View className="flex-row flex-wrap" style={{ gap: 6, marginTop: -4 }}>
               {labels.map((label, index) => {
-                const color = label.color ? `#${label.color}` : null;
+                const color = label.color ? `#${label.color}` : colors.accent;
                 return (
                   <View
                     key={`${label.title}-${index}`}
-                    style={{
-                      paddingHorizontal: 10,
-                      height: 26,
-                      borderRadius: 13,
-                      justifyContent: 'center',
-                      backgroundColor: color ? withAlpha(color, dark ? 0.32 : 0.2) : withAlpha('#FFFFFF', 0.6),
-                    }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: color ? (dark ? mixHex(color, '#FFFFFF', 0.4) : mixHex(color, '#000000', 0.4)) : colors.text2 }}>
+                    style={{ paddingHorizontal: 10, height: 26, borderRadius: 8, justifyContent: 'center', backgroundColor: color }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.3, color: '#FFFFFF' }}>
                       {label.title}
                     </Text>
                   </View>
@@ -160,34 +158,60 @@ export function CardPage({
             </View>
           ) : null}
 
-          <View className="flex-row items-center" style={{ gap: 10 }}>
+          {/* People and counts, each in a matching pill. */}
+          <View className="flex-row flex-wrap items-center" style={{ gap: 8 }}>
             {people.length ? (
-              <View className="flex-row" style={{ marginRight: 4 }}>
-                {people.slice(0, 4).map((name, index) => (
-                  <View
-                    key={`${name}-${index}`}
-                    accessible
-                    accessibilityLabel={`Assigned to ${name}`}
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 15,
-                      marginLeft: index ? -8 : 0,
-                      borderWidth: 2,
-                      borderColor: tone.bg,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: nameColor(name),
-                    }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#FFFFFF' }}>{initials(name)}</Text>
-                  </View>
-                ))}
-              </View>
+              <Pill bg={chipBg}>
+                <View className="flex-row" style={{ marginLeft: -6 }}>
+                  {people.slice(0, 3).map((name, index) => (
+                    <View
+                      key={`${name}-${index}`}
+                      accessible
+                      accessibilityLabel={`Assigned to ${name}`}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 12,
+                        marginLeft: index ? -6 : 0,
+                        borderWidth: 1.5,
+                        borderColor: headerBg,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: nameColor(name),
+                      }}>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF' }}>{initials(name)}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text numberOfLines={1} style={{ maxWidth: 150, fontSize: 13, fontWeight: '600', color: colors.text }}>
+                  {people.map((name) => name.split(' ')[0]).join(', ')}
+                </Text>
+              </Pill>
             ) : null}
-            {due.label ? <Meta icon="clock-outline" label={due.label} color={due.overdue ? colors.red : ink} /> : null}
-            {subtasks.length ? <Meta icon="file-tree-outline" label={`${done}/${subtasks.length}`} color={ink} /> : null}
-            {attachments ? <Meta icon="paperclip" label={String(attachments)} color={ink} /> : null}
-            {comments ? <Meta icon="comment-outline" label={String(comments)} color={ink} /> : null}
+            {due.label ? (
+              <Pill bg={due.overdue ? withAlpha(colors.red, 0.16) : chipBg}>
+                <MaterialCommunityIcons name="clock-outline" size={15} color={due.overdue ? colors.red : colors.text2} />
+                <Text style={{ fontSize: 13, fontWeight: '600', color: due.overdue ? colors.red : colors.text }}>{due.label}</Text>
+              </Pill>
+            ) : null}
+            {subtasks.length ? (
+              <Pill bg={chipBg}>
+                <MaterialCommunityIcons name="checkbox-marked-circle-outline" size={15} color={colors.text2} />
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{`${done}/${subtasks.length}`}</Text>
+              </Pill>
+            ) : null}
+            {attachments ? (
+              <Pill bg={chipBg}>
+                <MaterialCommunityIcons name="paperclip" size={15} color={colors.text2} />
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{attachments}</Text>
+              </Pill>
+            ) : null}
+            {comments ? (
+              <Pill bg={chipBg}>
+                <MaterialCommunityIcons name="comment-outline" size={15} color={colors.text2} />
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{comments}</Text>
+              </Pill>
+            ) : null}
           </View>
         </Animated.View>
 
@@ -243,11 +267,10 @@ export function CardPage({
   );
 }
 
-function Meta({ icon, label, color }: { icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; label: string; color: string }) {
+function Pill({ bg, children }: { bg: string; children: ReactNode }) {
   return (
-    <View className="flex-row items-center" style={{ gap: 4 }}>
-      <MaterialCommunityIcons name={icon} size={16} color={color} />
-      <Text style={{ fontSize: 14, fontWeight: '500', color }}>{label}</Text>
+    <View className="flex-row items-center" style={{ gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: bg }}>
+      {children}
     </View>
   );
 }
@@ -256,16 +279,18 @@ function RoundButton({
   icon,
   label,
   ink,
+  fill,
   onPress,
 }: {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   label: string;
   ink: string;
+  fill?: string;
   onPress: () => void;
 }) {
   const press = useElasticPress({ maxStretch: 0.08, maxTranslate: 2, pressedScale: 0.9 });
   return (
-    <Animated.View {...press.handlers} style={[press.style, { marginLeft: -8 }]}>
+    <Animated.View {...press.handlers} style={[press.style, { marginLeft: fill ? 0 : -8 }]}>
       <Pressable
         onPress={() => {
           haptics.tap();
@@ -274,7 +299,15 @@ function RoundButton({
         onPressOut={press.release}
         accessibilityRole="button"
         accessibilityLabel={label}
-        style={{ width: 48, height: 48, borderRadius: 24, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+        style={{
+          width: fill ? 40 : 48,
+          height: fill ? 40 : 48,
+          borderRadius: 24,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: fill,
+        }}>
         <PressGlow press={press} color={withAlpha(ink, 0.12)} radius={24} size={24} />
         <MaterialCommunityIcons name={icon} size={24} color={ink} />
       </Pressable>

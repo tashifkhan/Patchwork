@@ -1,4 +1,4 @@
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Platform } from 'react-native';
 
@@ -21,6 +21,7 @@ import { TaskActionBar } from '@/components/tasks/task-action-bar';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeleteDeckCard, useUpdateDeckCard } from '@/hooks/use-deck';
+import { useStackBack } from '@/hooks/use-stack-back';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { ScrollView, Text, View } from '@/tw';
@@ -88,6 +89,8 @@ function CardEditor({
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const barBottom = useTabBarFabOffset();
+  // Back to this card's board, even when nothing is under it in the stack.
+  const goBack = useStackBack(`/deck/board/deck:${boardId}`);
 
   const columns = stacks.filter((stack): stack is DeckStack & { id: number } => typeof stack.id === 'number');
   const column = columns.find((stack) => stack.id === targetStackId);
@@ -111,7 +114,7 @@ function CardEditor({
         target_stack_id: targetStackId,
       });
       haptics.success();
-      router.back();
+      goBack();
     } catch (error) {
       haptics.error();
       setErrorMessage(error instanceof Error ? error.message : 'Could not update the card.');
@@ -122,7 +125,7 @@ function CardEditor({
     setDeleteVisible(false);
     try {
       await deleteCard.mutateAsync({ board_id: boardId, stack_id: stackId, card_id: cardId });
-      router.back();
+      goBack();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not delete the card.');
     }
@@ -201,6 +204,7 @@ function CardEditor({
           onSave={save}
           onMove={() => setColumnOpen(true)}
           onDelete={() => setDeleteVisible(true)}
+          onBack={goBack}
         />
         {sheets}
       </>

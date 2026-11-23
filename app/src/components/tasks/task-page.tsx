@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { type ComponentProps, type ReactNode, useState } from 'react';
 import { Pressable, TextInput } from 'react-native';
 import Animated, { FadeIn, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -11,11 +10,12 @@ import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { RiseIn } from '@/components/ui/motion';
+import { useStackBack } from '@/hooks/use-stack-back';
 import { formatRelativeDue } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
 import { expandLayout } from '@/lib/motion';
 import { listTone } from '@/lib/smart-lists';
-import { withAlpha } from '@/lib/theme';
+import { mixHex, withAlpha } from '@/lib/theme';
 import { blockOf, formatBlock } from '@/lib/time-block';
 import { ScrollView, Text, View } from '@/tw';
 
@@ -91,10 +91,15 @@ export function TaskPage({
   const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
   const insets = useSafeAreaInsets();
+  // Back to the list, even when this page was opened with nothing under it.
+  const goBack = useStackBack('/(tabs)/(tasks)');
   // Once the header scrolls away, the status bar frosts over the page.
   const [scrolled, setScrolled] = useState(false);
   const tone = listTone(colors, dark, listIndex);
-  const headerStyle = useAnimatedStyle(() => ({ backgroundColor: withTiming(tone.fill, { duration: 300 }) }), [tone.fill]);
+  // Full tone in light mode; in dark mode a low wash over the surface, so the
+  // header is coloured without shouting.
+  const headerBg = dark ? mixHex(colors.bg2, tone.ink, 0.14) : tone.fill;
+  const headerStyle = useAnimatedStyle(() => ({ backgroundColor: withTiming(headerBg, { duration: 300 }) }), [headerBg]);
   const due = formatRelativeDue(draft.due_at);
   const block = blockOf({ start_at: draft.start_at, due_at: draft.due_at });
   const priority = draft.priority != null ? PRIORITY_NAME[draft.priority] : undefined;
@@ -125,7 +130,7 @@ export function TaskPage({
             headerStyle,
           ]}>
           <View className="flex-row items-center" style={{ gap: 8 }}>
-            <RoundButton icon="arrow-left" label="Back" ink={tone.ink} onPress={() => router.back()} />
+            <RoundButton icon="arrow-left" label="Back" ink={tone.ink} onPress={goBack} />
             <View style={{ flex: 1 }} />
             <Pressable
               onPress={() => {

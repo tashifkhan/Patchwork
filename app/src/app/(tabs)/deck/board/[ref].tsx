@@ -16,6 +16,7 @@ import { BoardTile } from '@/components/boards/board-tile';
 import { FilterSheet, JIRA_SCOPES } from '@/components/boards/filter-sheet';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { SprintBar } from '@/components/boards/sprint-bar';
+import { useStackBack } from '@/hooks/use-stack-back';
 import { BoardToolbar } from '@/components/boards/board-toolbar';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -82,6 +83,7 @@ export default function BoardScreen() {
     [credentials, source]
   );
 
+  const goBack = useStackBack('/deck');
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [moving, setMoving] = useState<{ card: BoardCardItem; column: BoardColumnItem } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -367,7 +369,7 @@ export default function BoardScreen() {
       <IconButton
         icon={Platform.OS === 'ios' ? 'chevron-left' : 'arrow-left'}
         label="Back to boards"
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/deck'))}
+        onPress={goBack}
       />
       <Pressable
         onPress={() => {
