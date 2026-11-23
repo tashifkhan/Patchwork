@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { memo, useEffect } from 'react';
-import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { memo, useEffect, useState } from 'react';
+import Animated, { Easing, FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Platform, Pressable } from 'react-native';
 
-import { initials, nameColor, type BoardCardItem } from '@/features/boards/model';
+import { initials, nameColor, type BoardCardItem, type BoardSubtask } from '@/features/boards/model';
+import { haptics } from '@/lib/haptics';
 import { priorityTone } from '@/components/boards/board-tone';
 import { useTheme } from '@/components/theme/context';
 import { mixHex, withAlpha } from '@/lib/theme';
@@ -15,9 +16,10 @@ import { ELASTIC_CARD, ElasticView } from '@/components/ui/motion';
 /**
  * A card on a board column, in the soft board style: priority and labels as
  * tinted chips on top (the Jira key on the right), a bold title with the
- * first line of the description under it, checklist progress as a bar, and a
- * footer of assignees on the left and due date, attachment and comment counts
- * as small pills on the right.
+ * first line of the description under it, and a footer of assignees on the
+ * left and sub-items, due date, attachments and comments as small pills on
+ * the right. The sub-item pill opens the card's subtasks (Jira sub-tasks, or a
+ * Deck card's checklist) right inside the card.
  */
 export const BoardCard = memo(function BoardCard({
   card,
@@ -35,7 +37,9 @@ export const BoardCard = memo(function BoardCard({
   const dark = scheme === 'dark';
   const due = formatRelativeDue(card.due ?? null);
   const priority = priorityTone(card.priorityName, colors, dark);
-  const percent = card.progress ? Math.round((card.progress.done / card.progress.total) * 100) : null;
+  const [expanded, setExpanded] = useState(false);
+  const subtasks = card.subtasks ?? [];
+  const subtasksDone = subtasks.filter((sub) => sub.done).length;
 
   return (
     <View
@@ -52,7 +56,7 @@ export const BoardCard = memo(function BoardCard({
         onLongPress={onLongPress}
         delayLongPress={300}
         accessibilityRole="button"
-        accessibilityLabel={[card.priorityName ? `${card.priorityName} priority` : null, card.key, card.title, percent != null ? `${percent}% done` : null]
+        accessibilityLabel={[card.priorityName ? `${card.priorityName} priority` : null, card.key, card.title, subtasks.length ? `${subtasksDone} of ${subtasks.length} subtasks done` : null]
           .filter(Boolean)
           .join(', ')}
         accessibilityHint={onLongPress ? 'Long press to move to another column' : 'Long press and drag to move'}
@@ -104,7 +108,7 @@ export const BoardCard = memo(function BoardCard({
           ) : null}
         </View>
 
-        {percent != null ? <ProgressBar percent={percent} /> : null}
+        {expanded && subtasks.length ? <SubtaskList subtasks={subtasks} /> : null}
 
         <View className="flex-row items-center" style={{ gap: 6, minHeight: 28 }}>
           {card.assignee ? (
@@ -114,6 +118,17 @@ export const BoardCard = memo(function BoardCard({
             <Text style={{ fontSize: 12, color: colors.text2 }}>+{(card.assigneeCount ?? 1) - 1}</Text>
           ) : null}
           <View style={{ flex: 1 }} />
+          {subtasks.length ? (
+            <SubtaskPill
+              done={subtasksDone}
+              total={subtasks.length}
+              expanded={expanded}
+              onPress={() => {
+                haptics.selection();
+                setExpanded((v) => !v);
+              }}
+            />
+          ) : null}
           {due.label ? (
             <CountPill icon="clock-outline" label={due.label} alert={due.overdue} />
           ) : null}
@@ -137,24 +152,96 @@ function Chip({ label, bg, ink }: { label: string; bg: string; ink: string }) {
   );
 }
 
-/** "Progress  60%" over a rounded bar that fills to the share of ticked checklist items. */
-function ProgressBar({ percent }: { percent: number }) {
+/** "2/5" sub-items with a chevron; tapping it opens or closes the list in the card. */
+function SubtaskPill({
+  done,
+  total,
+  expanded,
+  onPress,
+}: {
+  done: number;
+  total: number;
+  expanded: boolean;
+  onPress: () => void;
+}) {
   const { colors } = useTheme();
-  const fill = useSharedValue(0);
+  const turn = useSharedValue(expanded ? 1 : 0);
   useEffect(() => {
-    fill.set(withTiming(percent / 100, { duration: 520, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }));
-  }, [percent, fill]);
-  const bar = useAnimatedStyle(() => ({ width: `${fill.value * 100}%` }));
+    turn.set(withTiming(expanded ? 1 : 0, { duration: 200, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }));
+  }, [expanded, turn]);
+  const chevron = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.value * 180}deg` }] }));
+  const all = done === total;
   return (
-    <View style={{ gap: 6 }}>
-      <View className="flex-row items-center">
-        <Text style={{ flex: 1, fontSize: 12, color: colors.text3 }}>Progress</Text>
-        <Text style={{ fontSize: 12, color: colors.text3, fontVariant: ['tabular-nums'] }}>{percent}%</Text>
-      </View>
-      <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.bg3, overflow: 'hidden' }}>
-        <Animated.View style={[{ height: 6, borderRadius: 3, backgroundColor: colors.accent }, bar]} />
-      </View>
-    </View>
+    <Pressable
+      onPress={onPress}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={`${done} of ${total} subtasks done. ${expanded ? 'Hide' : 'Show'} subtasks`}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        height: 24,
+        paddingLeft: 7,
+        paddingRight: 4,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: expanded ? colors.accent : colors.separator,
+        backgroundColor: expanded ? withAlpha(colors.accent, 0.1) : pressed ? colors.bg3 : 'transparent',
+      })}>
+      <MaterialCommunityIcons
+        name={all ? 'checkbox-marked-circle-outline' : 'file-tree-outline'}
+        size={13}
+        color={expanded || all ? colors.accent : colors.text2}
+      />
+      <Text style={{ fontSize: 12, color: expanded ? colors.accent : colors.text2, fontVariant: ['tabular-nums'] }}>
+        {done}/{total}
+      </Text>
+      <Animated.View style={chevron}>
+        <MaterialCommunityIcons name="chevron-down" size={14} color={expanded ? colors.accent : colors.text3} />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+/** The card's sub-items, one per row, ticked ones struck through. */
+function SubtaskList({ subtasks }: { subtasks: BoardSubtask[] }) {
+  const { colors } = useTheme();
+  return (
+    <Animated.View
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(120)}
+      style={{ borderRadius: 12, backgroundColor: colors.bg2, paddingVertical: 4, paddingHorizontal: 10 }}>
+      {subtasks.map((sub, index) => (
+        <View
+          key={`${sub.key ?? sub.title}-${index}`}
+          className="flex-row items-center"
+          style={{
+            gap: 8,
+            minHeight: 34,
+            borderTopWidth: index === 0 ? 0 : 0.5,
+            borderTopColor: colors.separator,
+          }}>
+          <MaterialCommunityIcons
+            name={sub.done ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+            size={16}
+            color={sub.done ? colors.accent : colors.text3}
+          />
+          <Text
+            numberOfLines={2}
+            style={{
+              flex: 1,
+              fontSize: 14,
+              color: sub.done ? colors.text3 : colors.text,
+              textDecorationLine: sub.done ? 'line-through' : 'none',
+            }}>
+            {sub.title}
+          </Text>
+          {sub.key ? <Text style={{ fontSize: 11, color: colors.text3 }}>{sub.key}</Text> : null}
+        </View>
+      ))}
+    </Animated.View>
   );
 }
 
