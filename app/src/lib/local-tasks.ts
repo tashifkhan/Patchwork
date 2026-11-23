@@ -155,6 +155,7 @@ export async function createLocalTask(payload: TaskCreate): Promise<Task> {
     completed: payload.completed ?? false,
     priority: payload.priority ?? null,
     due_at: payload.due_at ?? null,
+    start_at: payload.start_at ?? null,
     reminder_at: payload.reminder_at ?? null,
     tags: normalizeTags(payload.tags ?? []),
     sort_order: payload.sort_order ?? null,

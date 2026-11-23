@@ -16,6 +16,11 @@ export function togglePatch(task: Task, now: Date = new Date()): { patch: TaskUp
         const lead = new Date(task.due_at).getTime() - new Date(task.reminder_at).getTime();
         patch.reminder_at = new Date(new Date(next).getTime() - lead).toISOString();
       }
+      // A time block moves with its due date and keeps its length.
+      if (task.start_at && task.due_at) {
+        const length = new Date(task.due_at).getTime() - new Date(task.start_at).getTime();
+        patch.start_at = new Date(new Date(next).getTime() - length).toISOString();
+      }
       return { patch, repeated: true };
     }
   }

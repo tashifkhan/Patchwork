@@ -40,3 +40,37 @@ test('VTIMEZONE rules are never read or rewritten as the task repeat', () => {
   expect(todo).toContain('DTSTART:20260820T070000Z');
   expect(parseVtodo(repeated, 'h', null, list)!.rrule).toBe('FREQ=MONTHLY');
 });
+
+test('a time block round-trips as DTSTART and DUE', () => {
+  const { calendarData } = serializeVtodo({
+    list_id: 'a:l',
+    title: 'Design meeting',
+    start_at: '2026-07-20T14:00:00.000Z',
+    due_at: '2026-07-20T15:30:00.000Z',
+  });
+  expect(calendarData).toContain('DTSTART:20260720T140000Z');
+  const t = parseVtodo(calendarData, 'h', null, list)!;
+  expect(t.start_at).toBe('2026-07-20T14:00:00.000Z');
+  expect(t.due_at).toBe('2026-07-20T15:30:00.000Z');
+
+  // Moving only the due date keeps the start where it was.
+  const moved = updateVtodo(calendarData, { due_at: '2026-07-20T16:00:00.000Z' });
+  expect(parseVtodo(moved, 'h', null, list)!.start_at).toBe('2026-07-20T14:00:00.000Z');
+
+  // Clearing the start drops DTSTART from a one-off to-do.
+  const cleared = updateVtodo(moved, { start_at: null });
+  expect(cleared).not.toContain('DTSTART');
+  expect(parseVtodo(cleared, 'h', null, list)!.start_at).toBeNull();
+});
+
+test('a repeat anchor equal to DUE is not a time block', () => {
+  const { calendarData } = serializeVtodo({ list_id: 'a:l', title: 'T', rrule: 'FREQ=DAILY', due_at: '2026-07-20T09:00:00.000Z' });
+  expect(parseVtodo(calendarData, 'h', null, list)!.start_at).toBeNull();
+  // Giving the repeat a block moves DTSTART to the block's start.
+  const blocked = updateVtodo(calendarData, { start_at: '2026-07-20T08:00:00.000Z' });
+  expect(parseVtodo(blocked, 'h', null, list)!.start_at).toBe('2026-07-20T08:00:00.000Z');
+  // Removing the block puts the anchor back on the due date.
+  const unblocked = updateVtodo(blocked, { start_at: null });
+  expect(unblocked).toContain('DTSTART:20260720T090000Z');
+  expect(parseVtodo(unblocked, 'h', null, list)!.start_at).toBeNull();
+});
