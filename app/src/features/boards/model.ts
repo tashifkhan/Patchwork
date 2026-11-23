@@ -37,8 +37,26 @@ export interface BoardCardItem {
   labels: { title: string; color?: string }[];
   due?: string | null;
   hasDescription?: boolean;
+  /** First line of the description as plain text, for the card's note. */
+  note?: string;
+  /**
+   * Sub-items: a Jira issue's sub-tasks, or a Deck card's checklist (the
+   * `- [ ]` / `- [x]` lines in its description).
+   */
+  subtasks?: BoardSubtask[];
+  comments?: number;
+  attachments?: number;
+  /** Jira status category: done cards draw complete. */
+  statusCategory?: string;
   /** Jira boards with sprints: the sprint the issue is in, or the backlog. */
   sprint?: CardSprint;
+}
+
+export interface BoardSubtask {
+  title: string;
+  done: boolean;
+  /** Jira sub-task key, e.g. NOVA-31. */
+  key?: string;
 }
 
 export interface CardSprint {
@@ -112,7 +130,41 @@ function deckCardItem(card: DeckCard, index: number): BoardCardItem {
     assignee: first ? { name: first } : undefined,
     assigneeCount: assignees.length,
     hasDescription: !!card.description?.trim(),
+    note: noteOf(card.description),
+    subtasks: checklistItems(card.description),
+    comments: count(card.commentsCount),
+    attachments: count(card.attachmentCount),
   };
+}
+
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && value > 0 ? value : undefined;
+}
+
+/** The first line of prose in a markdown description, markers and checklist lines left out. */
+export function noteOf(markdown: string | undefined): string | undefined {
+  if (!markdown) return undefined;
+  for (const raw of markdown.split('\n')) {
+    const line = raw.trim();
+    if (!line || /^[-*+]\s+\[[ xX]\]/.test(line)) continue;
+    const text = line
+      .replace(/^#{1,6}\s+|^>\s?|^[-*+]\s+|^\d+[.)]\s+/, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[*_`~]/g, '')
+      .trim();
+    if (text) return text.length > 140 ? `${text.slice(0, 139)}…` : text;
+  }
+  return undefined;
+}
+
+/** The checklist items in a markdown description, or nothing without one. */
+export function checklistItems(markdown: string | undefined): BoardSubtask[] | undefined {
+  if (!markdown) return undefined;
+  const items: BoardSubtask[] = [];
+  for (const match of markdown.matchAll(/^\s*[-*+]\s+\[([ xX])\]\s*(.*)$/gm)) {
+    items.push({ title: match[2].trim(), done: match[1].toLowerCase() === 'x' });
+  }
+  return items.length ? items : undefined;
 }
 
 export function deckColumns(detail: DeckBoardDetail): BoardColumnItem[] {
@@ -156,6 +208,8 @@ function jiraCardItem(issue: JiraIssue, sprint?: CardSprint): BoardCardItem {
     assigneeCount: issue.assignee ? 1 : 0,
     labels: issue.labels.map((title) => ({ title })),
     due: issue.duedate ?? null,
+    statusCategory: issue.statusCategory,
+    subtasks: issue.subtasks?.length ? issue.subtasks : undefined,
     sprint,
   };
 }
@@ -268,4 +322,32 @@ export function groupBySprint(columns: BoardColumnItem[]): { columns: BoardColum
         .map(({ card }) => card),
     })),
   };
+}
+
+/**
+ * Cards whose title, key, labels, note or sub-items contain every word of
+ * `query`, case-insensitively. An empty query keeps everything.
+ */
+export function searchColumns(columns: BoardColumnItem[], query: string): BoardColumnItem[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return columns;
+  return columns.map((column) => ({
+    ...column,
+    cards: column.cards.filter((card) => {
+      const haystack = [
+        card.title,
+        card.key,
+        card.note,
+        card.typeName,
+        card.priorityName,
+        card.assignee?.name,
+        ...card.labels.map((label) => label.title),
+        ...(card.subtasks ?? []).map((sub) => sub.title),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    }),
+  }));
 }

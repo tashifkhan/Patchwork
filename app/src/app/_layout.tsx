@@ -6,19 +6,24 @@ import { router, type ErrorBoundaryProps } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { AppState, Pressable } from 'react-native';
+import { AppState, Platform, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
 import { KeyboardProvider } from '@/components/ui/keyboard';
+import { AppLockGate } from '@/components/app-lock';
+import { ConfettiHost } from '@/components/ui/confetti';
 import { useTasks } from '@/hooks/use-tasks';
+import { loadCustomFonts } from '@/lib/fonts';
 import { DURATION } from '@/lib/motion';
 import { loadOutbox, useOutboxStore } from '@/lib/outbox';
 import { flushOutbox } from '@/lib/outbox-sync';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient } from '@/lib/query-client';
-import { sheetScreenOptions } from '@/lib/screen-options';
+import { ANDROID_PUSH, sheetScreenOptions } from '@/lib/screen-options';
+import { syncBrainDumpReminders } from '@/stores/brain-dump-store';
+import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { Text, View } from '@/tw';
@@ -92,57 +97,74 @@ export default function RootLayout() {
       {/* Tracks the keyboard app-wide, frame by frame, for every keyboard-aware
           scroll view and for bars that ride on top of the keyboard. */}
       <KeyboardProvider>
-      <QueryClientProvider client={queryClient}>
-        <NativeRuntimeCoordinator />
-        <ThemeProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="new-task"
-              options={sheetScreenOptions([0.72, 1.0], 'New Task')}
-            />
-            {/*
-              Root-level so it can be presented over the `new-task` sheet. While
-              it lived in `(tabs)/(tasks)` the push targeted a navigator sitting
-              below the sheet, which made the picker unreachable while creating.
-            */}
-            <Stack.Screen name="tags" options={sheetScreenOptions([0.72, 1.0], 'Tags')} />
-            {/*
-              AI import review. Pushed from the add dialog (natural language or a
-              photo); nothing is written until the user taps Create.
-            */}
-            <Stack.Screen
-              name="ai-review"
-              options={{ headerShown: true, headerLargeTitle: false, title: 'Review tasks' }}
-            />
-            <Stack.Screen
-              name="new-card"
-              options={sheetScreenOptions([0.72, 1.0], 'New Card')}
-            />
-            <Stack.Screen
-              name="new-issue"
-              options={sheetScreenOptions([0.72, 1.0], 'New Issue')}
-            />
-            <Stack.Screen
-              name="new-board"
-              options={sheetScreenOptions([0.55, 0.85], 'New Board')}
-            />
-            <Stack.Screen
-              name="column"
-              options={sheetScreenOptions([0.55, 0.85], 'Column')}
-            />
-            <Stack.Screen
-              name="reorder-columns"
-              options={sheetScreenOptions([0.6, 1.0], 'Reorder Columns')}
-            />
-            <Stack.Screen
-              name="edit-list"
-              options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
-            />
-          </Stack>
-          <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
-        </ThemeProvider>
-      </QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          <NativeRuntimeCoordinator />
+          <ThemeProvider>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                ...(Platform.OS === 'android' ? { animation: ANDROID_PUSH } : null),
+                // iOS: the round glass chevron with no label, as in Settings, on
+                // every screen pushed here (Calendar, review, scan...).
+                ...(Platform.OS === 'ios' ? { headerBackButtonDisplayMode: 'minimal' as const } : null),
+              }}>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Tasks' }} />
+              <Stack.Screen
+                name="new-task"
+                // Android creates on a full page that slides in; iOS keeps the form sheet.
+                options={Platform.OS === 'android' ? { headerShown: false } : sheetScreenOptions([0.72, 1.0], 'New Task')}
+              />
+              {/*
+                Root-level so it can be presented over the `new-task` sheet. While
+                it lived in `(tabs)/(tasks)` the push targeted a navigator sitting
+                below the sheet, which made the picker unreachable while creating.
+              */}
+              <Stack.Screen name="tags" options={sheetScreenOptions([0.72, 1.0], 'Tags')} />
+              {/*
+                AI import review. Pushed from the add dialog (natural language or a
+                photo); nothing is written until the user taps Create.
+              */}
+              <Stack.Screen
+                name="ai-review"
+                options={{ headerShown: true, headerLargeTitle: false, title: 'Review tasks' }}
+              />
+              <Stack.Screen
+                name="new-card"
+                options={sheetScreenOptions([0.72, 1.0], 'New Card')}
+              />
+              <Stack.Screen
+                name="new-issue"
+                options={sheetScreenOptions([0.72, 1.0], 'New Issue')}
+              />
+              <Stack.Screen
+                name="new-board"
+                options={sheetScreenOptions([0.55, 0.85], 'New Board')}
+              />
+              <Stack.Screen
+                name="column"
+                options={sheetScreenOptions([0.55, 0.85], 'Column')}
+              />
+              <Stack.Screen
+                name="reorder-columns"
+                options={sheetScreenOptions([0.6, 1.0], 'Reorder Columns')}
+              />
+              <Stack.Screen
+                name="edit-list"
+                options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
+              />
+              <Stack.Screen name="pomodoro" options={sheetScreenOptions([0.72, 1.0], 'Focus')} />
+              <Stack.Screen name="brain-dump" options={sheetScreenOptions([0.85, 1.0], 'Brain dump')} />
+              <Stack.Screen name="share-tasks" options={sheetScreenOptions([0.85, 1.0], 'Share')} />
+              <Stack.Screen name="list-text" options={sheetScreenOptions([1.0], 'Edit as text')} />
+              <Stack.Screen name="calendar" options={{ headerShown: true, title: 'Calendar', headerLargeTitle: false }} />
+              <Stack.Screen name="lists" options={{ title: 'Lists' }} />
+              <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
+            </Stack>
+            <ConfettiHost />
+            {process.env.EXPO_OS !== 'web' ? <AppLockGate /> : null}
+            <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
+          </ThemeProvider>
+        </QueryClientProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>
   );
@@ -203,6 +225,40 @@ function NativeRuntimeCoordinator() {
     };
   }, []);
 
+  // A running focus timer survives relaunches: catch up on phases that ended
+  // while the app was closed and put the live timer back.
+  useEffect(() => {
+    if (process.env.EXPO_OS === 'web') return;
+    const wake = () => {
+      const timer = usePomodoroStore.getState();
+      void timer.settle().then(() => usePomodoroStore.getState().refreshLive());
+    };
+    const unsub = usePomodoroStore.persist.onFinishHydration(wake);
+    if (usePomodoroStore.persist.hasHydrated()) wake();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void usePomodoroStore.getState().settle();
+    });
+    return () => {
+      unsub();
+      subscription.remove();
+    };
+  }, []);
+
+  // Imported fonts have to be registered again on every launch.
+  const customFonts = useSettingsStore((state) => state.customFonts);
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web' && customFonts.length) void loadCustomFonts(customFonts);
+  }, [customFonts]);
+
+  // Brain dump nudges follow their settings (and the master notifications switch).
+  const brainDumpReminders = useSettingsStore((state) => state.brainDumpReminders);
+  const brainDumpTimes = useSettingsStore((state) => state.brainDumpTimes);
+  const settingsHydrated = useSettingsStore((state) => state.hydrated);
+  useEffect(() => {
+    if (process.env.EXPO_OS === 'web' || !settingsHydrated) return;
+    void syncBrainDumpReminders();
+  }, [brainDumpReminders, brainDumpTimes, notificationsEnabled, settingsHydrated]);
+
   useEffect(() => {
     if (!tasksQuery.data) return;
     syncTaskReminders(tasksQuery.data).catch(() => {});
@@ -216,6 +272,8 @@ function NativeRuntimeCoordinator() {
         pathname: '/task/[uid]',
         params: { uid: taskUid },
       });
+    }, (href) => {
+      if (href === '/pomodoro' || href === '/brain-dump') router.push(href);
     }).then((cleanup) => {
       if (active) stop = cleanup;
       else cleanup();

@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react';
 import {
+  Platform,
   type GestureResponderEvent,
   type LayoutChangeEvent,
   type StyleProp,
@@ -14,7 +15,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { useTheme } from '@/components/theme/context';
 import { EXPRESSIVE } from '@/lib/motion';
+import { withAlpha } from '@/lib/theme';
 
 /*
  * The press response here is adapted from `luminousElasticClickable` in
@@ -54,6 +57,12 @@ export interface ElasticPress {
   touchY: SharedValue<number>;
   /** 1 while held, easing back to 0 after release. */
   glow: SharedValue<number>;
+  /**
+   * Lets go. The touch handlers call it, but a touch end can get lost (a
+   * layout animation moving the view mid-press), so also wire it to the inner
+   * Pressable's onPressOut. Safe to call twice.
+   */
+  release: () => void;
 }
 
 /**
@@ -143,7 +152,7 @@ export function useElasticPress({
     };
   });
 
-  return { handlers, style, touchX, touchY, glow };
+  return { handlers, style, touchX, touchY, glow, release };
 }
 
 /**
@@ -193,16 +202,28 @@ export function PressGlow({
   );
 }
 
-/** A view that gives under a finger. For controls that don't need the glow. */
+/**
+ * A view that gives under a finger. On Android it also lights up where the
+ * finger is (Paisa's pressGlow), clipped to `glowRadius`; pass `glow={false}` to skip it.
+ */
 export function ElasticView({
   children,
   style,
+  glow = Platform.OS === 'android',
+  glowRadius = 16,
   ...options
-}: ElasticPressOptions & { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+}: ElasticPressOptions & {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  glow?: boolean;
+  glowRadius?: number;
+}) {
   const press = useElasticPress(options);
+  const { colors } = useTheme();
   return (
     <Animated.View {...press.handlers} style={[style, press.style]}>
       {children}
+      {glow ? <PressGlow press={press} color={withAlpha(colors.accent, 0.12)} radius={glowRadius} /> : null}
     </Animated.View>
   );
 }

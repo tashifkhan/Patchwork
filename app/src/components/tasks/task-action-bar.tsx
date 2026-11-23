@@ -1,13 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import { Platform, Pressable } from 'react-native';
-import Animated, { FadeOut, SlideInDown } from 'react-native-reanimated';
+import type { ReactNode } from 'react';
+import { Platform } from 'react-native';
+import Animated, { FadeOut, ZoomIn } from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
 import { useKeyboardLift } from '@/components/ui/keyboard';
+import { ElasticPressable } from '@/components/ui/motion';
+import { RollingNumber } from '@/components/ui/rolling-number';
 import { haptics } from '@/lib/haptics';
-import { DURATION, EASING, SPRING } from '@/lib/motion';
+import { DURATION, EASING } from '@/lib/motion';
 import { Text, View } from '@/tw';
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -35,70 +38,143 @@ export function TaskActionBar({
   deleteLabel?: string;
 }) {
   const { colors } = useTheme();
-  const lift = useKeyboardLift(bottom);
 
   return (
-    <>
-      {lift.marker}
-      {/* Two layers so the transforms don't fight: the outer one rides on the
-          keyboard, the inner one springs in from below. */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
-        <Animated.View
-          entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
-          exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
-          pointerEvents="box-none">
-        <BarSurface>
-          <Pressable
-            onPress={() => {
-              haptics.tap();
-              onMove();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Move"
-            android_ripple={{ color: colors.separator }}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              height: 48,
-              paddingLeft: 16,
-              paddingRight: 20,
-              // Expressive shape morph: the pill squares off while held.
-              borderRadius: pressed ? 12 : 24,
-              borderCurve: 'continuous',
-              overflow: 'hidden',
-              backgroundColor: colors.accent,
-              opacity: pressed && Platform.OS === 'ios' ? 0.85 : 1,
-            })}>
-            {GLASS ? (
-              <SymbolView name="arrow.right" size={18} tintColor={colors.onAccent} weight="semibold" />
-            ) : (
-              <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
-            )}
-            <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>Move</Text>
-          </Pressable>
+    <KeyboardBar bottom={bottom}>
+      <BarSurface>
+        <ElasticPressable
+          variant="control"
+          onPress={() => {
+            haptics.tap();
+            onMove();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Move"
+          android_ripple={{ color: colors.separator }}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            height: 48,
+            paddingLeft: 16,
+            paddingRight: 20,
+            // Expressive shape morph: the pill squares off while held.
+            borderRadius: pressed ? 12 : 24,
+            borderCurve: 'continuous',
+            overflow: 'hidden',
+            backgroundColor: colors.accent,
+            opacity: pressed && Platform.OS === 'ios' ? 0.85 : 1,
+          })}>
+          {GLASS ? (
+            <SymbolView name="arrow.right" size={18} tintColor={colors.onAccent} weight="semibold" />
+          ) : (
+            <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
+          )}
+          <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>Move</Text>
+        </ElasticPressable>
+        <IconAction
+          icon="trash-can-outline"
+          sf="trash"
+          label={deleteLabel}
+          color={GLASS ? colors.danger : colors.onPrimaryContainer}
+          onPress={onDelete}
+        />
+        {onDetails ? (
           <IconAction
-            icon="trash-can-outline"
-            sf="trash"
-            label={deleteLabel}
-            color={GLASS ? colors.danger : colors.onPrimaryContainer}
-            onPress={onDelete}
+            icon="arrow-expand"
+            sf="arrow.up.left.and.arrow.down.right"
+            label="Details"
+            color={GLASS ? colors.text : colors.onPrimaryContainer}
+            onPress={onDetails}
           />
-          {onDetails ? (
+        ) : null}
+      </BarSurface>
+    </KeyboardBar>
+  );
+}
+
+/**
+ * Multi-select toolbar (long-press a to-do to start). Same surface as the
+ * single to-do bar: the main action, completing, is the filled pill.
+ */
+export function SelectionBar({
+  bottom,
+  count,
+  onComplete,
+  onMove,
+  onPin,
+  onMerge,
+  onDelete,
+  onCancel,
+}: {
+  bottom: number;
+  count: number;
+  onComplete: () => void;
+  onMove: () => void;
+  onPin: () => void;
+  /** Hidden below two selected. */
+  onMerge: () => void;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  const { colors } = useTheme();
+  const iconColor = GLASS ? colors.text : colors.onPrimaryContainer;
+  const disabled = count === 0;
+
+  return (
+    <KeyboardBar bottom={bottom}>
+      <BarSurface>
+        <IconAction icon="close" sf="xmark" label="Cancel selection" color={iconColor} onPress={onCancel} />
+        <ElasticPressable
+          variant="control"
+          disabled={disabled}
+          onPress={() => {
+            haptics.success();
+            onComplete();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Complete ${count} selected`}
+          android_ripple={{ color: colors.separator }}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            height: 48,
+            paddingLeft: 14,
+            paddingRight: 18,
+            borderRadius: pressed ? 12 : 24,
+            borderCurve: 'continuous',
+            overflow: 'hidden',
+            backgroundColor: colors.accent,
+            opacity: disabled ? 0.5 : pressed && Platform.OS === 'ios' ? 0.85 : 1,
+          })}>
+          <MaterialCommunityIcons name="check-all" size={20} color={colors.onAccent} />
+          <RollingNumber value={count} style={{ color: colors.onAccent, fontSize: 16, lineHeight: 22, fontWeight: '600' }} />
+        </ElasticPressable>
+        {disabled ? null : (
+          <>
+            <IconAction icon="arrow-right" sf="arrow.right" label="Move selected" color={iconColor} onPress={onMove} />
+            <IconAction icon="pin-outline" sf="pin" label="Pin or unpin selected" color={iconColor} onPress={onPin} />
+            {count > 1 ? (
+              <IconAction
+                icon="call-merge"
+                sf="arrow.triangle.merge"
+                label="Merge selected into one to-do"
+                color={iconColor}
+                onPress={onMerge}
+              />
+            ) : null}
             <IconAction
-              icon="arrow-expand"
-              sf="arrow.up.left.and.arrow.down.right"
-              label="Details"
-              color={GLASS ? colors.text : colors.onPrimaryContainer}
-              onPress={onDetails}
+              icon="trash-can-outline"
+              sf="trash"
+              label="Delete selected"
+              color={GLASS ? colors.danger : colors.onPrimaryContainer}
+              onPress={onDelete}
             />
-          ) : null}
-        </BarSurface>
-        </Animated.View>
-      </Animated.View>
-    </>
+          </>
+        )}
+      </BarSurface>
+    </KeyboardBar>
   );
 }
 
@@ -106,6 +182,25 @@ export function TaskActionBar({
  * iOS 26+: a Liquid Glass capsule, like the system's floating toolbars.
  * Android (and older iOS): the M3 vibrant floating toolbar.
  */
+function KeyboardBar({ bottom, children }: { bottom: number; children: ReactNode }) {
+  const lift = useKeyboardLift(bottom);
+  return (
+    <>
+      {lift.marker}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
+        <Animated.View
+          pointerEvents="box-none"
+          entering={ZoomIn.duration(DURATION.short3)}
+          exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}>
+          {children}
+        </Animated.View>
+      </Animated.View>
+    </>
+  );
+}
+
 function BarSurface({ children }: { children: React.ReactNode }) {
   const { colors, scheme } = useTheme();
   const layout = {
@@ -153,7 +248,8 @@ function IconAction({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="button"
       onPress={() => {
         haptics.tap();
         onPress();
@@ -175,6 +271,6 @@ function IconAction({
       ) : (
         <MaterialCommunityIcons name={icon} size={24} color={color} />
       )}
-    </Pressable>
+    </ElasticPressable>
   );
 }

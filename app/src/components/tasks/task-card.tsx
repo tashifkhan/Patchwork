@@ -19,11 +19,15 @@ import Animated, {
 import type { Task, TaskCreate, TaskList, TaskUpdate } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
+import { ElasticPressable } from '@/components/ui/motion';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING, SPRING } from '@/lib/motion';
+import { parseQuickAdd } from '@/lib/quick-add';
+import { describeRrule, firstDue, repeatPresets } from '@/lib/recurrence';
 import { normalizeTags } from '@/lib/tags';
 import { atDay, describeWhen, quickWhen, type QuickWhen } from '@/lib/when';
+import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
 
@@ -33,6 +37,8 @@ type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 export type TaskCardResult =
   | { kind: 'create'; payload: TaskCreate; checklist: string[] }
   | { kind: 'update'; task: Task; patch: TaskUpdate }
+  /** `/Name` typed as a new to-do's title. */
+  | { kind: 'create-list'; name: string }
   | { kind: 'none' };
 
 export interface TaskCardHandle {
@@ -119,6 +125,9 @@ export function TaskCard({
   const [tags, setTags] = useState<string[]>(task?.tags ?? defaultTags);
   const [due, setDue] = useState<string | null>(task?.due_at ?? null);
   const [listId, setListId] = useState(task?.list_id ?? defaultListId);
+  const [rrule, setRrule] = useState<string | null>(task?.rrule ?? null);
+  const [pinned, setPinned] = useState(task?.pinned ?? false);
+  const [repeatOpen, setRepeatOpen] = useState(false);
   const [draftChecklist, setDraftChecklist] = useState<string[]>([]);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistDraft, setChecklistDraft] = useState('');
@@ -144,14 +153,20 @@ export function TaskCard({
     const checklist = pendingItem ? [...draftChecklist, pendingItem] : draftChecklist;
     if (isNew) {
       if (!trimmed) return { kind: 'none' };
+      const quick = parseQuickAdd(trimmed);
+      if (quick.kind === 'list') return { kind: 'create-list', name: quick.name };
+      const repeat = quick.rrule ?? rrule;
+      const dueAt = quick.due_at ?? due ?? (repeat ? firstDue(repeat) : null);
       return {
         kind: 'create',
         payload: {
           list_id: listId,
-          title: trimmed,
+          title: quick.title,
           markdown: notes.trim() || undefined,
-          tags: cleanTags,
-          due_at: due,
+          tags: normalizeTags([...cleanTags, ...quick.tags]),
+          due_at: dueAt && repeat && !quick.due_at && !due ? atDay(new Date(dueAt)) : dueAt,
+          rrule: repeat,
+          pinned: pinned || undefined,
         },
         checklist,
       };
@@ -162,6 +177,12 @@ export function TaskCard({
     if (cleanTags.join('\u0000') !== normalizeTags(task.tags).join('\u0000')) patch.tags = cleanTags;
     if (due !== task.due_at) patch.due_at = due;
     if (listId !== task.list_id) patch.list_id = listId;
+    if ((rrule ?? null) !== (task.rrule ?? null)) {
+      patch.rrule = rrule;
+      // A repeat needs a date to count from.
+      if (rrule && !due) patch.due_at = atDay(new Date(firstDue(rrule) ?? Date.now()));
+    }
+    if (pinned !== (task.pinned ?? false)) patch.pinned = pinned;
     if (pendingItem && onAddChild) onAddChild(task, pendingItem);
     if (Object.keys(patch).length === 0) return { kind: 'none' };
     return { kind: 'update', task, patch: { ...patch, etag: task.etag } };
@@ -212,6 +233,8 @@ export function TaskCard({
   }
 
   const when = describeWhen(due);
+  const repeatLabel = describeRrule(rrule);
+  const quickPreview = isNew ? describeQuick(title) : null;
   const children = task?.children ?? [];
   const showChecklist = checklistOpen || children.length > 0 || draftChecklist.length > 0;
   const listName = lists.find((l) => l.id === listId)?.name ?? task?.list_name ?? 'List';
@@ -286,6 +309,17 @@ export function TaskCard({
           style={{ fontSize: 18, fontWeight: '600', paddingVertical: 8 }}
         />
       </View>
+
+      {quickPreview ? (
+        <Animated.View entering={FadeIn.duration(DURATION.short4)} layout={SPATIAL}>
+          <Text
+            className="text-sf-text-2"
+            style={{ marginLeft: 44, marginRight: 16, marginTop: -4, fontSize: 13 }}
+            accessibilityLiveRegion="polite">
+            {quickPreview}
+          </Text>
+        </Animated.View>
+      ) : null}
 
       {/* Notes: rendered Markdown, tap to edit */}
       <MarkdownNotes
@@ -461,6 +495,61 @@ export function TaskCard({
         </View>
       ) : null}
 
+      {repeatLabel ? (
+        <Animated.View entering={FadeIn.duration(DURATION.medium1)} layout={SPATIAL}>
+          <Pressable
+            onPress={() => {
+              haptics.tap();
+              setRepeatOpen((open) => !open);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`${repeatLabel}. Change repeat`}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+            <View
+              className="flex-row items-center gap-2.5"
+              style={{ marginLeft: 44, marginRight: 12, marginTop: 10, minHeight: 32 }}>
+              <MaterialCommunityIcons name="repeat" size={20} color={colors.text} />
+              <Text className="text-sf-text" style={{ fontSize: 16, fontWeight: '500' }}>
+                {repeatLabel}
+              </Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
+      {repeatOpen ? (
+        <Animated.View
+          entering={FadeIn.duration(DURATION.short4)}
+          exiting={FadeOut.duration(DURATION.short3)}
+          layout={SPATIAL}
+          style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginLeft: 44, marginRight: 12, marginTop: 10 }}>
+          {repeatPresets(due).map((preset) => (
+            <WhenChip
+              key={preset.label}
+              icon="repeat"
+              label={preset.label}
+              onPress={() => {
+                haptics.selection();
+                setRrule(preset.rrule);
+                setRepeatOpen(false);
+              }}
+            />
+          ))}
+          {rrule ? (
+            <WhenChip
+              icon="close"
+              label="Don't repeat"
+              iconColor={colors.red}
+              onPress={() => {
+                haptics.selection();
+                setRrule(null);
+                setRepeatOpen(false);
+              }}
+            />
+          ) : null}
+        </Animated.View>
+      ) : null}
+
       {/* Footer: list on the left, buttons for unset attributes on the right */}
       <Animated.View
         layout={SPATIAL}
@@ -479,6 +568,37 @@ export function TaskCard({
           </Text>
         </View>
         <View className="flex-row items-center">
+          <FooterButton
+            icon={pinned ? 'pin-off-outline' : 'pin-outline'}
+            label={pinned ? 'Unpin' : 'Pin to top'}
+            active={pinned}
+            onPress={() => {
+              haptics.selection();
+              setPinned((value) => !value);
+            }}
+          />
+          {!repeatLabel ? (
+            <FooterButton
+              icon="repeat"
+              label="Repeat"
+              onPress={() => {
+                haptics.tap();
+                setRepeatOpen((open) => !open);
+              }}
+            />
+          ) : null}
+          {task && !task.completed && process.env.EXPO_OS !== 'web' ? (
+            <FooterButton
+              icon="timer-outline"
+              label="Time this to-do with a pomodoro or stopwatch"
+              onPress={() => {
+                haptics.tap();
+                commit();
+                usePomodoroStore.getState().selectTask({ uid: task.uid, title: title.trim() || task.title });
+                router.push('/pomodoro');
+              }}
+            />
+          ) : null}
           {tags.length === 0 ? (
             <FooterButton icon="tag-outline" label="Add tags" onPress={chooseTags} />
           ) : null}
@@ -576,7 +696,8 @@ function WhenChip({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="control"
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -599,14 +720,25 @@ function WhenChip({
       })}>
       <MaterialCommunityIcons name={icon} size={17} color={iconColor ?? colors.accent} />
       <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{label}</Text>
-    </Pressable>
+    </ElasticPressable>
   );
 }
 
-function FooterButton({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+function FooterButton({
+  icon,
+  label,
+  onPress,
+  active = false,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  active?: boolean;
+}) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="button"
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -619,7 +751,20 @@ function FooterButton({ icon, label, onPress }: { icon: IconName; label: string;
         justifyContent: 'center',
         opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
       })}>
-      <MaterialCommunityIcons name={icon} size={22} color={colors.text2} />
-    </Pressable>
+      <MaterialCommunityIcons name={icon} size={22} color={active ? colors.accent : colors.text2} />
+    </ElasticPressable>
   );
+}
+
+const previewTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+
+/** What the quick-add shorthand in a new title will do, or null when it holds none. */
+function describeQuick(title: string): string | null {
+  const parsed = parseQuickAdd(title);
+  if (parsed.kind === 'list') return `Creates a list called "${parsed.name}"`;
+  const parts: string[] = [];
+  if (parsed.rrule) parts.push(describeRrule(parsed.rrule) ?? 'Repeats');
+  if (parsed.due_at && /@\d{4}/.test(title)) parts.push(`at ${previewTime.format(new Date(parsed.due_at))}`);
+  if (parsed.tags.length) parts.push(parsed.tags.map((tag) => `#${tag}`).join(' '));
+  return parts.length ? parts.join(' · ') : null;
 }

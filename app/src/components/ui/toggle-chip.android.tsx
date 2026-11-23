@@ -1,6 +1,7 @@
 import { FilterChip, Host, Text } from '@expo/ui/jetpack-compose';
 
 import { useTheme } from '@/components/theme/context';
+import { haptics } from '@/lib/haptics';
 
 import type { ToggleChipProps } from './toggle-chip';
 
@@ -16,7 +17,10 @@ export function ToggleChip({ label, selected, onPress, disabled }: ToggleChipPro
       <FilterChip
         selected={selected}
         enabled={!disabled}
-        onClick={onPress}
+        onClick={() => {
+          haptics.selection();
+          onPress();
+        }}
         colors={{
           containerColor: colors.bg3,
           labelColor: colors.text2,

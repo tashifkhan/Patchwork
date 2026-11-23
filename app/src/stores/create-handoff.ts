@@ -2,6 +2,8 @@ export interface TaskCreateHandoff {
   list_id: string;
   tags: string[];
   due_at: string | null;
+  /** Start of the time block, when the to-do has one. */
+  start_at?: string | null;
   reminder_at: string | null;
   priority: number | null;
   calendar_id: string | null;

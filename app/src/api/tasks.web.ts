@@ -45,7 +45,11 @@ export function updateTask(taskId: string, payload: TaskUpdate, _accountId?: str
   return api.patch<Task>(`/api/tasks/${encodeURIComponent(taskId)}`, payload);
 }
 
-export function deleteTask(taskId: string, _accountId?: string, _etag?: string | null) {
+export function restoreTask(payload: TaskCreate, _source?: Pick<Task, 'account_id' | 'attachments'>) {
+  return createTask(payload);
+}
+
+export function deleteTask(taskId: string, _accountId?: string, _etag?: string | null, _options?: { keepAttachments?: boolean }) {
   return api.delete<void>(`/api/tasks/${encodeURIComponent(taskId)}`);
 }
 

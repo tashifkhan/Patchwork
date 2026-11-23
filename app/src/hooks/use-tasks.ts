@@ -7,11 +7,16 @@ import {
   deleteTaskList,
   fetchTaskLists,
   fetchTasks,
+  restoreTask,
   updateTask,
   updateTaskList,
 } from '@/api/tasks';
-import type { Task, TaskCreate, TaskListCreate, TaskUpdate } from '@/api/types';
+import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from '@/api/types';
+import { assignUids, type ImportPlan } from '@/lib/backup';
 import { queryKeys } from '@/lib/query-client';
+import { addToRecycleBin, removeFromRecycleBin, type BinEntry } from '@/lib/recycle-bin';
+import { cancelTaskReminder } from '@/lib/notifications';
+import { flattenTasks } from '@/lib/task-buckets';
 
 export function useTaskLists() {
   return useQuery({ queryKey: queryKeys.taskLists, queryFn: fetchTaskLists });
@@ -135,18 +140,33 @@ export function useReorderTasks() {
   });
 }
 
+export interface DeleteInput {
+  taskId: string;
+  accountId?: string;
+  etag?: string | null;
+  /** Moving elsewhere (Deck) rather than deleting: skip the recycle bin. */
+  skipBin?: boolean;
+}
+
+/** Deletes a to-do and keeps a copy in the recycle bin (see `@/lib/recycle-bin`). */
 export function useDeleteTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, accountId, etag }: { taskId: string; accountId?: string; etag?: string | null }) =>
-      deleteTask(taskId, accountId, etag),
+    mutationFn: ({ taskId, accountId, etag, skipBin }: DeleteInput) =>
+      deleteTask(taskId, accountId, etag, { keepAttachments: !skipBin }),
     onMutate: async ({ taskId }) => {
       await client.cancelQueries({ queryKey: queryKeys.tasks });
       const previous = client.getQueryData<Task[]>(queryKeys.tasks);
+      // Taken here: onMutate runs before mutationFn, and the optimistic
+      // removal below would otherwise hide the to-do from the recycle bin.
+      const snapshot = findInCache(previous, taskId);
       if (previous) {
         client.setQueryData<Task[]>(queryKeys.tasks, removeFromTree(previous, taskId));
       }
-      return { previous };
+      return { previous, snapshot };
+    },
+    onSuccess: async (_data, { skipBin }, context) => {
+      if (context?.snapshot && !skipBin) await addToRecycleBin([context.snapshot]).catch(() => {});
     },
     onError: (_error, _input, context) => {
       if (context?.previous) {
@@ -157,6 +177,87 @@ export function useDeleteTask() {
       client.invalidateQueries({ queryKey: queryKeys.tasks });
     },
   });
+}
+
+/**
+ * The same change applied to many to-dos (multi-select, clear completed).
+ * Runs one at a time so CalDAV etags don't race, and reports how many failed
+ * instead of stopping at the first.
+ */
+export function useBulkTaskAction() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input:
+        | { kind: 'update'; tasks: Task[]; patch: (task: Task) => TaskUpdate }
+        | { kind: 'delete'; tasks: Task[] }
+    ) => {
+      let failed = 0;
+      const deleted: Task[] = [];
+      for (const task of input.tasks) {
+        try {
+          if (input.kind === 'update') {
+            await updateTask(task.id, { etag: task.etag, ...input.patch(task) }, task.account_id);
+          } else {
+            await deleteTask(task.id, task.account_id, task.etag, { keepAttachments: true });
+            deleted.push(task);
+            void cancelTaskReminder(task.uid).catch(() => {});
+          }
+        } catch {
+          failed += 1;
+        }
+      }
+      if (deleted.length) await addToRecycleBin(deleted).catch(() => {});
+      return { failed, total: input.tasks.length };
+    },
+    onMutate: async (input) => {
+      await client.cancelQueries({ queryKey: queryKeys.tasks });
+      const previous = client.getQueryData<Task[]>(queryKeys.tasks);
+      if (previous) {
+        let next = previous;
+        for (const task of input.tasks) {
+          next = input.kind === 'delete' ? removeFromTree(next, task.id) : mapTree(next, task.id, input.patch(task));
+        }
+        client.setQueryData<Task[]>(queryKeys.tasks, next);
+      }
+      return { previous };
+    },
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: queryKeys.tasks });
+    },
+  });
+}
+
+/** Puts recycle-bin entries back, optionally into a different list. */
+export function useRestoreTasks() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ entries, listId }: { entries: BinEntry[]; listId?: string }) => {
+      const restored: string[] = [];
+      let failed = 0;
+      let message: string | undefined;
+      // Parents first, so restored subtasks find them.
+      const ordered = [...entries].sort((a, b) => Number(!!a.task.parent_uid) - Number(!!b.task.parent_uid));
+      for (const entry of ordered) {
+        try {
+          await restoreTask({ ...entry.task, list_id: listId ?? entry.task.list_id }, entry.attachmentSource);
+          restored.push(entry.id);
+        } catch (error) {
+          message ??= error instanceof Error ? error.message : undefined;
+          failed += 1;
+        }
+      }
+      await removeFromRecycleBin(restored);
+      return { restored: restored.length, failed, message };
+    },
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: queryKeys.tasks });
+    },
+  });
+}
+
+function findInCache(tasks: Task[] | undefined, id: string) {
+  return tasks ? flattenTasks(tasks).find((task) => task.id === id) : undefined;
 }
 
 function mapTree(tasks: Task[], id: string, patch: TaskUpdate): Task[] {
@@ -172,4 +273,55 @@ function removeFromTree(tasks: Task[], id: string): Task[] {
     .map((task) =>
       task.children.length ? { ...task, children: removeFromTree(task.children, id) } : task
     );
+}
+
+/**
+ * Creates everything in an import plan (see `@/lib/backup`). Lists are matched
+ * by name, case-insensitively; missing ones are created in `newListAccountId`.
+ */
+export function useImportTasks() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      plan,
+      lists,
+      newListAccountId,
+      intoListId,
+    }: {
+      plan: ImportPlan;
+      lists: TaskList[];
+      newListAccountId?: string;
+      /** Put everything into this one list instead of matching by name. */
+      intoListId?: string;
+    }) => {
+      const uids = assignUids(plan);
+      let created = 0;
+      let failed = 0;
+      for (const group of plan.lists) {
+        let listId = intoListId;
+        if (!listId) {
+          const match = lists.find((list) => !list.is_deck && list.name.trim().toLowerCase() === group.name.trim().toLowerCase());
+          listId = match?.id ?? (await createTaskList({ name: group.name, account_id: newListAccountId })).id;
+        }
+        for (const task of group.tasks) {
+          try {
+            await createTask({
+              ...task.payload,
+              list_id: listId,
+              uid: uids.get(task.key),
+              parent_uid: task.parentKey ? (uids.get(task.parentKey) ?? null) : null,
+            });
+            created += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+      }
+      return { created, failed };
+    },
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: queryKeys.taskLists });
+      client.invalidateQueries({ queryKey: queryKeys.tasks });
+    },
+  });
 }

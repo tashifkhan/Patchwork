@@ -246,6 +246,49 @@ export async function createRemoteTask(payload: TaskCreate) {
   const { client, target } = await resolveListTarget(payload.list_id);
 
   const { uid, calendarData } = serializeVtodo(payload);
+  return putNewTask(client, target, uid, calendarData);
+}
+
+export async function restoreTask(
+  payload: TaskCreate & { uid: string },
+  source?: Pick<Task, 'account_id' | 'attachments'>
+): Promise<Task> {
+  if (!source?.attachments?.length) return createTask(payload);
+  if (isLocalListId(payload.list_id)) {
+    throw new ApiError(400, 'Choose a Nextcloud list to restore this to-do with its images.');
+  }
+
+  const { client, target } = await resolveListTarget(payload.list_id);
+  if (!isNextcloud(client)) {
+    throw new ApiError(400, 'Choose a Nextcloud list to restore this to-do with its images.');
+  }
+
+  let { calendarData } = serializeVtodo(payload);
+  for (const attachment of source.attachments) calendarData = addAttachment(calendarData, attachment);
+  if (source.account_id === client.account.id) {
+    return putNewTask(client, target, payload.uid, calendarData);
+  }
+
+  const task = { uid: payload.uid, attachments: source.attachments };
+  if (ownedAttachments(task).length !== task.attachments.length) {
+    throw new ApiError(400, 'Choose the original Nextcloud account to restore this to-do with its attachments.');
+  }
+  const originalAccount = (await getAccounts()).find((account) => account.id === source.account_id);
+  if (!originalAccount || originalAccount.serverType !== 'nextcloud') {
+    throw new ApiError(400, 'Reconnect the original Nextcloud account to restore this to-do with its images.');
+  }
+
+  const original = new CalDavClient(originalAccount);
+  const copied = await copyAttachments(original, client, calendarData, task);
+  try {
+    return await putNewTask(client, target, payload.uid, copied.calendarData);
+  } catch (error) {
+    await deleteCopiedFiles(client, copied.copied);
+    throw error;
+  }
+}
+
+async function putNewTask(client: CalDavClient, target: TaskList, uid: string, calendarData: string) {
   const href = `${target.href.replace(/\/+$/, '')}/${uid}.ics`;
   const response = await client.request('PUT', client.absoluteUrl(href), {
     body: calendarData,
@@ -269,6 +312,7 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
   const client = await clientForTask(taskId, accountId);
   const existing = await client.fetchTaskByHref(taskId);
   let calendarData = updateVtodo(existing.calendarData, payload);
+  const etag = payload.etag ?? existing.etag;
 
   if (payload.list_id && isLocalListId(payload.list_id)) {
     // Account to device: keep the uid so subtasks stay attached.
@@ -277,7 +321,7 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
     const moved = await createLocalTask({ ...taskToCreate(parsed), list_id: payload.list_id });
     try {
       await client.request('DELETE', client.absoluteUrl(taskId), {
-        headers: payload.etag ? { 'If-Match': payload.etag } : undefined,
+        headers: etag ? { 'If-Match': etag } : undefined,
       });
     } catch (error) {
       await deleteLocalTask(moved.id);
@@ -307,17 +351,17 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
         'If-None-Match': '*',
       },
     }).catch(async (error: unknown) => {
-      await Promise.all((carry?.copied ?? []).map((copy) => destination.client.deleteFile(copy.path!).catch(() => {})));
+      if (carry) await deleteCopiedFiles(destination.client, carry.copied);
       throw error;
     });
 
     try {
       await client.request('DELETE', client.absoluteUrl(taskId), {
-        headers: payload.etag ? { 'If-Match': payload.etag } : undefined,
+        headers: etag ? { 'If-Match': etag } : undefined,
       });
     } catch (error) {
       await destination.client.request('DELETE', destinationUrl).catch(() => {});
-      await Promise.all((carry?.copied ?? []).map((copy) => destination.client.deleteFile(copy.path!).catch(() => {})));
+      if (carry) await deleteCopiedFiles(destination.client, carry.copied);
       throw error;
     }
     if (carry && before) {
@@ -338,7 +382,7 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
     body: calendarData,
     headers: {
       'Content-Type': 'text/calendar; charset=utf-8',
-      ...(payload.etag ? { 'If-Match': payload.etag } : {}),
+      ...(etag ? { 'If-Match': etag } : {}),
     },
   });
   const updated = parseVtodo(calendarData, client.absoluteUrl(taskId), response.headers.get('etag'), existing.list);
@@ -348,12 +392,17 @@ export async function updateTask(taskId: string, payload: TaskUpdate, accountId?
   return updated;
 }
 
-export async function deleteTask(taskId: string, accountId?: string, etag?: string | null) {
+export async function deleteTask(
+  taskId: string,
+  accountId?: string,
+  etag?: string | null,
+  options?: { keepAttachments?: boolean }
+) {
   if (isPendingTaskId(taskId)) return removeEntry(pendingEntryId(taskId));
   if (isLocalTaskId(taskId)) return deleteLocalTask(taskId);
   const client = await clientForTask(taskId, accountId);
   // Read the task first so its own image folder can go with it.
-  const owned = isNextcloud(client)
+  const owned = isNextcloud(client) && !options?.keepAttachments
     ? await client
         .fetchTaskByHref(taskId)
         .then(({ calendarData, list }) => parseVtodo(calendarData, client.absoluteUrl(taskId), null, list))
@@ -413,10 +462,13 @@ function taskToCreate(task: Task): TaskCreate {
     completed: task.completed,
     tags: task.tags,
     due_at: task.due_at,
+    start_at: task.start_at ?? null,
     reminder_at: task.reminder_at,
     parent_uid: task.parent_uid,
     priority: task.priority,
     sort_order: task.sort_order,
+    pinned: task.pinned,
+    rrule: task.rrule,
   };
 }
 
@@ -454,7 +506,8 @@ export async function addTaskAttachment(
   }
   const client = await attachmentClient(taskId, accountId);
   const existing = await client.fetchTaskByHref(taskId);
-  const current = parseVtodo(existing.calendarData, client.absoluteUrl(taskId), null, existing.list);
+  const match = etag ?? existing.etag;
+  const current = parseVtodo(existing.calendarData, client.absoluteUrl(taskId), existing.etag, existing.list);
   if (!current) throw new ApiError(500, 'Task could not be read');
 
   const attachment = await client.uploadAttachment(current.uid, file);
@@ -465,7 +518,7 @@ export async function addTaskAttachment(
       body: calendarData,
       headers: {
         'Content-Type': 'text/calendar; charset=utf-8',
-        ...(etag ? { 'If-Match': etag } : {}),
+        ...(match ? { 'If-Match': match } : {}),
       },
     });
   } catch (error) {
@@ -490,19 +543,20 @@ export async function removeTaskAttachment(
 ): Promise<Task> {
   const client = await attachmentClient(taskId, accountId);
   const existing = await client.fetchTaskByHref(taskId);
+  const match = etag ?? existing.etag;
   const calendarData = removeAttachment(updateVtodo(existing.calendarData, {}), attachment.url);
   const response = await client.request('PUT', client.absoluteUrl(taskId), {
     body: calendarData,
     headers: {
       'Content-Type': 'text/calendar; charset=utf-8',
-      ...(etag ? { 'If-Match': etag } : {}),
+      ...(match ? { 'If-Match': match } : {}),
     },
   });
   const updated = parseVtodo(calendarData, client.absoluteUrl(taskId), response.headers.get('etag'), existing.list);
   if (!updated) throw new ApiError(500, 'Updated task could not be parsed');
-  if (attachment.path?.startsWith(`/${attachmentFolder(updated.uid)}/`)) {
-    await client.deleteFile(attachment.path).catch(() => {});
-  }
+  const original = parseAttachments(existing.calendarData).find((item) => item.url === attachment.url);
+  const path = original ? ownedAttachmentPath(updated.uid, original) : null;
+  if (path) await client.deleteFile(path).catch(() => {});
   return updated;
 }
 
@@ -757,11 +811,12 @@ class CalDavClient {
 
   /** Uploads a picked file to Files/Tasks/<uid>/ and returns the ATTACH entry for it. */
   async uploadAttachment(taskUid: string, file: AttachmentUpload): Promise<TaskAttachment> {
-    const blob = await (await fetch(file.uri)).blob();
-    return this.uploadBlob(taskUid, blob, file.name, file.mime);
+    const { File } = await import('expo-file-system');
+    const bytes = await new File(file.uri).arrayBuffer();
+    return this.uploadFile(taskUid, bytes, file.name, file.mime);
   }
 
-  async uploadBlob(taskUid: string, blob: Blob, fileName: string, mime: string): Promise<TaskAttachment> {
+  async uploadFile(taskUid: string, bytes: ArrayBuffer, fileName: string, mime: string): Promise<TaskAttachment> {
     const folder = attachmentFolder(taskUid);
     await this.ensureFolder(ATTACHMENT_FOLDER);
     await this.ensureFolder(folder);
@@ -779,7 +834,7 @@ class CalDavClient {
         response = await this.request(
           'PUT',
           url,
-          { body: blob, headers: { 'Content-Type': mime, 'If-None-Match': '*' } },
+          { body: bytes, headers: { 'Content-Type': mime, 'If-None-Match': '*' } },
           UPLOAD_TIMEOUT_MS
         );
       } catch (error) {
@@ -819,7 +874,7 @@ class CalDavClient {
       {},
       UPLOAD_TIMEOUT_MS
     );
-    return response.blob();
+    return { bytes: await response.arrayBuffer(), mime: response.headers.get('content-type') };
   }
 
   async deleteFile(path: string) {
@@ -830,7 +885,7 @@ class CalDavClient {
     }
   }
 
-  async fetchTaskByHref(href: string): Promise<{ calendarData: string; list: TaskList }> {
+  async fetchTaskByHref(href: string): Promise<{ calendarData: string; list: TaskList; etag: string | null }> {
     const lists = await this.listTaskCalendars();
     const list = lists.find((item) => href.startsWith(item.href) || href.startsWith(this.absoluteUrl(item.href)));
     if (!list) {
@@ -842,7 +897,7 @@ class CalDavClient {
     if (!calendarData) {
       throw new ApiError(404, 'Task calendar data not found');
     }
-    return { calendarData, list };
+    return { calendarData, list, etag: response.headers.get('etag') };
   }
 }
 
@@ -964,7 +1019,8 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
   // Read task fields from the VTODO with its VALARM sub-components removed:
   // an alarm carries its own DESCRIPTION, and a VTODO that lists the alarm
   // first would otherwise surface the reminder text as the task's notes.
-  const fields = parseIcs(calendarData.replace(ALARM_BLOCK, ''));
+  // VTIMEZONE goes too: its STANDARD/DAYLIGHT parts carry their own RRULE and DTSTART.
+  const fields = parseIcs(calendarData.replace(SUBCOMPONENT_BLOCK, ''));
   if (!fields.get('BEGIN')?.some((field) => field.value.toUpperCase() === 'VTODO')) return null;
   const alarmFields = parseIcs(calendarData);
   const description = icsText(fields, 'DESCRIPTION') ?? '';
@@ -991,9 +1047,13 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
     completed: status === 'COMPLETED',
     priority: parseOptionalInt(icsRaw(fields, 'PRIORITY')),
     due_at: dueAt,
+    // A DTSTART equal to DUE only anchors a repeat; it isn't a time block.
+    start_at: startsAt && startsAt !== dueAt ? startsAt : null,
     reminder_at: reminderAt,
     tags: icsTextList(fields, 'CATEGORIES'),
     sort_order: parseOptionalInt(icsRaw(fields, 'X-APPLE-SORT-ORDER')),
+    pinned: /^(TRUE|1)$/i.test(icsRaw(fields, 'X-PATCHWORK-PINNED') ?? ''),
+    rrule: icsRaw(fields, 'RRULE')?.trim() || null,
     parent_uid: icsText(fields, 'RELATED-TO') ?? null,
     children: [],
     etag,
@@ -1019,6 +1079,12 @@ export function serializeVtodo(task: TaskCreate) {
   if (task.priority != null) lines.push(`PRIORITY:${task.priority}`);
   if (task.sort_order != null) lines.push(`X-APPLE-SORT-ORDER:${task.sort_order}`);
   if (task.due_at) lines.push(`DUE:${formatIcsDate(task.due_at)}`);
+  if (task.pinned) lines.push('X-PATCHWORK-PINNED:TRUE');
+  // DTSTART is the start of the time block, or for a repeat with no block,
+  // the due date: RFC 5545 counts a series from DTSTART.
+  const start = task.start_at ?? (task.rrule ? task.due_at : null);
+  if (start) lines.push(`DTSTART:${formatIcsDate(start)}`);
+  if (task.rrule) lines.push(`RRULE:${sanitizeRrule(task.rrule)}`);
   const tags = normalizeTags(task.tags ?? []);
   if (tags.length) lines.push(`CATEGORIES:${serializeIcsList(tags)}`);
   if (task.parent_uid) lines.push(`RELATED-TO:${escapeIcs(task.parent_uid)}`);
@@ -1036,6 +1102,10 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
   // clients (which are free to put VALARM before DESCRIPTION).
   let next = editVtodoBody(calendarData, (body) => {
     let draft = body;
+    // The block start as it stands, read before the due date moves.
+    const before = parseIcs(body.replace(SUBCOMPONENT_BLOCK, ''));
+    const startNow = parseIcsDate(icsField(before, 'DTSTART'));
+    const currentBlockStart = startNow && startNow !== parseIcsDate(icsField(before, 'DUE')) ? startNow : null;
     if (patch.title !== undefined) draft = setIcsField(draft, 'SUMMARY', patch.title);
     if (patch.markdown !== undefined) draft = setIcsField(draft, 'DESCRIPTION', patch.markdown);
     if (patch.completed !== undefined) {
@@ -1057,6 +1127,24 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
       draft = setIcsField(draft, 'CATEGORIES', tags.length ? serializeIcsList(tags) : null, false);
     }
     if (patch.parent_uid !== undefined) draft = setIcsField(draft, 'RELATED-TO', patch.parent_uid);
+    if (patch.pinned !== undefined) draft = setIcsField(draft, 'X-PATCHWORK-PINNED', patch.pinned ? 'TRUE' : null, false);
+    if (patch.rrule !== undefined) {
+      draft = setIcsField(draft, 'RRULE', patch.rrule ? sanitizeRrule(patch.rrule) : null, false);
+    }
+    // DTSTART is the start of the time block. Without one, a repeat keeps it
+    // on the due date (RFC 5545 counts a series from DTSTART) so other clients
+    // agree on which day the series falls after we move it forward.
+    if (patch.start_at !== undefined || patch.due_at !== undefined || patch.rrule !== undefined) {
+      const start = patch.start_at !== undefined ? patch.start_at : (currentBlockStart ?? null);
+      const due = patch.due_at !== undefined ? patch.due_at : parseIcsDate(icsField(parseIcs(draft), 'DUE'));
+      if (start) {
+        draft = setIcsField(draft, 'DTSTART', formatIcsDate(start), false);
+      } else if (/^RRULE[:;]/im.test(draft)) {
+        draft = setIcsField(draft, 'DTSTART', due ? formatIcsDate(due) : null, false);
+      } else if (patch.start_at !== undefined) {
+        draft = setIcsField(draft, 'DTSTART', null, false);
+      }
+    }
     return setIcsField(draft, 'LAST-MODIFIED', formatIcsDate(new Date().toISOString()), false);
   });
   if (patch.reminder_at !== undefined) next = setVAlarm(next, patch.reminder_at, patch.title);
@@ -1064,12 +1152,16 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
 }
 
 const ALARM_SLOT = 'X-PATCHWORK-VALARM-SLOT';
-const ALARM_BLOCK = /BEGIN:VALARM\r?\n[\s\S]*?END:VALARM/gi;
+/**
+ * Sub-components whose properties must never be mistaken for the VTODO's own:
+ * VALARM has a DESCRIPTION, VTIMEZONE has RRULE and DTSTART.
+ */
+const SUBCOMPONENT_BLOCK = /BEGIN:(VALARM|VTIMEZONE)\r?\n[\s\S]*?END:\1/gi;
 
 /** Runs `edit` over the VTODO with VALARM sub-components swapped for placeholders. */
 function editVtodoBody(calendarData: string, edit: (body: string) => string) {
   const alarms: string[] = [];
-  const masked = calendarData.replace(ALARM_BLOCK, (match) => {
+  const masked = calendarData.replace(SUBCOMPONENT_BLOCK, (match) => {
     alarms.push(match);
     return `${ALARM_SLOT}:${alarms.length - 1}`;
   });
@@ -1352,6 +1444,11 @@ function formatIcsDate(value: string) {
   return new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
+/** RRULE values are written raw, so strip anything that could break the line. */
+function sanitizeRrule(value: string) {
+  return value.replace(/^RRULE:/i, '').replace(/[^A-Za-z0-9=;,+\-]/g, '').toUpperCase();
+}
+
 function escapeIcs(value: string) {
   return value
     .replace(/\\/g, '\\\\')
@@ -1406,9 +1503,19 @@ function attachmentFolder(taskUid: string) {
 }
 
 /** Attachments Patchwork uploaded into this task's own folder, which it may move or delete. */
-function ownedAttachments(task: Task) {
-  const folder = `/${attachmentFolder(task.uid)}/`;
-  return (task.attachments ?? []).filter((attachment) => attachment.path?.startsWith(folder));
+function ownedAttachmentPath(uid: string, attachment: TaskAttachment) {
+  const folder = `/${attachmentFolder(uid)}/`;
+  const path = attachment.path;
+  if (!path?.startsWith(folder)) return null;
+  const name = path.slice(folder.length);
+  return name && name !== '.' && name !== '..' && !/[\\/]/.test(name) ? path : null;
+}
+
+function ownedAttachments(task: Pick<Task, 'uid' | 'attachments'>) {
+  return (task.attachments ?? []).flatMap((attachment) => {
+    const path = ownedAttachmentPath(task.uid, attachment);
+    return path ? [{ ...attachment, path }] : [];
+  });
 }
 
 function isNextcloud(client: CalDavClient) {
@@ -1419,26 +1526,30 @@ function isNextcloud(client: CalDavClient) {
  * Copies a task's own images to another Nextcloud account and points its
  * ATTACH lines at the copies. Links to anything else are left as they are.
  */
-async function copyAttachments(source: CalDavClient, destination: CalDavClient, calendarData: string, task: Task) {
+async function copyAttachments(source: CalDavClient, destination: CalDavClient, calendarData: string, task: Pick<Task, 'uid' | 'attachments'>) {
   let next = calendarData;
   const copied: TaskAttachment[] = [];
   try {
     for (const attachment of ownedAttachments(task)) {
-      const blob = await source.downloadFile(attachment.path!);
-      const copy = await destination.uploadBlob(
+      const file = await source.downloadFile(attachment.path);
+      const copy = await destination.uploadFile(
         task.uid,
-        blob,
+        file.bytes,
         attachment.name,
-        attachment.mime ?? (blob.type || 'application/octet-stream')
+        attachment.mime ?? file.mime ?? 'application/octet-stream'
       );
       copied.push(copy);
       next = addAttachment(removeAttachment(next, attachment.url), copy);
     }
   } catch (error) {
-    await Promise.all(copied.map((copy) => destination.deleteFile(copy.path!).catch(() => {})));
+    await deleteCopiedFiles(destination, copied);
     throw error;
   }
   return { calendarData: next, copied };
+}
+
+async function deleteCopiedFiles(client: CalDavClient, copies: TaskAttachment[]) {
+  await Promise.all(copies.map(({ path }) => path && client.deleteFile(path).catch(() => {})));
 }
 
 function encodePath(path: string) {

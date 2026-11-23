@@ -5,7 +5,7 @@ import type { DeckStack, Task } from '@/api/types';
 
 export interface SearchNode {
   id: string;
-  type: 'task' | 'subtask' | 'deck-card' | 'github-issue' | 'jira-issue';
+  type: 'task' | 'subtask' | 'deck-card' | 'github-issue' | 'jira-issue' | 'board';
   title: string;
   descriptionText: string;
   tags: string[];
@@ -19,6 +19,8 @@ export interface SearchNode {
   githubIssueNumber?: number;
   githubRepo?: string;
   jiraKey?: string;
+  /** `deck:<id>` or `jira:<id>`, for opening a board. */
+  boardRef?: string;
   jiraAccountId?: string;
 }
 
@@ -126,4 +128,19 @@ export function jiraSearchNodes(hits: { issue: JiraIssue; accountId: string }[])
     });
   }
   return nodes;
+}
+
+/** Deck and Jira boards by name, so a board can be opened straight from search. */
+export function boardSearchNodes(
+  boards: { ref: string; source: 'deck' | 'jira'; title: string; subtitle: string }[]
+): SearchNode[] {
+  return boards.map((board) => ({
+    id: `board:${board.ref}`,
+    type: 'board',
+    title: board.title,
+    descriptionText: '',
+    tags: [],
+    listName: [board.source === 'jira' ? 'Jira board' : 'Deck board', board.subtitle].filter(Boolean).join(' · '),
+    boardRef: board.ref,
+  }));
 }

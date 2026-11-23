@@ -112,6 +112,77 @@ export async function syncTaskReminder(params: {
   return notificationIds[0] ?? null;
 }
 
+/** A single notification at `date` that isn't tied to a task (the focus timer). */
+export async function scheduleOneOffNotification(params: {
+  title: string;
+  body: string;
+  date: Date;
+}): Promise<string | null> {
+  const Notifications = await getNotifications();
+  if (!Notifications || params.date.getTime() <= Date.now()) return null;
+  if (!(await ensureNotificationPermissions())) return null;
+  return Notifications.scheduleNotificationAsync({
+    content: { title: params.title, body: params.body, data: { href: '/pomodoro' } },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: params.date },
+  }).catch(() => null);
+}
+
+const DAILY_KEY_PREFIX = 'patchwork.daily.';
+
+/**
+ * Replaces the repeating daily notifications stored under `key` with one per
+ * `HH:MM` in `times`. An empty list (or notifications off) just cancels them.
+ */
+export function syncDailyNotifications(
+  key: string,
+  times: string[],
+  content: { title: string; body: string; href: string }
+): Promise<void> {
+  // One run at a time: each run cancels what the last one stored, so
+  // overlapping runs would leave unstored (uncancellable) repeats behind.
+  const run = dailyQueue.then(() => syncDailyNow(key, times, content));
+  dailyQueue = run.catch(() => {});
+  return run;
+}
+
+let dailyQueue: Promise<void> = Promise.resolve();
+
+async function syncDailyNow(
+  key: string,
+  times: string[],
+  content: { title: string; body: string; href: string }
+): Promise<void> {
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
+  const storageKey = `${DAILY_KEY_PREFIX}${key}`;
+  const previous = await AsyncStorage.getItem(storageKey).catch(() => null);
+  const ids = new Set<string>(previous ? (JSON.parse(previous) as string[]) : []);
+  // Also anything scheduled under this key that we lost track of (an
+  // interrupted sync, an app update): every daily repeat carries its key.
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  for (const request of scheduled) {
+    const data = request.content.data;
+    // `href` catches repeats scheduled before the `daily` tag existed.
+    if (data?.daily === key || data?.href === content.href) ids.add(request.identifier);
+  }
+  await cancelReminders([...ids]);
+  await AsyncStorage.removeItem(storageKey);
+  if (times.length === 0 || !useSettingsStore.getState().notificationsEnabled) return;
+  if (!(await ensureNotificationPermissions())) return;
+  const next: string[] = [];
+  for (const time of times) {
+    const [hour, minute] = time.split(':').map((part) => Number.parseInt(part, 10));
+    if (!(hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59)) continue;
+    next.push(
+      await Notifications.scheduleNotificationAsync({
+        content: { title: content.title, body: content.body, data: { href: content.href, daily: key } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute },
+      })
+    );
+  }
+  await AsyncStorage.setItem(storageKey, JSON.stringify(next));
+}
+
 async function cancelReminders(notificationIds: string[]): Promise<void> {
   await Promise.allSettled(notificationIds.map((id) => cancelReminder(id)));
 }
@@ -148,7 +219,20 @@ export async function cancelAllTaskReminders(): Promise<void> {
   if (keys.length) await AsyncStorage.multiRemove(keys);
 }
 
-export async function syncTaskReminders(tasks: Task[]): Promise<void> {
+/**
+ * Brings every task's reminders in line with the task list. Runs one at a
+ * time: two overlapping runs (a quick refetch after a save) each found no
+ * stored record and both scheduled, leaving duplicate reminders behind.
+ */
+export function syncTaskReminders(tasks: Task[]): Promise<void> {
+  const run = reminderQueue.then(() => syncTaskRemindersNow(tasks));
+  reminderQueue = run.catch(() => {});
+  return run;
+}
+
+let reminderQueue: Promise<void> = Promise.resolve();
+
+async function syncTaskRemindersNow(tasks: Task[]): Promise<void> {
   const flat = flattenTasks(tasks);
   const activeUids = new Set(flat.map((task) => task.uid));
   const storedKeys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(REMINDER_KEY_PREFIX));
@@ -167,10 +251,29 @@ export async function syncTaskReminders(tasks: Task[]): Promise<void> {
       .filter((key) => !activeUids.has(key.slice(REMINDER_KEY_PREFIX.length)))
       .map((key) => cancelTaskReminder(key.slice(REMINDER_KEY_PREFIX.length))),
   ]);
+  await sweepUntrackedTaskReminders();
+}
+
+/** Cancels task reminders that no stored record knows about (left by an earlier race). */
+async function sweepUntrackedTaskReminders() {
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  const tracked = new Map<string, Set<string>>();
+  for (const request of scheduled) {
+    const uid = request.content.data?.taskUid;
+    if (typeof uid !== 'string' || !uid) continue;
+    if (!tracked.has(uid)) {
+      const stored = await readStoredReminder(reminderStorageKey(uid));
+      tracked.set(uid, new Set(stored?.notificationIds ?? []));
+    }
+    if (!tracked.get(uid)!.has(request.identifier)) await cancelReminder(request.identifier).catch(() => {});
+  }
 }
 
 export async function startNotificationResponseObserver(
-  onTaskUid: (taskUid: string) => void
+  onTaskUid: (taskUid: string) => void,
+  onHref?: (href: string) => void
 ): Promise<() => void> {
   const Notifications = await getNotifications();
   if (!Notifications) return () => {};
@@ -181,6 +284,10 @@ export async function startNotificationResponseObserver(
     lastResponseId = response.notification.request.identifier;
     const taskUid = response.notification.request.content.data?.taskUid;
     if (typeof taskUid === 'string' && taskUid) onTaskUid(taskUid);
+    else {
+      const href = response.notification.request.content.data?.href;
+      if (typeof href === 'string' && href.startsWith('/')) onHref?.(href);
+    }
   };
 
   handleResponse(await Notifications.getLastNotificationResponseAsync());

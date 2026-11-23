@@ -10,6 +10,7 @@ import { ApiError } from '@/api/client';
 import type { AttachmentUpload, Task, TaskAttachment, TaskList, TaskUpdate } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
+import { TimeBlockField } from '@/components/tasks/time-block-field';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
@@ -36,15 +37,20 @@ import {
 import { addTaskToCalendar } from '@/lib/calendar';
 import { formatDateTime } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
+import { describeRrule, firstDue, repeatPresets } from '@/lib/recurrence';
+import { togglePatch } from '@/lib/task-actions';
+import { atDay } from '@/lib/when';
+import { Switch } from '@/components/ui/switch';
+import { RepeatChips, type RepeatOption } from '@/components/tasks/repeat-chips';
+import { TaskPage } from '@/components/tasks/task-page';
 import { DURATION, SPRING } from '@/lib/motion';
 import { cancelTaskReminder } from '@/lib/notifications';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { collectAllTags, normalizeTags } from '@/lib/tags';
-import { useFocusStore } from '@/stores/focus-store';
+import { formatMinutes, taskTime, usePomodoroStore } from '@/stores/pomodoro-store';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, TextInput, View } from '@/tw';
-import { endFocus, pauseFocus, resumeFocus, startFocus } from '@/widgets/focus';
 
 const PRIORITIES: { label: string; value: number | null }[] = [
   { label: 'None', value: null },
@@ -173,8 +179,11 @@ interface Draft {
   list_id: string;
   tags: string[];
   due_at: string | null;
+  start_at: string | null;
   reminder_at: string | null;
   priority: number | null;
+  rrule: string | null;
+  pinned: boolean;
 }
 
 function draftFromTask(task: Task): Draft {
@@ -184,8 +193,11 @@ function draftFromTask(task: Task): Draft {
     list_id: task.list_id,
     tags: normalizeTags(task.tags),
     due_at: task.due_at,
+    start_at: task.start_at ?? null,
     reminder_at: task.reminder_at,
     priority: toPriorityBucket(task.priority),
+    rrule: task.rrule ?? null,
+    pinned: task.pinned ?? false,
   };
 }
 
@@ -197,8 +209,11 @@ function diffDraft(saved: Draft, next: Draft): TaskUpdate {
   if (next.list_id !== saved.list_id) patch.list_id = next.list_id;
   if (next.tags.join('\u0000') !== saved.tags.join('\u0000')) patch.tags = next.tags;
   if (next.due_at !== saved.due_at) patch.due_at = next.due_at;
+  if (next.start_at !== saved.start_at) patch.start_at = next.start_at;
   if (next.reminder_at !== saved.reminder_at) patch.reminder_at = next.reminder_at;
   if (next.priority !== saved.priority) patch.priority = next.priority;
+  if (next.rrule !== saved.rrule) patch.rrule = next.rrule;
+  if (next.pinned !== saved.pinned) patch.pinned = next.pinned;
   return patch;
 }
 
@@ -240,42 +255,47 @@ function TaskDocument({
   const addAttachment = useAddAttachment();
   const removeAttachment = useRemoveAttachment();
 
-  // What the server has. Each save diffs against this and then advances it.
   const saved = useRef<Draft>(draftFromTask(task));
   const latest = useRef<Draft>(draft);
-  // A list move changes the task's href, and every write returns a new etag,
-  // so carry both forward instead of reusing the props from first render.
-  const taskId = useRef(task.id);
-  const etag = useRef(task.etag);
+  const currentTask = useRef({ id: task.id, accountId: task.account_id, etag: task.etag });
   const queue = useRef<Promise<void>>(Promise.resolve());
 
-  function flush() {
-    const patch = diffDraft(saved.current, latest.current);
+  function rememberTask(updated: Task) {
+    currentTask.current = { id: updated.id, accountId: updated.account_id, etag: updated.etag };
+  }
+
+  // Every mutation of this to-do uses the href and etag of the preceding write.
+  function queueWrite<T>(write: () => Promise<T>) {
+    const run = queue.current.then(write);
+    queue.current = run.then(() => {}, () => {});
+    return run;
+  }
+
+  async function saveDraft(next: Draft) {
+    const patch = diffDraft(saved.current, next);
     if (Object.keys(patch).length === 0) return;
-    saved.current = {
-      ...latest.current,
-      title: latest.current.title.trim() || saved.current.title,
-    };
-    // Writes are chained so a fast second edit can't race the first one's etag.
-    queue.current = queue.current.then(async () => {
-      try {
-        const updated = await updateTask.mutateAsync({
-          taskId: taskId.current,
-          accountId: task.account_id,
-          patch: { ...patch, parent_uid: task.parent_uid, etag: etag.current },
-        });
-        taskId.current = updated.id;
-        etag.current = updated.etag;
-      } catch (error) {
-        setAlert({
-          title: 'Could not save',
-          message: error instanceof ApiError ? error.message : 'Your last change was not saved.',
-        });
-      }
+    const { id, accountId, etag } = currentTask.current;
+    const updated = await updateTask.mutateAsync({
+      taskId: id,
+      accountId,
+      patch: { ...patch, parent_uid: task.parent_uid, etag },
+    });
+    rememberTask(updated);
+    saved.current = { ...next, title: updated.title };
+  }
+
+  function showWriteError(error: unknown, title: string) {
+    setAlert({
+      title,
+      message: error instanceof ApiError ? error.message : 'Check your connection and try again.',
     });
   }
 
-  /** Update local state and, for discrete fields, save straight away. */
+  function flush() {
+    void queueWrite(() => saveDraft(latest.current))
+      .catch((error: unknown) => showWriteError(error, 'Could not save'));
+  }
+
   function change(patch: Partial<Draft>, save = true) {
     const next = { ...latest.current, ...patch };
     latest.current = next;
@@ -283,83 +303,55 @@ function TaskDocument({
     if (save) flush();
   }
 
-  // Leaving the screen saves whatever is still pending (typed text).
   const onLeave = useEffectEvent(() => flush());
   useEffect(() => () => onLeave(), []);
 
-  /** Runs a task write after any pending text edit, carrying the new href and etag forward. */
-  function enqueueWrite(write: () => Promise<Task>, failure: string) {
-    flush();
-    const run = queue.current.then(async () => {
-      try {
-        const updated = await write();
-        taskId.current = updated.id;
-        etag.current = updated.etag;
-      } catch (error) {
-        setAlert({
-          title: failure,
-          message: error instanceof ApiError ? error.message : 'Check your connection and try again.',
-        });
-      }
+  function writeAfterDraft<T>(write: () => Promise<T>) {
+    return queueWrite(async () => {
+      await saveDraft(latest.current);
+      return write();
     });
-    queue.current = run;
-    return run;
   }
 
   async function pickImages(source: 'library' | 'camera') {
     haptics.tap();
-    const permission =
-      source === 'camera'
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setAlert({
-        title: source === 'camera' ? 'Camera access' : 'Photo access',
-        message:
-          source === 'camera'
-            ? 'Allow camera access in Settings to attach a photo.'
-            : 'Allow photo library access in Settings to attach images.',
-      });
-      return;
-    }
-    const options: ImagePicker.ImagePickerOptions = {
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsMultipleSelection: source === 'library',
-      selectionLimit: 10,
-    };
-    const result =
-      source === 'camera'
-        ? await ImagePicker.launchCameraAsync(options)
-        : await ImagePicker.launchImageLibraryAsync(options);
-    if (result.canceled) return;
-    for (const asset of result.assets) {
-      const file = uploadFromAsset(asset);
-      setUploading((current) => [...current, file.uri]);
-      void enqueueWrite(
-        () =>
-          addAttachment.mutateAsync({
-            taskId: taskId.current,
-            accountId: task.account_id,
-            etag: etag.current,
-            file,
-          }),
-        'Could not attach image',
-      ).finally(() => setUploading((current) => current.filter((uri) => uri !== file.uri)));
+    try {
+      // The system photo picker grants access to selected items. Only opening
+      // the camera needs an upfront permission request.
+      if (source === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) {
+        setAlert({ title: 'Camera access', message: 'Allow camera access in Settings to attach a photo.' });
+        return;
+      }
+      const result = source === 'camera'
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+            allowsMultipleSelection: true,
+            selectionLimit: 10,
+          });
+      if (result.canceled) return;
+
+      for (const asset of result.assets) {
+        const file = uploadFromAsset(asset);
+        setUploading((current) => [...current, file.uri]);
+        void writeAfterDraft(async () => {
+          const { id, accountId, etag } = currentTask.current;
+          rememberTask(await addAttachment.mutateAsync({ taskId: id, accountId, etag, file }));
+        })
+          .catch((error: unknown) => showWriteError(error, 'Could not attach image'))
+          .finally(() => setUploading((current) => current.filter((uri) => uri !== file.uri)));
+      }
+    } catch (error) {
+      showWriteError(error, 'Could not open the image picker');
     }
   }
 
   function detachImage(attachment: TaskAttachment) {
-    void enqueueWrite(
-      () =>
-        removeAttachment.mutateAsync({
-          taskId: taskId.current,
-          accountId: task.account_id,
-          etag: etag.current,
-          attachment,
-        }),
-      'Could not remove image',
-    );
+    void writeAfterDraft(async () => {
+      const { id, accountId, etag } = currentTask.current;
+      rememberTask(await removeAttachment.mutateAsync({ taskId: id, accountId, etag, attachment }));
+    }).catch((error: unknown) => showWriteError(error, 'Could not remove image'));
   }
 
   function pickTags() {
@@ -372,17 +364,42 @@ function TaskDocument({
   }
 
   async function toggleTask(target: Task) {
+    if (target.id !== task.id) {
+      const { patch } = togglePatch(target);
+      try {
+        await updateTask.mutateAsync({ taskId: target.id, accountId: target.account_id, patch });
+      } catch (error) {
+        showWriteError(error, 'Could not update checklist item');
+      }
+      return;
+    }
+
     try {
-      await updateTask.mutateAsync({
-        taskId: target.id === task.id ? taskId.current : target.id,
-        accountId: target.account_id,
-        patch: {
-          completed: !target.completed,
-          etag: target.id === task.id ? etag.current : target.etag,
-        },
+      await writeAfterDraft(async () => {
+        const { id, accountId, etag } = currentTask.current;
+        const before = saved.current;
+        const { patch, repeated } = togglePatch({ ...target, ...before, etag });
+        const updated = await updateTask.mutateAsync({ taskId: id, accountId, patch });
+        rememberTask(updated);
+        if (repeated) {
+          const moved = {
+            due_at: updated.due_at,
+            start_at: updated.start_at ?? null,
+            reminder_at: updated.reminder_at,
+          };
+          saved.current = { ...before, ...moved };
+          const next = latest.current;
+          latest.current = {
+            ...next,
+            due_at: next.due_at === before.due_at ? moved.due_at : next.due_at,
+            start_at: next.start_at === before.start_at ? moved.start_at : next.start_at,
+            reminder_at: next.reminder_at === before.reminder_at ? moved.reminder_at : next.reminder_at,
+          };
+          setDraft(latest.current);
+        }
       });
-    } catch {
-      // The hook rolls back its optimistic update.
+    } catch (error) {
+      showWriteError(error, 'Could not update to-do');
     }
   }
 
@@ -393,7 +410,7 @@ function TaskDocument({
     haptics.tap();
     try {
       await createTask.mutateAsync({
-        list_id: draft.list_id,
+        list_id: latest.current.list_id,
         title,
         parent_uid: task.uid,
       });
@@ -408,27 +425,211 @@ function TaskDocument({
   async function confirmDelete() {
     setDeleteVisible(false);
     try {
-      await deleteTask.mutateAsync({
-        taskId: taskId.current,
-        accountId: task.account_id,
-        etag: etag.current,
+      await writeAfterDraft(async () => {
+        const { id, accountId, etag } = currentTask.current;
+        await deleteTask.mutateAsync({ taskId: id, accountId, etag });
       });
-      await cancelTaskReminder(task.uid);
-      // Nothing left to save once the task is gone.
-      saved.current = latest.current;
+      await cancelTaskReminder(task.uid).catch(() => {});
       if (pane) pane.close();
       else router.back();
-    } catch {
-      setAlert({
-        title: 'Delete failed',
-        message: 'Could not delete the task.',
-      });
+    } catch (error) {
+      showWriteError(error, 'Could not delete to-do');
     }
   }
 
   const listName = lists.find((l) => l.id === draft.list_id)?.name ?? task.list_name;
   const children = task.children;
   const doneCount = children.filter((c) => c.completed).length;
+
+  const repeatOptions: RepeatOption[] = [{ label: 'Never', rrule: null }, ...repeatPresets(draft.due_at)];
+  function pickRepeat(preset: RepeatOption) {
+    // A repeat counts from a date; give it one if there's none yet.
+    const due =
+      preset.rrule && !latest.current.due_at
+        ? atDay(new Date(firstDue(preset.rrule) ?? Date.now()))
+        : latest.current.due_at;
+    change({ rrule: preset.rrule, due_at: due });
+  }
+
+  const overlays = (
+    <>
+      <ListPicker
+        visible={listPickerOpen}
+        lists={lists}
+        selectedId={draft.list_id}
+        onSelect={(list) => {
+          setListPickerOpen(false);
+          if (
+            task.children.length > 0 &&
+            list.account_id &&
+            task.account_id &&
+            list.account_id !== task.account_id
+          ) {
+            setAlert({
+              title: 'Move checklist first',
+              message:
+                'A to-do with checklist items cannot move to another account because CalDAV parent links do not cross servers.',
+            });
+            return;
+          }
+          change({ list_id: list.id });
+        }}
+        onClose={() => setListPickerOpen(false)}
+      />
+      <NativeAlert
+        visible={deleteVisible}
+        title="Delete to-do"
+        message={
+          children.length > 0
+            ? `Delete "${draft.title}"? Its ${children.length} checklist item${children.length === 1 ? '' : 's'} will remain as separate to-dos.`
+            : `Delete "${draft.title}"?`
+        }
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteVisible(false)}
+        onConfirm={confirmDelete}
+      />
+      <NativeAlert
+        visible={alert != null}
+        title={alert?.title ?? ''}
+        message={alert?.message ?? ''}
+        onDismiss={() => setAlert(null)}
+      />
+    </>
+  );
+
+  const attachments = attachmentAccess ? (
+    <TaskAttachments
+      access={attachmentAccess}
+      attachments={task.attachments ?? []}
+      uploading={uploading}
+      onPick={pickImages}
+      onRemove={detachImage}
+    />
+  ) : null;
+
+  // Android: the full page in the composer's style (split view keeps the plain layout).
+  if (Platform.OS === 'android' && !pane) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <TaskPage
+          task={task}
+          draft={draft}
+          listName={listName}
+          listIndex={Math.max(0, lists.findIndex((l) => l.id === draft.list_id))}
+          doneCount={doneCount}
+          barBottom={fabBottom}
+          checklistDraft={checklistDraft}
+          onChecklistDraft={setChecklistDraft}
+          onAddChecklist={addChecklistItem}
+          onTitle={(title) => change({ title }, false)}
+          onNotes={(markdown) => change({ markdown }, false)}
+          onBlur={flush}
+          onToggle={toggleTask}
+          onOpenChild={(child) => router.push({ pathname: '/task/[uid]', params: { uid: child.uid } })}
+          onPickTags={pickTags}
+          onMove={() => setListPickerOpen(true)}
+          onDelete={() => setDeleteVisible(true)}
+          attachments={attachments}
+          schedule={
+            <>
+              <DateField
+                label="Deadline"
+                iconName="flag-outline"
+                value={draft.due_at}
+                onChange={(due_at) => {
+                  const { start_at, due_at: before } = latest.current;
+                  const length = start_at && before ? new Date(before).getTime() - new Date(start_at).getTime() : 0;
+                  change({
+                    due_at,
+                    start_at: due_at && length > 0 ? new Date(new Date(due_at).getTime() - length).toISOString() : null,
+                  });
+                }}
+              />
+              <Divider />
+              <TimeBlockField
+                value={{ start_at: draft.start_at, due_at: draft.due_at }}
+                onChange={(block) => change(block)}
+                task={{ uid: task.uid, title: draft.title || task.title }}
+              />
+              <Divider />
+              <DateField
+                label="Reminder"
+                iconName="bell-outline"
+                value={draft.reminder_at}
+                onChange={(reminder_at) => change({ reminder_at })}
+              />
+            </>
+          }
+          repeat={<RepeatChips options={repeatOptions} value={draft.rrule} onChange={pickRepeat} />}
+          repeatLabel={describeRrule(draft.rrule) ?? 'Never'}
+          options={
+            <>
+              <View className="gap-3">
+                <View className="flex-row items-center gap-3">
+                  <MaterialCommunityIcons name="signal-cellular-2" size={20} color={colors.accent} />
+                  <Text className="text-sf-text text-base">Priority</Text>
+                </View>
+                <SegmentedChoice options={PRIORITIES} value={draft.priority} onChange={(priority) => change({ priority })} />
+              </View>
+              <Divider />
+              <View className="flex-row items-center gap-3" style={{ minHeight: 48 }}>
+                <MaterialCommunityIcons name="pin-outline" size={20} color={colors.accent} />
+                <Text className="text-sf-text flex-1 text-base">Pin to top</Text>
+                <Switch value={draft.pinned} onValueChange={(pinned) => change({ pinned })} />
+              </View>
+              {draft.due_at || draft.reminder_at ? (
+                <>
+                  <Divider />
+                  <CalendarCopy
+                    open={calendarOpen}
+                    onToggle={() => setCalendarOpen((v) => !v)}
+                    onCopy={async (calendarId) => {
+                      setCalendarOpen(false);
+                      try {
+                        await addTaskToCalendar({
+                          calendarId,
+                          title: latest.current.title,
+                          notes: latest.current.markdown,
+                          dueAt: latest.current.due_at,
+                          reminderAt: latest.current.reminder_at,
+                        });
+                        haptics.success();
+                        setAlert({ title: 'Added to calendar', message: 'A calendar event was created.' });
+                      } catch {
+                        setAlert({ title: 'Calendar', message: 'Could not add the event to that calendar.' });
+                      }
+                    }}
+                  />
+                </>
+              ) : null}
+              {!task.parent_uid && boardsTab ? (
+                <>
+                  <Divider />
+                  <MoveToDeck task={task} inline />
+                </>
+              ) : null}
+              <Divider />
+              <Pressable
+                onPress={() => {
+                  flush();
+                  router.push({ pathname: '/share-tasks', params: { uid: task.uid } });
+                }}
+                accessibilityRole="button"
+                android_ripple={{ color: colors.separator }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 }}>
+                <MaterialCommunityIcons name="qrcode" size={20} color={colors.accent} />
+                <Text className="text-sf-text text-base">Share as QR code or text</Text>
+              </Pressable>
+            </>
+          }
+          focus={process.env.EXPO_OS !== 'web' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
+        />
+        {overlays}
+      </>
+    );
+  }
 
   return (
     <>
@@ -596,20 +797,13 @@ function TaskDocument({
           </Pressable>
         </Animated.View>
 
-        {/* Attachments: Nextcloud accounts only, since the files live in Nextcloud Files. */}
-        {attachmentAccess ? (
+        {attachments ? (
           <>
             <Heading
               title="Attachments"
               detail={task.attachments?.length ? String(task.attachments.length) : undefined}
             />
-            <TaskAttachments
-              access={attachmentAccess}
-              attachments={task.attachments ?? []}
-              uploading={uploading}
-              onPick={pickImages}
-              onRemove={detachImage}
-            />
+            {attachments}
           </>
         ) : null}
 
@@ -691,7 +885,23 @@ function TaskDocument({
               label="Deadline"
               iconName="flag-outline"
               value={draft.due_at}
-              onChange={(due_at) => change({ due_at })}
+              onChange={(due_at) => {
+                // A time block rides along with its end, keeping its length;
+                // no deadline means no block either.
+                const { start_at, due_at: before } = latest.current;
+                const length = start_at && before ? new Date(before).getTime() - new Date(start_at).getTime() : 0;
+                change({
+                  due_at,
+                  start_at: due_at && length > 0 ? new Date(new Date(due_at).getTime() - length).toISOString() : null,
+                });
+              }}
+            />
+          </PropertyCell>
+          <PropertyCell>
+            <TimeBlockField
+              value={{ start_at: draft.start_at, due_at: draft.due_at }}
+              onChange={(block) => change(block)}
+              task={{ uid: task.uid, title: draft.title || task.title }}
             />
           </PropertyCell>
           <PropertyCell>
@@ -701,6 +911,23 @@ function TaskDocument({
               value={draft.reminder_at}
               onChange={(reminder_at) => change({ reminder_at })}
             />
+          </PropertyCell>
+          <PropertyCell>
+            <View className="gap-3">
+              <View className="flex-row items-center gap-3">
+                <MaterialCommunityIcons name="repeat" size={20} color={colors.accent} />
+                <Text className="text-sf-text flex-1 text-base">Repeat</Text>
+                <Text className="text-sf-text-2 text-sm">{describeRrule(draft.rrule) ?? 'Never'}</Text>
+              </View>
+              <RepeatChips options={repeatOptions} value={draft.rrule} onChange={pickRepeat} />
+            </View>
+          </PropertyCell>
+          <PropertyCell>
+            <View className="flex-row items-center gap-3">
+              <MaterialCommunityIcons name="pin-outline" size={20} color={colors.accent} />
+              <Text className="text-sf-text flex-1 text-base">Pin to top</Text>
+              <Switch value={draft.pinned} onValueChange={(pinned) => change({ pinned })} />
+            </View>
           </PropertyCell>
           <PropertyCell last={!(draft.due_at || draft.reminder_at)}>
             <View className="gap-3">
@@ -744,9 +971,20 @@ function TaskDocument({
             />
           ) : null}
           {!task.parent_uid && boardsTab ? <MoveToDeck task={task} inline /> : null}
+          <Pressable
+            onPress={() => {
+              flush();
+              router.push({ pathname: '/share-tasks', params: { uid: task.uid } });
+            }}
+            accessibilityRole="button"
+            android_ripple={{ color: colors.separator }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56 }}>
+            <MaterialCommunityIcons name="qrcode" size={20} color={colors.accent} />
+            <Text className="text-sf-text text-base">Share as QR code or text</Text>
+          </Pressable>
         </PropertyGroup>
 
-        {Platform.OS === 'ios' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
+        {process.env.EXPO_OS !== 'web' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
 
         {task.updated_at ? (
           <Text className="text-sf-text-3 pt-4 text-xs">
@@ -761,48 +999,7 @@ function TaskDocument({
         onDelete={() => setDeleteVisible(true)}
       />
 
-      <ListPicker
-        visible={listPickerOpen}
-        lists={lists}
-        selectedId={draft.list_id}
-        onSelect={(list) => {
-          setListPickerOpen(false);
-          if (
-            task.children.length > 0 &&
-            list.account_id &&
-            task.account_id &&
-            list.account_id !== task.account_id
-          ) {
-            setAlert({
-              title: 'Move checklist first',
-              message:
-                'A to-do with checklist items cannot move to another account because CalDAV parent links do not cross servers.',
-            });
-            return;
-          }
-          change({ list_id: list.id });
-        }}
-        onClose={() => setListPickerOpen(false)}
-      />
-      <NativeAlert
-        visible={deleteVisible}
-        title="Delete to-do"
-        message={
-          children.length > 0
-            ? `Delete "${draft.title}"? Its ${children.length} checklist item${children.length === 1 ? '' : 's'} will remain as separate to-dos.`
-            : `Delete "${draft.title}"?`
-        }
-        confirmLabel="Delete"
-        dismissLabel="Cancel"
-        onDismiss={() => setDeleteVisible(false)}
-        onConfirm={confirmDelete}
-      />
-      <NativeAlert
-        visible={alert != null}
-        title={alert?.title ?? ''}
-        message={alert?.message ?? ''}
-        onDismiss={() => setAlert(null)}
-      />
+      {overlays}
     </>
   );
 }
@@ -826,6 +1023,11 @@ function uploadFromAsset(asset: ImagePicker.ImagePickerAsset): AttachmentUpload 
   const mime = EXTENSION_MIME[extension] ?? asset.mimeType ?? 'image/jpeg';
   const stem = asset.fileName?.replace(/\.[^.]+$/, '') || `IMG_${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`;
   return { uri: asset.uri, name: `${stem}.${extension}`, mime };
+}
+
+function Divider() {
+  const { colors } = useTheme();
+  return <View style={{ height: 1, backgroundColor: colors.separator, marginVertical: 6 }} />;
 }
 
 /** Things-style section heading: accent label over a hairline. */
@@ -944,53 +1146,63 @@ function CalendarCopy({
 
 function FocusSection({ taskUid, taskTitle }: { taskUid: string; taskTitle: string }) {
   const { colors } = useTheme();
-  const activeUid = useFocusStore((s) => s.taskUid);
-  const paused = useFocusStore((s) => s.paused);
-  const durationSeconds = useFocusStore((s) => s.durationSeconds);
-  const startedAt = useFocusStore((s) => s.startedAt);
-  const isMine = activeUid === taskUid && startedAt != null;
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!isMine || paused) return;
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, [isMine, paused]);
-  const remainingMin = isMine
-    ? Math.max(0, Math.ceil((durationSeconds - (now - (startedAt ?? 0)) / 1000) / 60))
-    : 0;
+  const phase = usePomodoroStore((s) => s.phase);
+  const activeUid = usePomodoroStore((s) => s.taskUid);
+  const sessions = usePomodoroStore((s) => s.sessions);
+  const isMine = phase !== 'idle' && activeUid === taskUid;
+  const logged = useMemo(() => taskTime(sessions, taskUid), [sessions, taskUid]);
+  const task = { uid: taskUid, title: taskTitle };
 
   return (
     <>
       <Heading title="Focus" />
       <View className="flex-row items-center justify-between" style={{ minHeight: 56 }}>
-        <View className="flex-row items-center gap-3">
+        <View className="flex-1 flex-row items-center gap-3">
           <MaterialCommunityIcons name="timer-outline" size={20} color={colors.accent} />
-          <Text className="text-sf-text text-base">
-            {isMine ? (paused ? 'Paused' : `${remainingMin} min left`) : '25-minute session'}
+          <Text className="text-sf-text flex-1 text-base">
+            {isMine
+              ? phase === 'stopwatch'
+                ? 'Tracking time'
+                : phase === 'break'
+                  ? 'On a break'
+                  : 'Focusing'
+              : logged.total > 0
+                ? `${formatMinutes(logged.today)} today · ${formatMinutes(logged.total)} total`
+                : 'No time logged yet'}
           </Text>
         </View>
-        {isMine ? (
-          <View className="flex-row gap-4">
-            <Pressable
-              onPress={() => (paused ? resumeFocus() : pauseFocus())}
-              accessibilityRole="button"
-              hitSlop={8}>
-              <Text style={{ color: colors.accent, fontSize: 16 }}>
-                {paused ? 'Resume' : 'Pause'}
-              </Text>
+        <View className="flex-row gap-4">
+          {isMine ? (
+            <Pressable accessibilityRole="button" onPress={() => router.push('/pomodoro')} hitSlop={8}>
+              <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Open</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => endFocus()} hitSlop={8}>
-              <Text style={{ color: colors.accent, fontSize: 16 }}>End</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => startFocus(taskUid, taskTitle, 25 * 60)}
-            hitSlop={8}>
-            <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Start</Text>
-          </Pressable>
-        )}
+          ) : (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Start a pomodoro on this to-do"
+                onPress={() => {
+                  haptics.impact('medium');
+                  void usePomodoroStore.getState().start(task);
+                  router.push('/pomodoro');
+                }}
+                hitSlop={8}>
+                <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Pomodoro</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Track time on this to-do with a stopwatch"
+                onPress={() => {
+                  haptics.impact('medium');
+                  void usePomodoroStore.getState().startStopwatch(task);
+                  router.push('/pomodoro');
+                }}
+                hitSlop={8}>
+                <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Track</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
       </View>
     </>
   );

@@ -102,4 +102,79 @@ export function GlassIconButton({
 
 const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  fill: { alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', paddingHorizontal: 20 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
 });
+
+/**
+ * iOS 26 glass push button, the SwiftUI `.glassProminent` / `.glass` look:
+ * interactive Liquid Glass in a capsule, tinted with the accent for the
+ * primary action and clear for the rest. Interactive glass gives the system
+ * press response (it swells and lights up under the finger), so there is no
+ * opacity fade on top. Without glass (iOS < 26) it falls back to a solid
+ * capsule, filled for the primary action and gray for the rest.
+ */
+export function GlassPillButton({
+  label,
+  sf,
+  onPress,
+  prominent = false,
+  disabled = false,
+  height = 50,
+  tint,
+  accessibilityLabel,
+  style,
+}: {
+  label: string;
+  sf?: SFSymbol;
+  onPress: () => void;
+  /** Accent-tinted glass for the screen's main action. */
+  prominent?: boolean;
+  disabled?: boolean;
+  height?: number;
+  /** Overrides the prominent tint, e.g. red for a destructive action. */
+  tint?: string;
+  accessibilityLabel?: string;
+  /** Layout for the button itself: flex, alignSelf, margins. */
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { colors, scheme } = useTheme();
+  const glass = useLiquidGlass();
+  const fill = prominent ? (tint ?? colors.accent) : undefined;
+  const ink = prominent ? '#FFFFFF' : colors.text;
+  const shape: ViewStyle = { height, borderRadius: height / 2, borderCurve: 'continuous' };
+  const content = (
+    <View style={styles.row}>
+      {sf ? <SymbolView name={sf} size={17} weight="semibold" tintColor={ink} /> : null}
+      <Text style={{ fontSize: 17, fontWeight: '600', color: ink }} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.tap();
+        onPress();
+      }}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [shape, { opacity: disabled ? 0.4 : !glass && pressed ? 0.75 : 1 }, style]}>
+      {glass ? (
+        <GlassView
+          isInteractive={!disabled}
+          glassEffectStyle="regular"
+          tintColor={fill}
+          colorScheme={scheme}
+          style={[shape, styles.fill]}>
+          {content}
+        </GlassView>
+      ) : (
+        <View style={[shape, styles.fill, { backgroundColor: fill ?? colors.bg3 }]}>{content}</View>
+      )}
+    </Pressable>
+  );
+}

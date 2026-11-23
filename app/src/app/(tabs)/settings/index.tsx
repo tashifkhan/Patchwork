@@ -17,6 +17,7 @@ import { useTheme } from '@/components/theme/context';
 import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
 import { useOutboxStore } from '@/lib/outbox';
+import { loadRecycleBin, useRecycleBinStore } from '@/lib/recycle-bin';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -61,6 +62,10 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
   const githubReposCount = useSettingsStore((s) => s.githubRepositories.length);
   const jiraConnection = useJiraSessionStore((state) => state.state);
   const outboxCount = useOutboxStore((state) => state.entries.length);
+  const binCount = useRecycleBinStore((state) => state.entries.length);
+  useEffect(() => {
+    void loadRecycleBin();
+  }, []);
   const initializeJira = useJiraSessionStore((state) => state.initialize);
   useEffect(() => {
     if (jiraConnection.status === 'initializing') void initializeJira();
@@ -167,6 +172,38 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
             value={outboxCount > 0 ? `${outboxCount} Waiting` : undefined}
             showChevron
             onPress={() => go('/settings/offline')}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title="Tools">
+          <SettingsRow
+            icon="timer-outline"
+            sf="timer"
+            title="Focus & Extras"
+            showChevron
+            onPress={() => go('/settings/productivity')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="tray-arrow-down"
+            title="Backup & Sharing"
+            showChevron
+            onPress={() => go('/settings/backup')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="lock-outline"
+            title="Privacy"
+            showChevron
+            onPress={() => go('/settings/privacy')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="trash-can-outline"
+            title="Recently Deleted"
+            value={binCount > 0 ? String(binCount) : undefined}
+            showChevron
+            onPress={() => go('/settings/recycle-bin')}
           />
         </SettingsGroup>
 
@@ -288,6 +325,40 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
             />
           </>
         ) : null}
+      </SettingsGroup>
+
+      <SettingsGroup>
+        <SettingsRow
+          icon="timer-outline"
+          title="Focus and extras"
+          subtitle="Pomodoro, stopwatch, week start, sounds, confetti"
+          showChevron
+          onPress={() => go('/settings/productivity')}
+        />
+        <RowSeparator />
+        <SettingsRow
+          icon="tray-arrow-down"
+          title="Backup and sharing"
+          subtitle="JSON and Markdown export, import, QR codes"
+          showChevron
+          onPress={() => go('/settings/backup')}
+        />
+        <RowSeparator />
+        <SettingsRow
+          icon="lock-outline"
+          title="Privacy"
+          subtitle="App lock and screen privacy"
+          showChevron
+          onPress={() => go('/settings/privacy')}
+        />
+        <RowSeparator />
+        <SettingsRow
+          icon="trash-can-outline"
+          title="Recently deleted"
+          subtitle={binCount > 0 ? `${binCount} to-do${binCount === 1 ? '' : 's'} you can restore` : 'Deleted to-dos stay here for 30 days'}
+          showChevron
+          onPress={() => go('/settings/recycle-bin')}
+        />
       </SettingsGroup>
 
       <SettingsGroup>
