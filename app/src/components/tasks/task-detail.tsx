@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { createContext, use, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable } from 'react-native';
+import { Keyboard, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,7 +33,8 @@ import { describeRrule, firstDue, repeatPresets } from '@/lib/recurrence';
 import { togglePatch } from '@/lib/task-actions';
 import { atDay } from '@/lib/when';
 import { Switch } from '@/components/ui/switch';
-import { ToggleChip } from '@/components/ui/toggle-chip';
+import { RepeatChips, type RepeatOption } from '@/components/tasks/repeat-chips';
+import { TaskPage } from '@/components/tasks/task-page';
 import { DURATION, SPRING } from '@/lib/motion';
 import { cancelTaskReminder } from '@/lib/notifications';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
@@ -377,6 +378,186 @@ function TaskDocument({
   const children = task.children;
   const doneCount = children.filter((c) => c.completed).length;
 
+  const repeatOptions: RepeatOption[] = [{ label: 'Never', rrule: null }, ...repeatPresets(draft.due_at)];
+  function pickRepeat(preset: RepeatOption) {
+    // A repeat counts from a date; give it one if there's none yet.
+    const due =
+      preset.rrule && !latest.current.due_at
+        ? atDay(new Date(firstDue(preset.rrule) ?? Date.now()))
+        : latest.current.due_at;
+    change({ rrule: preset.rrule, due_at: due });
+  }
+
+  const overlays = (
+    <>
+      <ListPicker
+        visible={listPickerOpen}
+        lists={lists}
+        selectedId={draft.list_id}
+        onSelect={(list) => {
+          setListPickerOpen(false);
+          if (
+            task.children.length > 0 &&
+            list.account_id &&
+            task.account_id &&
+            list.account_id !== task.account_id
+          ) {
+            setAlert({
+              title: 'Move checklist first',
+              message:
+                'A to-do with checklist items cannot move to another account because CalDAV parent links do not cross servers.',
+            });
+            return;
+          }
+          change({ list_id: list.id });
+        }}
+        onClose={() => setListPickerOpen(false)}
+      />
+      <NativeAlert
+        visible={deleteVisible}
+        title="Delete to-do"
+        message={
+          children.length > 0
+            ? `Delete "${draft.title}"? Its ${children.length} checklist item${children.length === 1 ? '' : 's'} will remain as separate to-dos.`
+            : `Delete "${draft.title}"?`
+        }
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteVisible(false)}
+        onConfirm={confirmDelete}
+      />
+      <NativeAlert
+        visible={alert != null}
+        title={alert?.title ?? ''}
+        message={alert?.message ?? ''}
+        onDismiss={() => setAlert(null)}
+      />
+    </>
+  );
+
+  // Android: the full page in the composer's style (split view keeps the plain layout).
+  if (Platform.OS === 'android' && !pane) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <TaskPage
+          task={task}
+          draft={draft}
+          listName={listName}
+          listIndex={Math.max(0, lists.findIndex((l) => l.id === draft.list_id))}
+          doneCount={doneCount}
+          keyboardHeight={keyboardHeight}
+          barBottom={fabBottom}
+          checklistDraft={checklistDraft}
+          onChecklistDraft={setChecklistDraft}
+          onAddChecklist={addChecklistItem}
+          onTitle={(title) => change({ title }, false)}
+          onNotes={(markdown) => change({ markdown }, false)}
+          onBlur={flush}
+          onToggle={toggleTask}
+          onOpenChild={(child) => router.push({ pathname: '/task/[uid]', params: { uid: child.uid } })}
+          onPickTags={pickTags}
+          onMove={() => setListPickerOpen(true)}
+          onDelete={() => setDeleteVisible(true)}
+          schedule={
+            <>
+              <DateField
+                label="Deadline"
+                iconName="flag-outline"
+                value={draft.due_at}
+                onChange={(due_at) => {
+                  const { start_at, due_at: before } = latest.current;
+                  const length = start_at && before ? new Date(before).getTime() - new Date(start_at).getTime() : 0;
+                  change({
+                    due_at,
+                    start_at: due_at && length > 0 ? new Date(new Date(due_at).getTime() - length).toISOString() : null,
+                  });
+                }}
+              />
+              <Divider />
+              <TimeBlockField
+                value={{ start_at: draft.start_at, due_at: draft.due_at }}
+                onChange={(block) => change(block)}
+                task={{ uid: task.uid, title: draft.title || task.title }}
+              />
+              <Divider />
+              <DateField
+                label="Reminder"
+                iconName="bell-outline"
+                value={draft.reminder_at}
+                onChange={(reminder_at) => change({ reminder_at })}
+              />
+            </>
+          }
+          repeat={<RepeatChips options={repeatOptions} value={draft.rrule} onChange={pickRepeat} />}
+          repeatLabel={describeRrule(draft.rrule) ?? 'Never'}
+          options={
+            <>
+              <View className="gap-3">
+                <View className="flex-row items-center gap-3">
+                  <MaterialCommunityIcons name="signal-cellular-2" size={20} color={colors.accent} />
+                  <Text className="text-sf-text text-base">Priority</Text>
+                </View>
+                <SegmentedChoice options={PRIORITIES} value={draft.priority} onChange={(priority) => change({ priority })} />
+              </View>
+              <Divider />
+              <View className="flex-row items-center gap-3" style={{ minHeight: 48 }}>
+                <MaterialCommunityIcons name="pin-outline" size={20} color={colors.accent} />
+                <Text className="text-sf-text flex-1 text-base">Pin to top</Text>
+                <Switch value={draft.pinned} onValueChange={(pinned) => change({ pinned })} />
+              </View>
+              {draft.due_at || draft.reminder_at ? (
+                <>
+                  <Divider />
+                  <CalendarCopy
+                    open={calendarOpen}
+                    onToggle={() => setCalendarOpen((v) => !v)}
+                    onCopy={async (calendarId) => {
+                      setCalendarOpen(false);
+                      try {
+                        await addTaskToCalendar({
+                          calendarId,
+                          title: latest.current.title,
+                          notes: latest.current.markdown,
+                          dueAt: latest.current.due_at,
+                          reminderAt: latest.current.reminder_at,
+                        });
+                        haptics.success();
+                        setAlert({ title: 'Added to calendar', message: 'A calendar event was created.' });
+                      } catch {
+                        setAlert({ title: 'Calendar', message: 'Could not add the event to that calendar.' });
+                      }
+                    }}
+                  />
+                </>
+              ) : null}
+              {!task.parent_uid && boardsTab ? (
+                <>
+                  <Divider />
+                  <MoveToDeck task={task} inline />
+                </>
+              ) : null}
+              <Divider />
+              <Pressable
+                onPress={() => {
+                  flush();
+                  router.push({ pathname: '/share-tasks', params: { uid: task.uid } });
+                }}
+                accessibilityRole="button"
+                android_ripple={{ color: colors.separator }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 }}>
+                <MaterialCommunityIcons name="qrcode" size={20} color={colors.accent} />
+                <Text className="text-sf-text text-base">Share as QR code or text</Text>
+              </Pressable>
+            </>
+          }
+          focus={process.env.EXPO_OS !== 'web' ? <FocusSection taskUid={task.uid} taskTitle={draft.title} /> : null}
+        />
+        {overlays}
+      </>
+    );
+  }
+
   return (
     <>
       {pane ? (
@@ -656,26 +837,7 @@ function TaskDocument({
                 <Text className="text-sf-text flex-1 text-base">Repeat</Text>
                 <Text className="text-sf-text-2 text-sm">{describeRrule(draft.rrule) ?? 'Never'}</Text>
               </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {[{ label: 'Never', rrule: null as string | null }, ...repeatPresets(draft.due_at)].map((preset) => {
-                  const active = (preset.rrule ?? null) === (draft.rrule ?? null);
-                  return (
-                    <ToggleChip
-                      key={preset.label}
-                      label={preset.label}
-                      selected={active}
-                      onPress={() => {
-                        // A repeat counts from a date; give it one if there's none yet.
-                        const due =
-                          preset.rrule && !latest.current.due_at
-                            ? atDay(new Date(firstDue(preset.rrule) ?? Date.now()))
-                            : latest.current.due_at;
-                        change({ rrule: preset.rrule, due_at: due });
-                      }}
-                    />
-                  );
-                })}
-              </View>
+              <RepeatChips options={repeatOptions} value={draft.rrule} onChange={pickRepeat} />
             </View>
           </PropertyCell>
           <PropertyCell>
@@ -755,50 +917,14 @@ function TaskDocument({
         onDelete={() => setDeleteVisible(true)}
       />
 
-      <ListPicker
-        visible={listPickerOpen}
-        lists={lists}
-        selectedId={draft.list_id}
-        onSelect={(list) => {
-          setListPickerOpen(false);
-          if (
-            task.children.length > 0 &&
-            list.account_id &&
-            task.account_id &&
-            list.account_id !== task.account_id
-          ) {
-            setAlert({
-              title: 'Move checklist first',
-              message:
-                'A to-do with checklist items cannot move to another account because CalDAV parent links do not cross servers.',
-            });
-            return;
-          }
-          change({ list_id: list.id });
-        }}
-        onClose={() => setListPickerOpen(false)}
-      />
-      <NativeAlert
-        visible={deleteVisible}
-        title="Delete to-do"
-        message={
-          children.length > 0
-            ? `Delete "${draft.title}"? Its ${children.length} checklist item${children.length === 1 ? '' : 's'} will remain as separate to-dos.`
-            : `Delete "${draft.title}"?`
-        }
-        confirmLabel="Delete"
-        dismissLabel="Cancel"
-        onDismiss={() => setDeleteVisible(false)}
-        onConfirm={confirmDelete}
-      />
-      <NativeAlert
-        visible={alert != null}
-        title={alert?.title ?? ''}
-        message={alert?.message ?? ''}
-        onDismiss={() => setAlert(null)}
-      />
+      {overlays}
     </>
   );
+}
+
+function Divider() {
+  const { colors } = useTheme();
+  return <View style={{ height: 1, backgroundColor: colors.separator, marginVertical: 6 }} />;
 }
 
 /** Things-style section heading: accent label over a hairline. */
