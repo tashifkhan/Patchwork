@@ -383,7 +383,7 @@ function toHex(r: number, g: number, b: number): string {
 }
 
 /** Mix `a` toward `b` by `amount` (0 = a, 1 = b). */
-function mixHex(a: string, b: string, amount: number): string {
+export function mixHex(a: string, b: string, amount: number): string {
   const pa = parseHex(a);
   const pb = parseHex(b);
   if (!pa || !pb) return a;
