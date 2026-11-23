@@ -34,7 +34,9 @@ export function useJiraSearch(query: string, enabled = true): JiraSearchState {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const active = enabled && debounced.length >= MIN_QUERY;
+  const trimmed = query.trim();
+  const eligible = enabled && accounts.length > 0 && trimmed.length >= MIN_QUERY;
+  const active = eligible && debounced === trimmed;
 
   return useQueries({
     queries: accounts.map((account) => ({
@@ -58,8 +60,8 @@ export function useJiraSearch(query: string, enabled = true): JiraSearchState {
             }))
           )
         : [],
-      isSearching: active && results.some((result) => result.isFetching),
-      error: results.find((result) => result.error)?.error ?? null,
+      isSearching: eligible && (!active || results.some((result) => result.isFetching)),
+      error: active ? results.find((result) => result.error)?.error ?? null : null,
     }),
   });
 }
