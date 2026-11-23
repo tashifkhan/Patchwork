@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
+import { CAN_FROST, Frost, useFrostTarget } from '@/components/ui/frost';
 import { haptics } from '@/lib/haptics';
 import { EXPRESSIVE } from '@/lib/motion';
 import { mixHex } from '@/lib/theme';
@@ -252,12 +253,23 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
     if (routeName !== SEARCH_ROUTE) expand();
   };
 
-  // A coloured shadow can't be seen on a dark screen, so only light themes
-  // tint it with the accent.
-  const shell = {
-    backgroundColor: surface,
-    boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.45)' : `0 8px 24px ${alpha(colors.accent, 0.24)}`,
-  } as const;
+  // Frosted like Paisa's bar: the screen blurs through a wash of the bar's
+  // colour, and a bright edge marks the glass where a shadow would show through.
+  // Without blur it is a solid bar with a shadow, coloured by the accent on
+  // light themes (a coloured shadow can't be seen on a dark screen).
+  const frostTarget = useFrostTarget();
+  const frosted = CAN_FROST && frostTarget != null;
+  const shell = frosted
+    ? ({
+        overflow: 'hidden',
+        borderWidth: 1.25,
+        borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.7)',
+      } as const)
+    : ({
+        backgroundColor: surface,
+        boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.45)' : `0 8px 24px ${alpha(colors.accent, 0.24)}`,
+      } as const);
+  const frost = frosted ? <Frost tint={surface} strength={isDark ? 0.55 : 0.6} intensity={70} /> : null;
   // White light on dark themes, the accent on light ones, where white wouldn't show.
   const glowColor = isDark ? 'rgba(255,255,255,0.16)' : alpha(colors.accent, 0.16);
 
@@ -287,6 +299,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
           <Animated.View
             {...capsulePress.handlers}
             style={[styles.capsule, shell, capsulePress.style]}>
+            {frost}
             <PressGlow press={capsulePress} color={glowColor} radius={FLOATING_TAB_BAR_HEIGHT / 2} />
             <Animated.View
               pointerEvents="none"
@@ -353,7 +366,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
             })}
           </Animated.View>
 
-          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor}>
+          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
             <Pressable
               onPress={() => goTo(SEARCH_ROUTE)}
               accessibilityRole="tab"
@@ -374,7 +387,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
             !searchFocused ? { justifyContent: 'space-between' } : null,
           ]}
           pointerEvents={compact ? 'box-none' : 'none'}>
-          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor}>
+          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
             <Pressable
               onPress={() => {
                 if (searchFocused) goTo(returnRoute);
@@ -393,6 +406,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
 
           {searchFocused ? (
             <View style={[styles.searchPill, shell, { flex: 1 }]}>
+              {frost}
               <MaterialCommunityIcons name="magnify" size={20} color={colors.text3} />
               <RNTextInput
                 value={searchQuery}
@@ -419,7 +433,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
               ) : null}
             </View>
           ) : (
-            <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor}>
+            <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
               <Pressable
                 onPress={() => goTo(SEARCH_ROUTE)}
                 accessibilityRole="tab"
@@ -440,14 +454,18 @@ function ElasticCircle({
   children,
   style,
   glowColor,
+  frost,
 }: {
   children: ReactNode;
   style: StyleProp<ViewStyle>;
   glowColor: string;
+  /** Frosted backdrop, drawn under everything else. */
+  frost?: ReactNode;
 }) {
   const press = useElasticPress({ maxStretch: 0.08, maxTranslate: 2, pressedScale: 0.94 });
   return (
     <Animated.View {...press.handlers} style={[style, press.style]}>
+      {frost}
       <PressGlow press={press} color={glowColor} radius={FLOATING_TAB_CIRCLE / 2} size={28} />
       {children}
     </Animated.View>
