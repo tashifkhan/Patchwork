@@ -501,13 +501,8 @@ export default function BoardScreen() {
           <BoardToolbar
             query={query}
             onQuery={(value) => setQueryByRef((current) => ({ ...current, [ref]: value }))}
-            filters={filters}
-            onFilters={(next) => setFiltersByRef((current) => ({ ...current, [ref]: next }))}
-            facets={facets}
             filterCount={filterCount}
             onOpenFilters={() => setFilterOpen(true)}
-            shown={shownCards}
-            total={totalCards}
           />
         ) : null}
         {showSprints && detail.jira ? (
