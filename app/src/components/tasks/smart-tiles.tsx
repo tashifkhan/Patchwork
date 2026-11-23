@@ -16,7 +16,7 @@ import { RiseIn } from '@/components/ui/motion';
 import { RollingNumber } from '@/components/ui/rolling-number';
 import { haptics } from '@/lib/haptics';
 import { EXPRESSIVE } from '@/lib/motion';
-import { SMART_LABELS, SMART_ORDER, SMART_SWATCHES, type SmartKey, swatchColors } from '@/lib/smart-lists';
+import { SMART_LABELS, SMART_ORDER, type SmartKey, smartTone } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
 import { Text, View } from '@/tw';
 
@@ -86,9 +86,9 @@ function SmartTile({
   selected: boolean;
   onPress: () => void;
 }) {
-  const { scheme } = useTheme();
+  const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
-  const { fill, ink } = swatchColors(SMART_SWATCHES[smartKey], dark);
+  const { fill, ink } = smartTone(colors, dark, smartKey);
   const press = useElasticPress({ maxStretch: 0.05, maxTranslate: 2, pressedScale: 0.95, releaseOnDrag: true });
 
   const radius = useSharedValue(selected ? RADIUS_SELECTED : RADIUS);

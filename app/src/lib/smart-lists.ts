@@ -1,4 +1,5 @@
 import type { Task, TaskList } from '@/api/types';
+import type { ThemeColors } from '@/lib/theme';
 import { bucketOf, flattenTasks } from '@/lib/task-buckets';
 
 /** The four views at the top of Tasks, after the Reminders and Things home screens. */
@@ -97,4 +98,84 @@ export function listSwatch(index: number): Swatch {
 
 export function swatchColors(swatch: Swatch, dark: boolean): { fill: string; ink: string } {
   return dark ? { fill: swatch.dark, ink: swatch.inkDark } : { fill: swatch.light, ink: swatch.inkLight };
+}
+
+/* ── Tones from the theme (Material You) ──────────────────────────────
+ * The tiles, list cards and calendar blocks are filled entirely from the
+ * theme's Material 3 roles, so with wallpaper colours on they come from the
+ * wallpaper: primary, secondary, tertiary and error containers, plus a
+ * second tone of each for lists past the fourth. No fixed colours, no hue
+ * turning.
+ */
+
+export interface Tone {
+  fill: string;
+  ink: string;
+}
+
+function hexToHsl(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l * 100];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s * 100, l * 100];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const hue = ((h % 360) + 360) % 360;
+  const sat = Math.max(0, Math.min(100, s)) / 100;
+  const light = Math.max(0, Math.min(100, l)) / 100;
+  const k = (n: number) => (n + hue / 30) % 12;
+  const a = sat * Math.min(light, 1 - light);
+  const f = (n: number) => light - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return `#${[f(0), f(8), f(4)].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * A container tone of `role` (an M3 colour role such as tertiary or error),
+ * the way Material builds `*Container`: the role's hue and chroma at tone 90
+ * in light mode or 30 in dark, with its on-colour at 10 or 90. `step` 1 is a
+ * second, deeper tone of the same role.
+ */
+export function containerTone(role: string, dark: boolean, step = 0): Tone {
+  const hsl = hexToHsl(role);
+  if (!hsl) return { fill: role, ink: dark ? '#FFFFFF' : '#000000' };
+  const [h, s] = hsl;
+  const sat = s < 6 ? s : Math.min(75, Math.max(28, s));
+  return dark
+    ? { fill: hslToHex(h, sat * 0.6, step ? 33 : 26), ink: hslToHex(h, Math.min(sat, 70), 90) }
+    : { fill: hslToHex(h, sat, step ? 81 : 89), ink: hslToHex(h, Math.min(sat, 60), 14) };
+}
+
+/** Smart tiles on M3 roles: Today primary, Scheduled tertiary, All secondary, Overdue error. */
+export function smartTone(colors: ThemeColors, dark: boolean, key: SmartKey): Tone {
+  switch (key) {
+    case 'today':
+      return { fill: colors.primaryContainer, ink: colors.onPrimaryContainer };
+    case 'scheduled':
+      return containerTone(colors.purple, dark);
+    case 'all':
+      return { fill: colors.selectionBg, ink: colors.onSelectionBg };
+    case 'overdue':
+      return containerTone(colors.red, dark);
+  }
+}
+
+/** A list's tone: primary, tertiary, secondary, then the deeper tone of each. */
+export function listTone(colors: ThemeColors, dark: boolean, slot: number): Tone {
+  const roles = [colors.accent, colors.purple, colors.selectionBg];
+  const i = ((slot % 6) + 6) % 6;
+  if (i === 0) return { fill: colors.primaryContainer, ink: colors.onPrimaryContainer };
+  if (i === 2) return { fill: colors.selectionBg, ink: colors.onSelectionBg };
+  if (i === 1) return containerTone(colors.purple, dark);
+  return containerTone(roles[i - 3], dark, 1);
 }

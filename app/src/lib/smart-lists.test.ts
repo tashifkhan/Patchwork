@@ -65,3 +65,14 @@ describe('smart lists', () => {
     expect(listSwatch(LIST_SWATCHES.length)).toBe(LIST_SWATCHES[0]);
   });
 });
+
+describe('theme tones', () => {
+  test('container tones keep the role hue, pale in light and deep in dark', async () => {
+    const { containerTone } = await import('./smart-lists');
+    const light = parseInt(containerTone('#0F7A6C', false).fill.slice(1), 16);
+    expect((light >> 8) & 255).toBeGreaterThan(light >> 16);
+    expect(light >> 16).toBeGreaterThan(170);
+    const dark = parseInt(containerTone('#0F7A6C', true).fill.slice(1), 16);
+    expect((dark >> 8) & 255).toBeLessThan(110);
+  });
+});

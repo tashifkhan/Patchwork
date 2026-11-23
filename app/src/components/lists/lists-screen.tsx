@@ -18,7 +18,7 @@ import { RiseIn } from '@/components/ui/motion';
 import { RollingNumber } from '@/components/ui/rolling-number';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
-import { listSwatch, type ListSummary, summarizeLists, swatchColors } from '@/lib/smart-lists';
+import { listTone, type ListSummary, summarizeLists } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
 import { useUiStore } from '@/stores/ui-store';
 import { Text, View } from '@/tw';
@@ -191,9 +191,9 @@ function ListCard({
   last: boolean;
   onPress: () => void;
 }) {
-  const { scheme } = useTheme();
+  const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
-  const { fill, ink } = swatchColors(listSwatch(index), dark);
+  const { fill, ink } = listTone(colors, dark, index);
   const press = useElasticPress({ maxStretch: 0.015, maxTranslate: 1.5, pressedScale: 0.97, releaseOnDrag: true });
   // The arrow leans out toward its corner while the card is held.
   const arrow = useAnimatedStyle(() => ({
