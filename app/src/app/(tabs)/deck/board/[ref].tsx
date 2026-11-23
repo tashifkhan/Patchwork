@@ -463,9 +463,10 @@ export default function BoardScreen() {
         }}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: SIDE, gap: GAP, paddingTop: 4 }}
-        renderItem={({ item: column }) => (
+        renderItem={({ item: column, index }) => (
           <BoardColumn
             column={column}
+            index={index}
             sprintGroups={sprintGroups}
             width={columnWidth}
             imageHeaders={imageHeaders}

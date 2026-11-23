@@ -37,6 +37,14 @@ export interface BoardCardItem {
   labels: { title: string; color?: string }[];
   due?: string | null;
   hasDescription?: boolean;
+  /** First line of the description as plain text, for the card's note. */
+  note?: string;
+  /** Checklist progress from the description's `- [ ]` / `- [x]` lines. */
+  progress?: { done: number; total: number };
+  comments?: number;
+  attachments?: number;
+  /** Jira status category: done cards draw complete. */
+  statusCategory?: string;
   /** Jira boards with sprints: the sprint the issue is in, or the backlog. */
   sprint?: CardSprint;
 }
@@ -112,7 +120,39 @@ function deckCardItem(card: DeckCard, index: number): BoardCardItem {
     assignee: first ? { name: first } : undefined,
     assigneeCount: assignees.length,
     hasDescription: !!card.description?.trim(),
+    note: noteOf(card.description),
+    progress: checklistProgress(card.description),
+    comments: count(card.commentsCount),
+    attachments: count(card.attachmentCount),
   };
+}
+
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && value > 0 ? value : undefined;
+}
+
+/** The first line of prose in a markdown description, markers and checklist lines left out. */
+export function noteOf(markdown: string | undefined): string | undefined {
+  if (!markdown) return undefined;
+  for (const raw of markdown.split('\n')) {
+    const line = raw.trim();
+    if (!line || /^[-*+]\s+\[[ xX]\]/.test(line)) continue;
+    const text = line
+      .replace(/^#{1,6}\s+|^>\s?|^[-*+]\s+|^\d+[.)]\s+/, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[*_`~]/g, '')
+      .trim();
+    if (text) return text.length > 140 ? `${text.slice(0, 139)}…` : text;
+  }
+  return undefined;
+}
+
+/** Ticked and total checklist items in a markdown description, or nothing without one. */
+export function checklistProgress(markdown: string | undefined): { done: number; total: number } | undefined {
+  if (!markdown) return undefined;
+  const items = markdown.match(/^\s*[-*+]\s+\[[ xX]\]/gm) ?? [];
+  if (items.length === 0) return undefined;
+  return { done: items.filter((item) => /\[[xX]\]/.test(item)).length, total: items.length };
 }
 
 export function deckColumns(detail: DeckBoardDetail): BoardColumnItem[] {
@@ -156,6 +196,7 @@ function jiraCardItem(issue: JiraIssue, sprint?: CardSprint): BoardCardItem {
     assigneeCount: issue.assignee ? 1 : 0,
     labels: issue.labels.map((title) => ({ title })),
     due: issue.duedate ?? null,
+    statusCategory: issue.statusCategory,
     sprint,
   };
 }
