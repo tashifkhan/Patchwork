@@ -16,6 +16,7 @@ import { BoardTile } from '@/components/boards/board-tile';
 import { FilterSheet, JIRA_SCOPES } from '@/components/boards/filter-sheet';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { SprintBar } from '@/components/boards/sprint-bar';
+import { BoardToolbar } from '@/components/boards/board-toolbar';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
@@ -23,6 +24,7 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import {
   activeFilterCount,
   applyFilters,
+  searchColumns,
   EMPTY_FILTERS,
   filterFacets,
   groupBySprint,
@@ -89,13 +91,16 @@ export default function BoardScreen() {
   const [filtersByRef, setFiltersByRef] = useState<Record<string, BoardFilters>>({});
   const filters = filtersByRef[ref] ?? EMPTY_FILTERS;
   const filterCount = activeFilterCount(filters);
+  // Search is kept per board for this visit too.
+  const [queryByRef, setQueryByRef] = useState<Record<string, string>>({});
+  const query = queryByRef[ref] ?? '';
   const jiraScope = useSettingsStore((s) => s.jiraIssueScope);
   const setJiraScope = useSettingsStore((s) => s.setJiraIssueScope);
   const facets = useMemo(() => filterFacets(detail.columns), [detail.columns]);
   // Cards from several sprints (and the backlog) sit in sprint groups.
   const { columns: visibleColumns, grouped: sprintGroups } = useMemo(
-    () => groupBySprint(applyFilters(detail.columns, filters)),
-    [detail.columns, filters]
+    () => groupBySprint(searchColumns(applyFilters(detail.columns, filters), query)),
+    [detail.columns, filters, query]
   );
   const totalCards = detail.columns.reduce((sum, column) => sum + column.cards.length, 0);
   const shownCards = visibleColumns.reduce((sum, column) => sum + column.cards.length, 0);
@@ -324,11 +329,6 @@ export default function BoardScreen() {
         }}
       />
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={filterCount > 0 ? 'line.3.horizontal.decrease.circle.fill' : 'line.3.horizontal.decrease'}
-          accessibilityLabel={filterCount > 0 ? `Filters, ${filterCount} on` : 'Filter'}
-          onPress={() => setFilterOpen(true)}
-        />
         <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Board options">
           {[
             detail.canCreate ? (
@@ -391,12 +391,6 @@ export default function BoardScreen() {
           </Text>
         ) : null}
       </Pressable>
-      <IconButton
-        icon="filter-variant"
-        label={filterCount > 0 ? `Filters, ${filterCount} on` : 'Filter'}
-        badge={filterCount}
-        onPress={() => setFilterOpen(true)}
-      />
       {detail.canCreate ? (
         <IconButton
           icon="plus"
@@ -473,8 +467,8 @@ export default function BoardScreen() {
             refreshing={pulling}
             canCreate={detail.canCreate}
             emptyLabel={
-              filterCount > 0
-                ? 'No cards match your filters'
+              filterCount > 0 || query.trim()
+                ? 'No cards match your search or filters'
                 : detail.jira?.view.kind === 'backlog'
                   ? 'Nothing in the backlog here'
                   : detail.jira?.sprint?.state === 'future'
@@ -503,6 +497,19 @@ export default function BoardScreen() {
       {IOS ? iosHeader : <Stack.Screen options={{ headerShown: false }} />}
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         {IOS ? null : topBar}
+        {detail.columns.length > 0 ? (
+          <BoardToolbar
+            query={query}
+            onQuery={(value) => setQueryByRef((current) => ({ ...current, [ref]: value }))}
+            filters={filters}
+            onFilters={(next) => setFiltersByRef((current) => ({ ...current, [ref]: next }))}
+            facets={facets}
+            filterCount={filterCount}
+            onOpenFilters={() => setFilterOpen(true)}
+            shown={shownCards}
+            total={totalCards}
+          />
+        ) : null}
         {showSprints && detail.jira ? (
           <SprintBar sprints={detail.jira.sprints} view={detail.jira.view} onSelect={detail.jira.setView} />
         ) : null}

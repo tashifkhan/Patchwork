@@ -21,7 +21,7 @@ import type { JiraAccount, JiraCredentials } from '@/lib/credentials-types';
 export const JIRA_NEW_TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
 
 const REQUEST_TIMEOUT_MS = 20_000;
-const ISSUE_FIELDS = 'summary,status,priority,assignee,issuetype,labels,duedate,sprint,closedSprints';
+const ISSUE_FIELDS = 'summary,status,priority,assignee,issuetype,labels,duedate,sprint,closedSprints,subtasks';
 const MAX_BOARD_PAGES = 6;
 const MAX_ISSUE_PAGES = 4;
 
@@ -56,6 +56,8 @@ export interface JiraIssue {
   statusName: string;
   /** new / indeterminate / done */
   statusCategory: string;
+  /** The issue's sub-tasks, as Jira lists them on the parent. */
+  subtasks?: { key: string; title: string; done: boolean }[];
   typeName?: string;
   typeIconUrl?: string;
   priorityName?: string;
@@ -332,6 +334,7 @@ interface ApiIssue {
     duedate?: string | null;
     sprint?: ApiSprintRef | null;
     closedSprints?: (ApiSprintRef & { endDate?: string; completeDate?: string })[] | null;
+    subtasks?: { key?: string; fields?: { summary?: string; status?: { statusCategory?: { key?: string } } } }[];
   };
 }
 
@@ -368,6 +371,13 @@ function toIssue(raw: ApiIssue): JiraIssue {
     statusId: f.status?.id ?? '',
     statusName: f.status?.name ?? '',
     statusCategory: f.status?.statusCategory?.key ?? 'new',
+    subtasks: (f.subtasks ?? [])
+      .filter((sub) => sub.key)
+      .map((sub) => ({
+        key: sub.key ?? '',
+        title: sub.fields?.summary ?? sub.key ?? '',
+        done: sub.fields?.status?.statusCategory?.key === 'done',
+      })),
     typeName: f.issuetype?.name,
     typeIconUrl: f.issuetype?.iconUrl,
     priorityName: f.priority?.name,

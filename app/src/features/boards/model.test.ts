@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   activeFilterCount,
-  checklistProgress,
+  checklistItems,
+  searchColumns,
   noteOf,
   applyFilters,
   EMPTY_FILTERS,
@@ -97,7 +98,28 @@ test('card note skips headings markers and checklists', () => {
   expect(noteOf('   ')).toBeUndefined();
 });
 
-test('checklist progress counts ticked items', () => {
-  expect(checklistProgress('- [x] a\n- [ ] b\n* [X] c')).toEqual({ done: 2, total: 3 });
-  expect(checklistProgress('plain')).toBeUndefined();
+test('checklist lines become subtasks', () => {
+  expect(checklistItems('- [x] a\n- [ ] b\n* [X] c')).toEqual([
+    { title: 'a', done: true },
+    { title: 'b', done: false },
+    { title: 'c', done: true },
+  ]);
+  expect(checklistItems('plain')).toBeUndefined();
+});
+
+test('search matches title, key, labels and subtasks', () => {
+  const columns = [
+    {
+      id: 'c',
+      title: 'C',
+      cards: [
+        { id: '1', key: 'NOVA-1', title: 'Wireframe', labels: [{ title: 'ui' }] },
+        { id: '2', title: 'API', labels: [], subtasks: [{ title: 'auth endpoint', done: false }] },
+      ],
+    },
+  ];
+  expect(searchColumns(columns, 'nova-1')[0].cards.map((c) => c.id)).toEqual(['1']);
+  expect(searchColumns(columns, 'auth')[0].cards.map((c) => c.id)).toEqual(['2']);
+  expect(searchColumns(columns, 'ui wire')[0].cards.map((c) => c.id)).toEqual(['1']);
+  expect(searchColumns(columns, '  ')[0].cards).toHaveLength(2);
 });
