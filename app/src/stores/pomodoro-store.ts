@@ -57,6 +57,8 @@ interface TimerState {
   sessions: FocusSession[];
 
   start: (task?: { uid: string; title: string }) => Promise<void>;
+  /** A focus block of `minutes` instead of the usual length, e.g. a to-do's time block. */
+  startFor: (minutes: number, task?: { uid: string; title: string }) => Promise<void>;
   startStopwatch: (task?: { uid: string; title: string }) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
@@ -177,9 +179,9 @@ export const usePomodoroStore = create<TimerState>()(
        * can't both act on the old one), then swaps the end-of-phase
        * notification.
        */
-      async function enter(phase: 'work' | 'break', now = Date.now()) {
+      async function enter(phase: 'work' | 'break', now = Date.now(), minutes?: number) {
         const previousId = get().notificationId;
-        const phaseMinutes = minutesFor(phase);
+        const phaseMinutes = minutes ?? minutesFor(phase);
         const endsAt = now + phaseMinutes * 60_000;
         set({ phase, endsAt, pausedRemaining: null, phaseMinutes, notificationId: null });
         syncLive();
@@ -227,6 +229,12 @@ export const usePomodoroStore = create<TimerState>()(
           if (get().phase === 'stopwatch') await get().stop();
           set(task(t));
           await enter('work');
+        },
+
+        startFor: async (minutes, t) => {
+          if (get().phase === 'stopwatch') await get().stop();
+          set(task(t));
+          await enter('work', Date.now(), Math.max(1, Math.round(minutes)));
         },
 
         startStopwatch: async (t) => {

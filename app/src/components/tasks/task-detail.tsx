@@ -9,6 +9,7 @@ import { ApiError } from '@/api/client';
 import type { Task, TaskList, TaskUpdate } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
+import { TimeBlockField } from '@/components/tasks/time-block-field';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
@@ -169,6 +170,7 @@ interface Draft {
   list_id: string;
   tags: string[];
   due_at: string | null;
+  start_at: string | null;
   reminder_at: string | null;
   priority: number | null;
   rrule: string | null;
@@ -182,6 +184,7 @@ function draftFromTask(task: Task): Draft {
     list_id: task.list_id,
     tags: normalizeTags(task.tags),
     due_at: task.due_at,
+    start_at: task.start_at ?? null,
     reminder_at: task.reminder_at,
     priority: toPriorityBucket(task.priority),
     rrule: task.rrule ?? null,
@@ -197,6 +200,7 @@ function diffDraft(saved: Draft, next: Draft): TaskUpdate {
   if (next.list_id !== saved.list_id) patch.list_id = next.list_id;
   if (next.tags.join('\u0000') !== saved.tags.join('\u0000')) patch.tags = next.tags;
   if (next.due_at !== saved.due_at) patch.due_at = next.due_at;
+  if (next.start_at !== saved.start_at) patch.start_at = next.start_at;
   if (next.reminder_at !== saved.reminder_at) patch.reminder_at = next.reminder_at;
   if (next.priority !== saved.priority) patch.priority = next.priority;
   if (next.rrule !== saved.rrule) patch.rrule = next.rrule;
@@ -618,7 +622,23 @@ function TaskDocument({
               label="Deadline"
               iconName="flag-outline"
               value={draft.due_at}
-              onChange={(due_at) => change({ due_at })}
+              onChange={(due_at) => {
+                // A time block rides along with its end, keeping its length;
+                // no deadline means no block either.
+                const { start_at, due_at: before } = latest.current;
+                const length = start_at && before ? new Date(before).getTime() - new Date(start_at).getTime() : 0;
+                change({
+                  due_at,
+                  start_at: due_at && length > 0 ? new Date(new Date(due_at).getTime() - length).toISOString() : null,
+                });
+              }}
+            />
+          </PropertyCell>
+          <PropertyCell>
+            <TimeBlockField
+              value={{ start_at: draft.start_at, due_at: draft.due_at }}
+              onChange={(block) => change(block)}
+              task={{ uid: task.uid, title: draft.title || task.title }}
             />
           </PropertyCell>
           <PropertyCell>

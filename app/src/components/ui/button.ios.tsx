@@ -31,6 +31,7 @@ const SF: Partial<Record<NonNullable<ButtonProps['icon']>, SFSymbol>> = {
   restore: 'arrow.uturn.backward',
   creation: 'sparkles',
   microphone: 'mic.fill',
+  'timer-outline': 'stopwatch',
   'cog-outline': 'gearshape',
   'qrcode-scan': 'qrcode.viewfinder',
 };

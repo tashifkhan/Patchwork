@@ -35,6 +35,12 @@ export interface Task {
   completed: boolean;
   priority: number | null;
   due_at: string | null;
+  /**
+   * When the to-do's time block starts (VTODO `DTSTART`). With it, `due_at` is
+   * where the block ends. Null for a plain due date; a repeating to-do whose
+   * DTSTART only anchors the series (equal to DUE) also reads as null.
+   */
+  start_at?: string | null;
   reminder_at: string | null;
   tags: string[];
   /** Manual ordering within a list (CalDAV X-APPLE-SORT-ORDER). Lower sorts first. */
@@ -68,6 +74,7 @@ export interface TaskCreate {
   markdown?: string;
   tags?: string[];
   due_at?: string | null;
+  start_at?: string | null;
   reminder_at?: string | null;
   parent_uid?: string | null;
   priority?: number | null;
@@ -84,6 +91,7 @@ export interface TaskUpdate {
   completed?: boolean;
   tags?: string[];
   due_at?: string | null;
+  start_at?: string | null;
   reminder_at?: string | null;
   parent_uid?: string | null;
   priority?: number | null;

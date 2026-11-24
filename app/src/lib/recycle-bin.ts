@@ -72,6 +72,7 @@ export function taskSnapshot(task: Task): TaskCreate & { uid: string } {
     completed: task.completed,
     tags: task.tags,
     due_at: task.due_at,
+    start_at: task.start_at ?? null,
     reminder_at: task.reminder_at,
     parent_uid: task.parent_uid,
     priority: task.priority,

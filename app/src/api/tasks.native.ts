@@ -373,6 +373,7 @@ function taskToCreate(task: Task): TaskCreate {
     completed: task.completed,
     tags: task.tags,
     due_at: task.due_at,
+    start_at: task.start_at ?? null,
     reminder_at: task.reminder_at,
     parent_uid: task.parent_uid,
     priority: task.priority,
@@ -736,6 +737,8 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
     completed: status === 'COMPLETED',
     priority: parseOptionalInt(icsRaw(fields, 'PRIORITY')),
     due_at: dueAt,
+    // A DTSTART equal to DUE only anchors a repeat; it isn't a time block.
+    start_at: startsAt && startsAt !== dueAt ? startsAt : null,
     reminder_at: reminderAt,
     tags: icsTextList(fields, 'CATEGORIES'),
     sort_order: parseOptionalInt(icsRaw(fields, 'X-APPLE-SORT-ORDER')),
@@ -766,10 +769,11 @@ export function serializeVtodo(task: TaskCreate) {
   if (task.sort_order != null) lines.push(`X-APPLE-SORT-ORDER:${task.sort_order}`);
   if (task.due_at) lines.push(`DUE:${formatIcsDate(task.due_at)}`);
   if (task.pinned) lines.push('X-PATCHWORK-PINNED:TRUE');
-  if (task.rrule) {
-    lines.push(`RRULE:${sanitizeRrule(task.rrule)}`);
-    if (task.due_at) lines.push(`DTSTART:${formatIcsDate(task.due_at)}`);
-  }
+  // DTSTART is the start of the time block, or for a repeat with no block,
+  // the due date: RFC 5545 counts a series from DTSTART.
+  const start = task.start_at ?? (task.rrule ? task.due_at : null);
+  if (start) lines.push(`DTSTART:${formatIcsDate(start)}`);
+  if (task.rrule) lines.push(`RRULE:${sanitizeRrule(task.rrule)}`);
   const tags = normalizeTags(task.tags ?? []);
   if (tags.length) lines.push(`CATEGORIES:${serializeIcsList(tags)}`);
   if (task.parent_uid) lines.push(`RELATED-TO:${escapeIcs(task.parent_uid)}`);
@@ -787,6 +791,10 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
   // clients (which are free to put VALARM before DESCRIPTION).
   let next = editVtodoBody(calendarData, (body) => {
     let draft = body;
+    // The block start as it stands, read before the due date moves.
+    const before = parseIcs(body.replace(SUBCOMPONENT_BLOCK, ''));
+    const startNow = parseIcsDate(icsField(before, 'DTSTART'));
+    const currentBlockStart = startNow && startNow !== parseIcsDate(icsField(before, 'DUE')) ? startNow : null;
     if (patch.title !== undefined) draft = setIcsField(draft, 'SUMMARY', patch.title);
     if (patch.markdown !== undefined) draft = setIcsField(draft, 'DESCRIPTION', patch.markdown);
     if (patch.completed !== undefined) {
@@ -812,11 +820,19 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
     if (patch.rrule !== undefined) {
       draft = setIcsField(draft, 'RRULE', patch.rrule ? sanitizeRrule(patch.rrule) : null, false);
     }
-    // RFC 5545 counts a repeat from DTSTART. Keep it on the due date so other
-    // clients agree on which day the series falls after we move it forward.
-    if (/^RRULE[:;]/im.test(draft) && (patch.due_at !== undefined || patch.rrule !== undefined)) {
+    // DTSTART is the start of the time block. Without one, a repeat keeps it
+    // on the due date (RFC 5545 counts a series from DTSTART) so other clients
+    // agree on which day the series falls after we move it forward.
+    if (patch.start_at !== undefined || patch.due_at !== undefined || patch.rrule !== undefined) {
+      const start = patch.start_at !== undefined ? patch.start_at : (currentBlockStart ?? null);
       const due = patch.due_at !== undefined ? patch.due_at : parseIcsDate(icsField(parseIcs(draft), 'DUE'));
-      draft = setIcsField(draft, 'DTSTART', due ? formatIcsDate(due) : null, false);
+      if (start) {
+        draft = setIcsField(draft, 'DTSTART', formatIcsDate(start), false);
+      } else if (/^RRULE[:;]/im.test(draft)) {
+        draft = setIcsField(draft, 'DTSTART', due ? formatIcsDate(due) : null, false);
+      } else if (patch.start_at !== undefined) {
+        draft = setIcsField(draft, 'DTSTART', null, false);
+      }
     }
     return setIcsField(draft, 'LAST-MODIFIED', formatIcsDate(new Date().toISOString()), false);
   });
