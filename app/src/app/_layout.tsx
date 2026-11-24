@@ -19,6 +19,7 @@ import { flushOutbox } from '@/lib/outbox-sync';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient } from '@/lib/query-client';
 import { sheetScreenOptions } from '@/lib/screen-options';
+import { syncBrainDumpReminders } from '@/stores/brain-dump-store';
 import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
@@ -138,6 +139,7 @@ export default function RootLayout() {
               options={sheetScreenOptions([0.55, 0.85], 'Edit List')}
             />
             <Stack.Screen name="pomodoro" options={sheetScreenOptions([0.72, 1.0], 'Focus')} />
+            <Stack.Screen name="brain-dump" options={sheetScreenOptions([0.85, 1.0], 'Brain dump')} />
           </Stack>
           <ConfettiHost />
           <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
@@ -221,6 +223,15 @@ function NativeRuntimeCoordinator() {
     };
   }, []);
 
+  // Brain dump nudges follow their settings (and the master notifications switch).
+  const brainDumpReminders = useSettingsStore((state) => state.brainDumpReminders);
+  const brainDumpTimes = useSettingsStore((state) => state.brainDumpTimes);
+  const settingsHydrated = useSettingsStore((state) => state.hydrated);
+  useEffect(() => {
+    if (process.env.EXPO_OS === 'web' || !settingsHydrated) return;
+    void syncBrainDumpReminders();
+  }, [brainDumpReminders, brainDumpTimes, notificationsEnabled, settingsHydrated]);
+
   useEffect(() => {
     if (!tasksQuery.data) return;
     syncTaskReminders(tasksQuery.data).catch(() => {});
@@ -234,7 +245,9 @@ function NativeRuntimeCoordinator() {
         pathname: '/task/[uid]',
         params: { uid: taskUid },
       });
-    }, () => router.push('/pomodoro')).then((cleanup) => {
+    }, (href) => {
+      if (href === '/pomodoro' || href === '/brain-dump') router.push(href);
+    }).then((cleanup) => {
       if (active) stop = cleanup;
       else cleanup();
     });
