@@ -56,6 +56,21 @@ export function dictationBlocker(): DictationBlocker | null {
   return { reason: 'unsupported', message: 'Voice dictation is available in the iOS and Android apps.' };
 }
 
+export interface VoiceDumpInput {
+  uri: string;
+  mimeType: string;
+}
+
+export interface VoiceDumpResult {
+  transcript: string;
+  refined: string;
+}
+
+/** Voice capture runs against your own AI key, which only the iOS and Android apps hold. */
+export async function transcribeBrainDump(_input: VoiceDumpInput): Promise<VoiceDumpResult> {
+  throw new Error('Voice brain dumps are available in the iOS and Android apps.');
+}
+
 export interface BrainDumpInput {
   text: string;
   available_lists?: TaskList[];

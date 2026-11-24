@@ -13,7 +13,8 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { ElasticPressable, RiseIn, Swap, TurningChevron, useSpringValue } from '@/components/ui/motion';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, expandLayout, PAISA } from '@/lib/motion';
-import Animated, { SlideInDown, SlideOutDown, useAnimatedStyle, ZoomIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, SlideInRight, useAnimatedStyle, ZoomIn } from 'react-native-reanimated';
+import { VoiceDumpSheet } from '@/components/brain-dump/voice-dump-sheet';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
 import { flattenTasks } from '@/lib/task-buckets';
@@ -41,6 +42,7 @@ export default function BrainDumpScreen() {
   const days = useBrainDumpStore((s) => s.days);
   const setText = useBrainDumpStore((s) => s.setText);
   const markSorted = useBrainDumpStore((s) => s.markSorted);
+  const append = useBrainDumpStore((s) => s.append);
   const entry: DumpDay | undefined = days[today];
   const text = entry?.text ?? '';
   const pending = unsortedText(entry);
@@ -63,6 +65,7 @@ export default function BrainDumpScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const input = useRef<RNTextInput>(null);
 
   const past = useMemo(
@@ -287,15 +290,39 @@ export default function BrainDumpScreen() {
         ) : null}
       </ScrollView>
 
-      {/* The one action, pinned: it rises in only when there's something new to sort. */}
-      {pending || busy ? (
-        <Animated.View
-          entering={SlideInDown.springify().damping(PAISA.rise.damping).stiffness(PAISA.rise.stiffness)}
-          exiting={SlideOutDown.duration(160)}
-          style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 }}>
-          <SortButton busy={busy} count={thoughts} onPress={() => void sort()} />
+      {/* Pinned actions: talk it out any time; Sort joins once there's something new. */}
+      <View className="flex-row items-center" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16, gap: 12 }}>
+        <Animated.View layout={expandLayout()} style={pending || busy ? undefined : { flex: 1 }}>
+          <VoiceButton
+            compact={Boolean(pending || busy)}
+            disabled={busy}
+            onPress={() => {
+              Keyboard.dismiss();
+              haptics.tap();
+              setVoiceOpen(true);
+            }}
+          />
         </Animated.View>
-      ) : null}
+        {pending || busy ? (
+          <Animated.View
+            layout={expandLayout()}
+            entering={SlideInRight.springify().damping(PAISA.rise.damping).stiffness(PAISA.rise.stiffness)}
+            exiting={FadeOut.duration(120)}
+            style={{ flex: 1 }}>
+            <SortButton busy={busy} count={thoughts} onPress={() => void sort()} />
+          </Animated.View>
+        ) : null}
+      </View>
+
+      <VoiceDumpSheet
+        visible={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        onAdd={(lines) => {
+          append(lines);
+          const added = lines.split('\n').length;
+          setMessage(`Added ${added} thought${added === 1 ? '' : 's'} from your voice note.`);
+        }}
+      />
 
       <ListPicker
         visible={saveNoteFor != null}
@@ -438,6 +465,47 @@ function SuggestionChip({ icon, label, onPress }: { icon: IconName; label: strin
       })}>
       <MaterialCommunityIcons name={icon} size={18} color={colors.accent} />
       <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text }}>{label}</Text>
+    </ElasticPressable>
+  );
+}
+
+/**
+ * M3 Expressive tonal button for voice capture. Alone it's a wide "Talk it
+ * out" button; next to Sort it folds into a 56dp mic that squares off
+ * while held.
+ */
+function VoiceButton({ compact, disabled, onPress }: { compact: boolean; disabled?: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <ElasticPressable
+      variant="control"
+      radius={28}
+      disabled={disabled}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Talk out a brain dump"
+      style={({ pressed }) => ({
+        height: 56,
+        minWidth: 56,
+        paddingHorizontal: compact ? 0 : 24,
+        borderRadius: pressed ? 16 : 28,
+        backgroundColor: colors.selectionBg,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        overflow: 'hidden',
+        opacity: disabled ? 0.5 : 1,
+      })}>
+      <MaterialCommunityIcons name="microphone-outline" size={24} color={colors.onSelectionBg} />
+      {compact ? null : (
+        <Animated.Text
+          entering={FadeIn.duration(160).delay(80)}
+          exiting={FadeOut.duration(80)}
+          style={{ fontSize: 16, fontWeight: '600', color: colors.onSelectionBg }}>
+          Talk it out
+        </Animated.Text>
+      )}
     </ElasticPressable>
   );
 }
