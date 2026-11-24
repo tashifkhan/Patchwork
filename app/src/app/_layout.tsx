@@ -107,7 +107,8 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Tasks' }} />
             <Stack.Screen
               name="new-task"
-              options={sheetScreenOptions([0.72, 1.0], 'New Task')}
+              // Android creates on a full page that slides in; iOS keeps the form sheet.
+              options={Platform.OS === 'android' ? { headerShown: false } : sheetScreenOptions([0.72, 1.0], 'New Task')}
             />
             {/*
               Root-level so it can be presented over the `new-task` sheet. While
@@ -152,6 +153,7 @@ export default function RootLayout() {
             <Stack.Screen name="share-tasks" options={sheetScreenOptions([0.85, 1.0], 'Share')} />
             <Stack.Screen name="list-text" options={sheetScreenOptions([1.0], 'Edit as text')} />
             <Stack.Screen name="calendar" options={{ headerShown: true, title: 'Calendar', headerLargeTitle: false }} />
+            <Stack.Screen name="lists" options={{ title: 'Lists' }} />
             <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
           </Stack>
           <ConfettiHost />
