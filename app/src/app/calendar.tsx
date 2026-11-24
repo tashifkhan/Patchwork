@@ -1,5 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { Fab } from '@/components/ui/fab';
+import { setCreateHandoff } from '@/stores/create-handoff';
 import { useMemo, useState } from 'react';
 import { Platform, Pressable, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -52,6 +56,7 @@ const REPEAT_PREVIEW = 60;
 export default function CalendarScreen() {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const mondayFirst = useSettingsStore((s) => s.weekStartsMonday);
   const tasksQuery = useTasks();
   const listsQuery = useTaskLists();
@@ -156,12 +161,14 @@ export default function CalendarScreen() {
       );
     }
     return (
+      <>
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 20, maxWidth: 640, width: '100%', alignSelf: 'center' }}>
+        // Room for the FAB, so the last to-do scrolls clear of it.
+        contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 104, gap: 20, maxWidth: 640, width: '100%', alignSelf: 'center' }}>
         <Stack.Screen options={{ title: 'Calendar' }} />
         <RiseIn fromScale={0.97}>
           <M3MonthCard
@@ -190,13 +197,34 @@ export default function CalendarScreen() {
             if (!task.completed) playSound('complete');
             updateTask.mutate({ taskId: task.id, accountId: task.account_id, patch });
           }}
-          addLabel={targetList ? `Add to ${targetList.name}` : null}
-          draft={draft}
-          onDraft={setDraft}
-          onAdd={() => void addForDay()}
         />
         </Animated.View>
       </ScrollView>
+      {targetList ? (
+        // A FAB for adding, as in Google Calendar: opens the new to-do sheet already due on this day.
+        <Fab
+          accessibilityLabel={`New to-do on ${selected === todayKey ? 'today' : dayTitle.format(selectedDate)}`}
+          bottom={insets.bottom + 16}
+          onPress={() => {
+            setCreateHandoff({
+              title: '',
+              body: '',
+              task: {
+                list_id: targetList.id,
+                tags: [],
+                due_at: atDay(selectedDate),
+                reminder_at: null,
+                priority: null,
+                calendar_id: null,
+                subtasks: [],
+                subtaskDraft: '',
+              },
+            });
+            router.push('/new-task');
+          }}
+        />
+      ) : null}
+      </>
     );
   }
 
@@ -421,24 +449,16 @@ function IconButton({
 /**
  * The chosen day's to-dos as an M3 segmented list: rows on surfaceContainer
  * with 20dp outer and 4dp inner corners, 2dp apart, rising in one by one;
- * then an add row styled as an M3 filled text field.
+ * adding is the screen's FAB.
  */
 function M3Agenda({
   title,
   items,
   onToggle,
-  addLabel,
-  draft,
-  onDraft,
-  onAdd,
 }: {
   title: string;
   items: { task: Task; projected: boolean }[];
   onToggle: (task: Task) => void;
-  addLabel: string | null;
-  draft: string;
-  onDraft: (text: string) => void;
-  onAdd: () => void;
 }) {
   const { colors } = useTheme();
   const open = items.filter((it) => !it.projected && !it.task.completed).length;
@@ -513,37 +533,6 @@ function M3Agenda({
           })}
         </View>
       )}
-      {addLabel ? (
-        // M3 filled text field: surfaceContainerHighest, 4dp top corners, an indicator line.
-        <View
-          style={{
-            marginTop: 4,
-            backgroundColor: colors.gray3,
-            borderTopLeftRadius: 4,
-            borderTopRightRadius: 4,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.text2,
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 12,
-            minHeight: 56,
-            gap: 12,
-          }}>
-          <MaterialCommunityIcons name="plus" size={24} color={colors.text2} />
-          <TextInput
-            value={draft}
-            onChangeText={onDraft}
-            onSubmitEditing={onAdd}
-            submitBehavior="submit"
-            returnKeyType="done"
-            placeholder={`${addLabel} on this day`}
-            placeholderTextColor={colors.text2}
-            accessibilityLabel="New to-do due this day"
-            className="text-sf-text flex-1"
-            style={{ fontSize: 16, paddingVertical: 14 }}
-          />
-        </View>
-      ) : null}
     </View>
   );
 }
