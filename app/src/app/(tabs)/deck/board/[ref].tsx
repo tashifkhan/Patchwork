@@ -15,7 +15,6 @@ import { GlassIconButton } from '@/components/ui/glass-button';
 import { BoardTile } from '@/components/boards/board-tile';
 import { FilterSheet, JIRA_SCOPES } from '@/components/boards/filter-sheet';
 import { PickerSheet } from '@/components/boards/picker-sheet';
-import { SprintBar } from '@/components/boards/sprint-bar';
 import { useStackBack } from '@/hooks/use-stack-back';
 import { BoardToolbar } from '@/components/boards/board-toolbar';
 import { useTheme } from '@/components/theme/context';
@@ -499,16 +498,17 @@ export default function BoardScreen() {
       {IOS ? iosHeader : <Stack.Screen options={{ headerShown: false }} />}
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         {IOS ? null : topBar}
-        {detail.columns.length > 0 ? (
+        {detail.columns.length > 0 || (showSprints && detail.jira) ? (
+          // Search, Filter and the sprint chips share one row, so the columns keep the height.
           <BoardToolbar
             query={query}
             onQuery={(value) => setQueryByRef((current) => ({ ...current, [ref]: value }))}
             filterCount={filterCount}
             onOpenFilters={() => setFilterOpen(true)}
+            sprints={showSprints ? detail.jira?.sprints : undefined}
+            view={detail.jira?.view}
+            onSelectView={detail.jira?.setView}
           />
-        ) : null}
-        {showSprints && detail.jira ? (
-          <SprintBar sprints={detail.jira.sprints} view={detail.jira.view} onSelect={detail.jira.setView} />
         ) : null}
         <View
           ref={dragContainerRef}

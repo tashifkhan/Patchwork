@@ -14,16 +14,20 @@ import { GroupedCard, useSettingsColors } from '@/components/settings/settings-l
 import { GlassIconButton } from '@/components/ui/glass-button';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
+import { StatusBanner } from '@/components/ui/status-banner';
+import { ToneTile } from '@/components/tasks/smart-tiles';
+import { containerTone } from '@/lib/smart-lists';
 import { LoadingState } from '@/components/ui/loading';
 import type { BoardSummary } from '@/features/boards/model';
 import { useBoardSummaries } from '@/hooks/use-boards';
+import { describeSyncError } from '@/lib/friendly-error';
 import { haptics } from '@/lib/haptics';
 import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { Text, TextInput, View } from '@/tw';
-import { ELASTIC_BUTTON, ELASTIC_CARD, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
+import { ELASTIC_BUTTON, ELASTIC_CARD, ELASTIC_ROW, ElasticView, RiseIn } from '@/components/ui/motion';
 
 const IOS = Platform.OS === 'ios';
 
@@ -59,6 +63,12 @@ export default function BoardsScreen() {
   const onTabBarScroll = useTabBarMinimizeOnScroll();
   const contentBottom = useTabBarContentPadding(112);
   const summaries = useBoardSummaries();
+  const [retrying, setRetrying] = useState(false);
+  const retry = () => {
+    if (retrying) return;
+    setRetrying(true);
+    summaries.refetch().finally(() => setRetrying(false));
+  };
   const deckWarnings = useSyncStatusStore((state) => state.deckWarnings);
   const favorites = useSettingsStore((s) => s.favoriteBoards);
   const recents = useSettingsStore((s) => s.recentBoards);
@@ -68,6 +78,8 @@ export default function BoardsScreen() {
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const [pulling, setPulling] = useState(false);
+  /** Android tile filter: one group of boards, or every group when null. */
+  const [section, setSection] = useState<BoardSection | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -79,10 +91,20 @@ export default function BoardsScreen() {
 
   const byRef = useMemo(() => new Map(summaries.boards.map((board) => [board.ref, board])), [summaries.boards]);
   const starred = favorites.flatMap((ref) => byRef.get(ref) ?? []);
-  const recent = recents.flatMap((ref) => byRef.get(ref) ?? []).slice(0, 3);
+  const recentAll = recents.flatMap((ref) => byRef.get(ref) ?? []);
+  // A chosen Recent tile shows the whole history; the overview keeps three.
+  const recent = section === 'recent' ? recentAll : recentAll.slice(0, 3);
   const jiraBoards = filtered.filter((board) => board.source === 'jira');
   const deckBoards = filtered.filter((board) => board.source === 'deck');
   const bothSources = jiraBoards.length > 0 && deckBoards.length > 0;
+  const sectionCount =
+    section === 'starred'
+      ? starred.length
+      : section === 'recent'
+        ? recentAll.length
+        : section === 'jira'
+          ? jiraBoards.length
+          : deckBoards.length;
 
   const deckNeedsAccount = needsCalDavAccount(summaries.deckError);
   // iOS shows a failed Deck load as the empty state itself, not a banner above it.
@@ -132,6 +154,18 @@ export default function BoardsScreen() {
             style={{ flex: 1, fontSize: 16, color: colors.text, paddingVertical: 0 }}
           />
         </View>
+      ) : null}
+      {!searching && !noBoards ? (
+        <BoardTiles
+          counts={{
+            starred: starred.length,
+            recent: recentAll.length,
+            jira: jiraBoards.length,
+            deck: deckBoards.length,
+          }}
+          selected={section}
+          onSelect={setSection}
+        />
       ) : null}
     </View>
   );
@@ -260,36 +294,28 @@ export default function BoardsScreen() {
         {header}
 
         {jiraState.status === 'connected' && Object.keys(jiraState.expired).length > 0 ? (
-          <Notice
+          <StatusBanner
+            tone="warning"
             icon="jira"
-            text={
+            sf="key.fill"
+            title={
               Object.keys(jiraState.expired).length === jiraState.accounts.length
-                ? 'Jira needs a new API token.'
-                : 'One of your Jira accounts needs a new API token.'
+                ? 'Jira needs a new API token'
+                : 'One Jira account needs a new API token'
             }
-            action="Fix"
-            onPress={() => router.push('/settings/jira')}
+            body="Its boards stay hidden until you paste a fresh token."
+            primary={{ label: 'Fix', onPress: () => router.push('/settings/jira') }}
           />
         ) : null}
         {summaries.jiraError && jiraState.status === 'connected' ? (
-          <Notice
-            icon="cloud-alert-outline"
-            text={summaries.jiraError instanceof Error ? summaries.jiraError.message : 'Could not load Jira boards.'}
-            action="Retry"
-            onPress={() => summaries.refetch()}
-          />
+          <SyncErrorBanner error={summaries.jiraError} source="Jira boards" retrying={retrying} onRetry={retry} />
         ) : null}
         {/* iOS folds this into the empty state when there is nothing else on screen. */}
         {summaries.deckError && !deckNeedsAccount && !(IOS && noBoards) ? (
-          <Notice
-            icon="cloud-alert-outline"
-            text="Deck boards could not load. Check that your Nextcloud server is reachable."
-            action="Retry"
-            onPress={() => summaries.refetch()}
-          />
+          <SyncErrorBanner error={summaries.deckError} source="Deck boards" retrying={retrying} onRetry={retry} />
         ) : null}
         {deckWarnings.length > 0 && !summaries.deckError ? (
-          <Notice icon="cloud-alert-outline" text={deckWarnings[0]} action="Retry" onPress={() => summaries.refetch()} />
+          <SyncErrorBanner error={deckWarnings[0]} source="Deck boards" retrying={retrying} onRetry={retry} />
         ) : null}
 
         {noBoards ? (
@@ -307,7 +333,7 @@ export default function BoardsScreen() {
           />
         ) : (
           <>
-            {starred.length > 0 ? (
+            {(section == null || section === 'starred') && starred.length > 0 ? (
               <BoardGroup
                 title="Starred"
                 boards={starred}
@@ -316,7 +342,8 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {recent.length > 0 ? (
+            {section != null && sectionCount === 0 ? <SectionEmpty text={SECTION_EMPTY[section]} /> : null}
+            {(section == null || section === 'recent') && recent.length > 0 ? (
               <BoardGroup
                 title="Recently viewed"
                 boards={recent}
@@ -325,7 +352,7 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {jiraBoards.length > 0 ? (
+            {(section == null || section === 'jira') && jiraBoards.length > 0 ? (
               <BoardGroup
                 title={bothSources ? 'Jira' : 'All boards'}
                 boards={jiraBoards}
@@ -334,7 +361,7 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {deckBoards.length > 0 ? (
+            {(section == null || section === 'deck') && deckBoards.length > 0 ? (
               <BoardGroup
                 title={bothSources ? 'Deck' : 'All boards'}
                 boards={deckBoards}
@@ -344,12 +371,16 @@ export default function BoardsScreen() {
               />
             ) : null}
             {jiraState.status === 'disconnected' ? (
-              <Notice
-                icon="jira"
-                text="Bring in your Jira boards."
-                action="Connect Jira"
-                onPress={() => router.push('/settings/jira')}
-              />
+              <View style={{ paddingTop: 8 }}>
+                <StatusBanner
+                  tone="info"
+                  icon="jira"
+                  sf="square.stack.3d.up"
+                  title="Bring in your Jira boards"
+                  body="Sprints and issues show up here next to your Deck boards."
+                  primary={{ label: 'Connect', onPress: () => router.push('/settings/jira') }}
+                />
+              </View>
             ) : null}
           </>
         )}
@@ -565,28 +596,103 @@ function IconButton({
   );
 }
 
-/** One-line status with a single text action. */
-function Notice({
-  icon,
-  text,
-  action,
-  onPress,
+type BoardSection = 'starred' | 'recent' | 'jira' | 'deck';
+
+const SECTION_TILES: { key: BoardSection; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'] }[] = [
+  { key: 'starred', label: 'Starred', icon: 'star-outline' },
+  { key: 'recent', label: 'Recent', icon: 'history' },
+  { key: 'jira', label: 'Jira', icon: 'jira' },
+  { key: 'deck', label: 'Deck', icon: 'view-column-outline' },
+];
+
+/**
+ * Android: the Tasks screen's tonal tiles, for boards. Tapping one shows
+ * just that group below; tapping it again brings every group back.
+ */
+function BoardTiles({
+  counts,
+  selected,
+  onSelect,
 }: {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  text: string;
-  action: string;
-  onPress: () => void;
+  counts: Record<BoardSection, number>;
+  selected: BoardSection | null;
+  onSelect: (section: BoardSection | null) => void;
 }) {
+  const { colors, scheme } = useTheme();
+  const dark = scheme === 'dark';
+  const tone: Record<BoardSection, { fill: string; ink: string }> = {
+    starred: containerTone(colors.yellow, dark),
+    recent: { fill: colors.primaryContainer, ink: colors.onPrimaryContainer },
+    jira: containerTone('#2684FF', dark),
+    deck: { fill: colors.selectionBg, ink: colors.onSelectionBg },
+  };
+  const rows = [SECTION_TILES.slice(0, 2), SECTION_TILES.slice(2, 4)];
+  return (
+    <View style={{ gap: 10 }}>
+      {rows.map((row, r) => (
+        <View key={r} style={{ flexDirection: 'row', gap: 10 }}>
+          {row.map((tile, c) => (
+            <RiseIn key={tile.key} index={r * 2 + c} style={{ flex: 1 }}>
+              <ToneTile
+                icon={tile.icon}
+                label={tile.label}
+                count={counts[tile.key]}
+                fill={tone[tile.key].fill}
+                ink={tone[tile.key].ink}
+                selected={selected === tile.key}
+                onPress={() => onSelect(selected === tile.key ? null : tile.key)}
+              />
+            </RiseIn>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const SECTION_EMPTY: Record<BoardSection, string> = {
+  starred: 'Star a board to keep it here.',
+  recent: 'Boards you open show up here.',
+  jira: 'No Jira boards yet. Connect Jira in Settings.',
+  deck: 'No Deck boards yet. Tap + to make one.',
+};
+
+function SectionEmpty({ text }: { text: string }) {
   const { colors } = useTheme();
   return (
-    <View className="flex-row items-center gap-3" style={{ paddingTop: 16, paddingHorizontal: 4, minHeight: 48 }}>
-      <MaterialCommunityIcons name={icon} size={20} color={colors.text2} />
-      <Text numberOfLines={2} style={{ flex: 1, fontSize: 14, color: colors.text2 }}>
-        {text}
-      </Text>
-      <Pressable onPress={onPress} accessibilityRole="button" hitSlop={8}>
-        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.accent }}>{action}</Text>
-      </Pressable>
-    </View>
+    <Text style={{ paddingTop: 24, paddingHorizontal: 4, fontSize: 15, color: colors.text2, textAlign: 'center' }}>
+      {text}
+    </Text>
+  );
+}
+
+/** A failed board source, in plain words, with the raw error behind "Details". */
+function SyncErrorBanner({
+  error,
+  source,
+  retrying,
+  onRetry,
+}: {
+  error: unknown;
+  source: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const copy = describeSyncError(error, source);
+  const auth = copy.kind === 'auth';
+  return (
+    <StatusBanner
+      tone={copy.kind === 'other' || auth ? 'error' : 'warning'}
+      icon={copy.kind === 'offline' ? 'cloud-off-outline' : auth ? 'key-alert-outline' : 'cloud-alert-outline'}
+      sf={copy.kind === 'offline' ? 'icloud.slash' : auth ? 'key.slash' : 'exclamationmark.icloud'}
+      title={copy.title}
+      body={copy.body}
+      detail={copy.detail}
+      primary={
+        auth
+          ? { label: 'Settings', onPress: () => router.push('/settings') }
+          : { label: 'Retry', onPress: onRetry, busy: retrying }
+      }
+    />
   );
 }

@@ -39,6 +39,12 @@ export interface ExtraPreferences {
   brainDumpReminders: boolean;
   /** `HH:MM`, local time, one notification each. */
   brainDumpTimes: string[];
+  /** Android floating navbar: a title under every tab, not only the selected one. */
+  floatingTabLabels: boolean;
+  /** Android floating navbar: blur what scrolls behind it (needs Android 12+). Off is a solid bar. */
+  floatingTabFrosted: boolean;
+  /** Show the Search tab. Off, Search opens from Settings. */
+  searchTab: boolean;
 }
 
 export const DEFAULT_EXTRAS: ExtraPreferences = {
@@ -54,6 +60,9 @@ export const DEFAULT_EXTRAS: ExtraPreferences = {
   customFonts: [],
   brainDumpReminders: false,
   brainDumpTimes: ['08:30', '21:30'],
+  floatingTabLabels: false,
+  floatingTabFrosted: true,
+  searchTab: true,
 };
 export type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
 

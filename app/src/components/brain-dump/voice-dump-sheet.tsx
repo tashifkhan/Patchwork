@@ -5,6 +5,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import { useKeepAwake } from 'expo-keep-awake';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Modal, Pressable } from 'react-native';
@@ -12,7 +13,6 @@ import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 
 import { dictationBlocker, transcribeBrainDump } from '@/api/ai';
 import { ApiError } from '@/api/client';
-import { MicPulse } from '@/components/tasks/dictation-sheet';
 import { GlassPillButton } from '@/components/ui/glass-button';
 import { useLiquidGlass } from '@/components/ui/glass-surface';
 import { useTheme } from '@/components/theme/context';
@@ -32,11 +32,12 @@ import {
   RECORDING,
   RECORDING_MIME_TYPE,
   SPEECH_DB,
-  formatRecordingClock,
   meterToLevel,
   prepareWithTimeout,
 } from '@/lib/voice-recording';
 import { Text, TextInput, View } from '@/tw';
+
+import { RecorderControls, RecordingClock, Waveform } from './recorder-ui';
 
 type Phase = 'starting' | 'recording' | 'working' | 'review' | 'error';
 type ErrorKind = 'retry' | 'permission' | 'ai-setup' | 'network';
@@ -56,7 +57,7 @@ export function VoiceDumpSheet({
   onClose: () => void;
   onAdd: (lines: string) => void;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const panel = useSheetPanel(16);
   const recorder = useAudioRecorder(RECORDING);
   const status = useAudioRecorderState(recorder, 80);
@@ -66,6 +67,7 @@ export function VoiceDumpSheet({
   const [refined, setRefined] = useState('');
   const [transcript, setTranscript] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
+  const [paused, setPaused] = useState(false);
   const cancelled = useRef(false);
   const peakDb = useRef<number | null>(null);
 
@@ -81,6 +83,7 @@ export function VoiceDumpSheet({
     setMessage(null);
     setErrorKind('retry');
     setShowTranscript(false);
+    setPaused(false);
     setPhase('starting');
     const blocker = dictationBlocker();
     if (blocker) {
@@ -129,8 +132,21 @@ export function VoiceDumpSheet({
     await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
   }, [recorder]);
 
+  function togglePause() {
+    if (phase !== 'recording') return;
+    if (paused) {
+      recorder.record();
+      haptics.impact('light');
+    } else {
+      recorder.pause();
+      haptics.selection();
+    }
+    setPaused(!paused);
+  }
+
   async function close() {
     cancelled.current = true;
+    setPaused(false);
     await release();
     setPhase('starting');
     setRefined('');
@@ -142,6 +158,7 @@ export function VoiceDumpSheet({
     if (phase !== 'recording') return;
     const seconds = recorder.getStatus().durationMillis / 1000;
     await release();
+    setPaused(false);
     const uri = recorder.uri;
     if (!uri || seconds < 0.8) {
       fail('retry', "That was too short. Tap the mic and say what's on your mind.");
@@ -207,18 +224,19 @@ export function VoiceDumpSheet({
   useEffect(() => {
     finishRef.current = finish;
   });
+  // Stop at the limit by recorded time, so a pause doesn't eat into it.
   useEffect(() => {
-    if (phase !== 'recording') return;
-    const timer = setTimeout(() => void finishRef.current(), MAX_SECONDS * 1000);
-    return () => clearTimeout(timer);
-  }, [phase]);
+    if (phase === 'recording' && seconds >= MAX_SECONDS) void finishRef.current();
+  }, [phase, seconds]);
 
   const recording = phase === 'recording';
   const reviewing = phase === 'review';
   const lineCount = refined.split('\n').filter((line) => line.trim()).length;
 
   const title = recording
-    ? 'Listening…'
+    ? paused
+      ? 'Paused'
+      : 'Listening…'
     : reviewing
       ? `${lineCount} thought${lineCount === 1 ? '' : 's'}`
       : phase === 'error'
@@ -240,18 +258,25 @@ export function VoiceDumpSheet({
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={() => void close()}>
+      {/* Keeps the screen from dimming or locking mid-sentence. */}
+      {visible ? <KeepAwake /> : null}
       <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
         <Pressable
           onPress={() => {
-            // A tap outside shouldn't throw away a transcript you haven't added.
-            if (!reviewing) void close();
+            // A tap outside only closes when there's nothing to lose.
+            if (phase === 'error') void close();
           }}
           accessibilityLabel="Cancel voice brain dump"
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'flex-end' }}>
+          style={{ flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' }}>
           <Animated.View
             entering={SlideInDown.duration(DURATION.medium4).easing(EASING.emphasizedDecelerate)}
             onStartShouldSetResponder={() => true}
-            style={{ ...panel.style, minHeight: 440 }}>
+            style={{
+              ...panel.style,
+              minHeight: 440,
+              // No scrim behind it, so a shadow keeps the sheet's edge readable.
+              boxShadow: `0 -8px 32px ${scheme === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.18)'}`,
+            }}>
             {panel.background}
             <View className="items-center" style={{ paddingTop: 16, paddingBottom: 8 }}>
               <View style={{ width: 32, height: 4, borderRadius: 2, backgroundColor: colors.gray }} />
@@ -314,36 +339,37 @@ export function VoiceDumpSheet({
                 ) : null}
               </Animated.View>
             ) : (
-              <>
-                <View className="items-center justify-center" style={{ height: 200 }}>
-                  <MicPulse
-                    level={recording ? meterToLevel(status.metering) : 0}
-                    active={recording}
-                    label={recording ? 'Stop and clean up' : 'Start talking'}
-                    onPress={() => {
-                      if (recording) void finish();
-                      else if (phase === 'error') void start();
-                    }}
-                  />
-                </View>
-                <Text
-                  style={{
-                    textAlign: 'center',
-                    fontSize: 16,
-                    fontWeight: '600',
-                    color: recording && remaining <= 30 ? colors.danger : colors.text2,
-                    fontVariant: ['tabular-nums'],
-                  }}>
-                  {recording
-                    ? remaining <= 30
-                      ? `${formatRecordingClock(seconds)} · ${remaining}s left`
-                      : formatRecordingClock(seconds)
-                    : ' '}
-                </Text>
-              </>
+              // An error says what went wrong; a timer and an empty meter under it would just be noise.
+              phase === 'error' ? (
+                <View style={{ height: 24 }} />
+              ) : (
+              <View style={{ paddingHorizontal: 24, paddingTop: 28, gap: 24 }}>
+                <RecordingClock
+                  seconds={seconds}
+                  remaining={remaining}
+                  state={recording ? (paused ? 'paused' : 'recording') : 'idle'}
+                />
+                <Waveform
+                  level={recording && !paused ? meterToLevel(status.metering) : 0}
+                  tick={status.durationMillis}
+                  active={recording && !paused}
+                />
+              </View>
+              )
             )}
 
-            <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
+            {phase === 'recording' || phase === 'starting' ? (
+              <View style={{ paddingTop: 32 }}>
+                <RecorderControls
+                  ready={recording}
+                  paused={paused}
+                  onCancel={() => void close()}
+                  onDone={() => void finish()}
+                  onTogglePause={togglePause}
+                />
+              </View>
+            ) : (
+              <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
               <SheetButton
                 label={reviewing ? 'Discard' : 'Cancel'}
                 tone="tonal"
@@ -369,10 +395,9 @@ export function VoiceDumpSheet({
                     else void start();
                   }}
                 />
-              ) : (
-                <SheetButton icon="creation" label="Done" disabled={!recording} onPress={() => void finish()} />
-              )}
-            </View>
+              ) : null}
+              </View>
+            )}
 
             <ProgressOverlay visible={phase === 'working'} state="working" label="Cleaning up what you said…" />
           </Animated.View>
@@ -380,6 +405,11 @@ export function VoiceDumpSheet({
       </Animated.View>
     </Modal>
   );
+}
+
+function KeepAwake() {
+  useKeepAwake('voice-brain-dump');
+  return null;
 }
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];

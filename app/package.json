@@ -1,7 +1,7 @@
 {
   "name": "patchwork",
   "main": "./index.js",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/google": "^3.0.80",
@@ -32,6 +32,7 @@
     "expo-haptics": "~58.0.7",
     "expo-image": "~58.0.18",
     "expo-image-picker": "~58.0.10",
+    "expo-keep-awake": "~58.0.4",
     "expo-linking": "~58.0.16",
     "expo-local-authentication": "~58.0.3",
     "expo-notifications": "~58.1.8",

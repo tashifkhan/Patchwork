@@ -149,6 +149,8 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           <SettingsActionRow title="Add Account" onPress={() => go('/settings/account')} />
         </SettingsGroup>
 
+        <MoreTabsGroup go={go} />
+
         <SettingsGroup>
           <SettingsRow
             icon="palette-outline"
@@ -289,13 +291,15 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
         </SettingsGroup>
       ) : null}
 
+      <MoreTabsGroup go={go} />
+
       <SettingsGroup>
         <SettingsRow
           icon="palette-outline"
           title="Look and feel"
           subtitle={
             Platform.OS === 'android'
-              ? 'Theme, palettes, AMOLED, floating navbar'
+              ? 'Theme, palettes, AMOLED, navbar and tabs'
               : 'Theme, palettes, AMOLED, contrast'
           }
           showChevron
@@ -454,5 +458,40 @@ function BrandTile({
       }}>
       <MaterialCommunityIcons name={icon} size={20} color="#FFFFFF" />
     </View>
+  );
+}
+
+/**
+ * Tabs turned off in Appearance still open from here, the way Paisa's More
+ * screen lists what doesn't fit in its navbar. Hidden when every tab is on.
+ */
+function MoreTabsGroup({ go }: { go: (href: Href) => void }) {
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const searchTab = useSettingsStore((s) => s.searchTab);
+  if (boardsTab && searchTab) return null;
+  return (
+    <SettingsGroup title={Platform.OS === 'ios' ? 'More Tabs' : 'More tabs'}>
+      {!boardsTab ? (
+        <SettingsRow
+          icon="view-column-outline"
+          sf="rectangle.split.3x1.fill"
+          title="Boards"
+          subtitle={Platform.OS === 'ios' ? undefined : 'Deck and Jira boards'}
+          showChevron
+          onPress={() => go('/deck')}
+        />
+      ) : null}
+      {!boardsTab && !searchTab ? <RowSeparator /> : null}
+      {!searchTab ? (
+        <SettingsRow
+          icon="magnify"
+          sf="magnifyingglass"
+          title="Search"
+          subtitle={Platform.OS === 'ios' ? undefined : 'To-dos, issues and boards'}
+          showChevron
+          onPress={() => go('/search')}
+        />
+      ) : null}
+    </SettingsGroup>
   );
 }

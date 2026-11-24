@@ -19,6 +19,8 @@ export interface GlassSurfaceProps {
   fallbackColor?: string;
   /** Soft drop shadow on the fallback surface. Glass provides its own depth. */
   shadow?: boolean;
+  /** Tints the glass on iOS 26+. Keep it translucent so the material shows. */
+  tintColor?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -34,6 +36,7 @@ export function GlassSurface({
   glassEffectStyle = 'regular',
   fallbackColor,
   shadow = true,
+  tintColor,
   style,
 }: GlassSurfaceProps) {
   const { colors, scheme } = useTheme();
@@ -47,7 +50,7 @@ export function GlassSurface({
 
   if (glass) {
     return (
-      <GlassView glassEffectStyle={glassEffectStyle} colorScheme={scheme} style={[shape, style]}>
+      <GlassView glassEffectStyle={glassEffectStyle} colorScheme={scheme} tintColor={tintColor} style={[shape, style]}>
         {children}
       </GlassView>
     );
