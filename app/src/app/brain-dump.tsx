@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable, type TextInput as RNTextInput } from 'react-native';
+import { Keyboard, Platform, Pressable, type TextInput as RNTextInput } from 'react-native';
 
 import { sortBrainDump } from '@/api/ai';
 import { ApiError } from '@/api/client';
@@ -13,10 +13,25 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { ElasticPressable, RiseIn, Swap, TurningChevron, useSpringValue } from '@/components/ui/motion';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, expandLayout, PAISA } from '@/lib/motion';
-import Animated, { FadeIn, FadeOut, SlideInRight, useAnimatedStyle, ZoomIn } from 'react-native-reanimated';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  FadeOut,
+  interpolateColor,
+  SlideInRight,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  ZoomIn,
+} from 'react-native-reanimated';
+import { SortProgress } from '@/components/brain-dump/sort-progress';
+import type { SortStep, StepState } from '@/components/brain-dump/sort-progress-types';
 import { VoiceDumpSheet } from '@/components/brain-dump/voice-dump-sheet';
 import { GlassIconButton, GlassPillButton } from '@/components/ui/glass-button';
 import { useLiquidGlass } from '@/components/ui/glass-surface';
+import { BRAIN_DUMP_LIST, isBrainDumpList, useSaveRawDump } from '@/hooks/use-save-raw-dump';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
 import { flattenTasks } from '@/lib/task-buckets';
@@ -57,12 +72,21 @@ export default function BrainDumpScreen() {
   const aiDefaultListId = useSettingsStore((s) => s.aiDefaultListId);
   const remindersOn = useSettingsStore((s) => s.brainDumpReminders);
 
-  const lists = useMemo(() => (listsQuery.data ?? []).filter((list) => !list.is_deck), [listsQuery.data]);
+  const saveRawDump = useSaveRawDump();
+  // The raw dumps live in their own list, so to-dos never get filed there.
+  const lists = useMemo(
+    () => (listsQuery.data ?? []).filter((list) => !list.is_deck && !isBrainDumpList(list)),
+    [listsQuery.data]
+  );
   const tags = useMemo(
     () => [...new Set(flattenTasks(tasksQuery.data ?? []).flatMap((task) => task.tags))].sort(),
     [tasksQuery.data]
   );
   const [busy, setBusy] = useState(false);
+  const [steps, setSteps] = useState<SortStep[] | null>(null);
+  // After a sort the actions come back while an alert may be opening; a slide
+  // gets frozen part-way under it on Android, so the return is a plain fade.
+  const [sortedOnce, setSortedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveNoteFor, setSaveNoteFor] = useState<DumpDay | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -84,26 +108,73 @@ export default function BrainDumpScreen() {
     Keyboard.dismiss();
     setBusy(true);
     setError(null);
+    setMessage(null);
     const sentText = text;
+    const fallback = lists.find((list) => list.id === aiDefaultListId)?.id ?? lists[0]?.id ?? null;
+    const mark = (key: string, state: StepState) =>
+      setSteps((current) => current?.map((step) => (step.key === key ? { ...step, state } : step)) ?? null);
+    setSteps([
+      {
+        key: 'raw',
+        label: `Saving the raw dump to ${BRAIN_DUMP_LIST}`,
+        doneLabel: `Raw dump saved to ${BRAIN_DUMP_LIST}`,
+        failedLabel: "Couldn't save the raw dump",
+        short: { working: 'Saving dump', done: 'Dump saved', failed: 'Not saved' },
+        state: 'working',
+      },
+      {
+        key: 'ai',
+        label: 'Finding to-dos and notes',
+        doneLabel: 'To-dos and notes found',
+        failedLabel: "Couldn't sort it",
+        short: { working: 'Finding to-dos', done: 'To-dos found', failed: "Couldn't sort" },
+        state: 'working',
+      },
+    ]);
+
+    // The raw text is saved whatever the AI makes of it, word for word.
+    const raw = saveRawDump(today, sentText, fallback).then(
+      () => {
+        mark('raw', 'done');
+        return null;
+      },
+      (cause: unknown) => {
+        mark('raw', 'failed');
+        return cause instanceof Error ? cause.message : 'Unknown error';
+      }
+    );
+
     try {
       const result = await sortBrainDump({ text: pending, available_lists: lists, available_tags: tags });
-      const fallback = lists.find((list) => list.id === aiDefaultListId)?.id ?? lists[0]?.id ?? null;
+      mark('ai', 'done');
       markSorted(today, {
         note: mergeNotes(entry?.note ?? null, result.note),
         taskCount: (entry?.taskCount ?? 0) + result.tasks.length,
         sentText,
       });
+      const rawError = await raw;
       haptics.success();
+      // Let the checks land before the review screen covers them.
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      if (rawError) setError(`Your to-dos are fine, but the raw dump didn't save: ${rawError}`);
       if (result.tasks.length > 0) {
         setStaged(result.tasks.map((task) => ({ ...task, list_id: task.list_id ?? fallback })));
         router.push('/ai-review');
       } else {
-        setMessage('No to-dos in there, so it all went into the note.');
+        setMessage(`No to-dos in there. The note has it all, and the raw dump is in ${BRAIN_DUMP_LIST}.`);
       }
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Could not reach your AI model. Check AI import in Settings.');
+      mark('ai', 'failed');
+      const rawError = await raw;
+      haptics.error();
+      setError(
+        (cause instanceof ApiError ? cause.message : 'Could not reach your AI model. Check AI import in Settings.') +
+          (rawError ? '' : ` The raw dump is saved in ${BRAIN_DUMP_LIST}.`)
+      );
     } finally {
       setBusy(false);
+      setSortedOnce(true);
+      setSteps(null);
     }
   }
 
@@ -153,7 +224,7 @@ export default function BrainDumpScreen() {
         </RiseIn>
 
         <RiseIn index={1}>
-          <DumpCard focused={focused}>
+          <DumpCard focused={focused} sorting={busy}>
             <TextInput
               ref={input}
               value={text}
@@ -293,29 +364,43 @@ export default function BrainDumpScreen() {
         ) : null}
       </KeyboardScrollView>
 
-      {/* Pinned actions: talk it out any time; Sort joins once there's something new. */}
-      <View className="flex-row items-center" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16, gap: 12 }}>
-        <Animated.View layout={expandLayout()} style={pending || busy ? undefined : { flex: 1 }}>
-          <VoiceButton
-            compact={Boolean(pending || busy)}
-            disabled={busy}
-            onPress={() => {
-              Keyboard.dismiss();
-              haptics.tap();
-              setVoiceOpen(true);
-            }}
-          />
+      {/* Pinned actions: talk it out any time; Sort joins once there's something new.
+          While sorting, a progress card takes their place. */}
+      {steps ? (
+        <Animated.View
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(140)}
+          style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 }}>
+          <SortProgress title={`Sorting ${thoughts} thought${thoughts === 1 ? '' : 's'}`} steps={steps} />
         </Animated.View>
-        {pending || busy ? (
-          <Animated.View
-            layout={expandLayout()}
-            entering={SlideInRight.springify().damping(PAISA.rise.damping).stiffness(PAISA.rise.stiffness)}
-            exiting={FadeOut.duration(120)}
-            style={{ flex: 1 }}>
-            <SortButton busy={busy} count={thoughts} onPress={() => void sort()} />
+      ) : (
+        <View className="flex-row items-center" style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16, gap: 12 }}>
+          <Animated.View layout={expandLayout()} style={pending ? undefined : { flex: 1 }}>
+            <VoiceButton
+              compact={Boolean(pending)}
+              disabled={busy}
+              onPress={() => {
+                Keyboard.dismiss();
+                haptics.tap();
+                setVoiceOpen(true);
+              }}
+            />
           </Animated.View>
-        ) : null}
-      </View>
+          {pending ? (
+            <Animated.View
+              layout={expandLayout()}
+              entering={
+                sortedOnce
+                  ? FadeIn.duration(180)
+                  : SlideInRight.springify().damping(PAISA.rise.damping).stiffness(PAISA.rise.stiffness)
+              }
+              exiting={FadeOut.duration(120)}
+              style={{ flex: 1 }}>
+              <SortButton disabled={busy} count={thoughts} onPress={() => void sort()} />
+            </Animated.View>
+          ) : null}
+        </View>
+      )}
 
       <VoiceDumpSheet
         visible={voiceOpen}
@@ -396,12 +481,36 @@ const PROMPTS: { label: string; icon: IconName }[] = [
 ];
 
 /** The writing surface: lights up with a 2dp accent outline while focused, on a spring. */
-function DumpCard({ focused, children }: { focused: boolean; children: React.ReactNode }) {
+/**
+ * The writing surface: lights up with a 2dp accent outline while focused, on
+ * a spring. On iOS, while the AI reads it, the outline cycles through the
+ * Apple Intelligence colours with a soft matching glow, the way Writing Tools
+ * marks the text it is working on.
+ */
+function DumpCard({ focused, sorting, children }: { focused: boolean; sorting: boolean; children: React.ReactNode }) {
   const { colors } = useTheme();
   const on = useSpringValue(focused ? 1 : 0, 'expand');
-  const ring = useAnimatedStyle(() => ({
-    borderColor: withAlphaWorklet(colors.accent, on.get()),
-  }));
+  const glow = useSharedValue(0);
+  const thinking = useSpringValue(sorting && Platform.OS === 'ios' ? 1 : 0, 'expand');
+  useEffect(() => {
+    if (sorting && Platform.OS === 'ios') {
+      glow.set(0);
+      glow.set(withRepeat(withTiming(1, { duration: 2400, easing: Easing.linear }), -1, false));
+    } else {
+      cancelAnimation(glow);
+    }
+  }, [glow, sorting]);
+  const ring = useAnimatedStyle(() => {
+    const hue = interpolateColor(glow.get(), [0, 0.25, 0.5, 0.75, 1], AI_GLOW);
+    const t = thinking.get();
+    return {
+      borderColor: t > 0.01 ? hue : withAlphaWorklet(colors.accent, on.get()),
+      shadowColor: hue,
+      shadowOpacity: 0.55 * t,
+      shadowRadius: 18 * t,
+      shadowOffset: { width: 0, height: 0 },
+    };
+  });
   return (
     <Animated.View
       style={[
@@ -412,6 +521,9 @@ function DumpCard({ focused, children }: { focused: boolean; children: React.Rea
     </Animated.View>
   );
 }
+
+/** Apple Intelligence's blue, purple, pink and orange, back to blue for a seamless loop. */
+const AI_GLOW = ['#4FA8FF', '#B76CFF', '#FF5A8A', '#FF9F43', '#4FA8FF'];
 
 /** Fades a #RRGGBB colour on the UI thread (Reanimated can't call the JS helper). */
 function withAlphaWorklet(color: string, alpha: number) {
@@ -524,40 +636,27 @@ function VoiceButton({ compact, disabled, onPress }: { compact: boolean; disable
 
 /**
  * M3 Expressive large filled button (56dp, full round, squaring off while
- * held). The label counts what will be sorted; while sorting it swaps for a
- * progress label.
+ * held). The label counts what will be sorted. Progress shows in its own
+ * card while sorting, so the button never has to pretend to be a spinner.
  */
-function SortButton({ busy, count, onPress }: { busy: boolean; count: number; onPress: () => void }) {
+function SortButton({ disabled, count, onPress }: { disabled: boolean; count: number; onPress: () => void }) {
   const { colors } = useTheme();
   const glass = useLiquidGlass();
-  const [dots, setDots] = useState(0);
-  useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => setDots((d) => (d + 1) % 4), 350);
-    return () => clearInterval(timer);
-  }, [busy]);
+  const label = count ? `Sort ${count} thought${count === 1 ? '' : 's'}` : 'Sort';
+  const a11y = `Sort ${count} thought${count === 1 ? '' : 's'} into to-dos and notes, and save the raw dump to ${BRAIN_DUMP_LIST}`;
   if (glass) {
     // iOS 26: accent-tinted glass, the screen's one prominent action.
-    return (
-      <GlassPillButton
-        prominent
-        sf="sparkles"
-        disabled={busy}
-        label={busy ? `Sorting${'.'.repeat(dots)}` : count ? `Sort ${count} thought${count === 1 ? '' : 's'}` : 'Sort'}
-        accessibilityLabel={busy ? 'Sorting' : `Sort ${count} thought${count === 1 ? '' : 's'} into to-dos and notes`}
-        onPress={onPress}
-      />
-    );
+    return <GlassPillButton prominent sf="sparkles" disabled={disabled} label={label} accessibilityLabel={a11y} onPress={onPress} />;
   }
   return (
     <ElasticPressable
       variant="control"
       radius={28}
       glow="rgba(255,255,255,0.22)"
-      disabled={busy}
+      disabled={disabled}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={busy ? 'Sorting' : `Sort ${count} thought${count === 1 ? '' : 's'} into to-dos and notes`}
+      accessibilityLabel={a11y}
       style={({ pressed }) => ({
         height: 56,
         borderRadius: pressed ? 16 : 28,
@@ -567,14 +666,9 @@ function SortButton({ busy, count, onPress }: { busy: boolean; count: number; on
         justifyContent: 'center',
         gap: 10,
         overflow: 'hidden',
-        opacity: busy ? 0.85 : 1,
       })}>
       <MaterialCommunityIcons name="creation" size={22} color={colors.onAccent} />
-      <Swap swapKey={busy ? 'busy' : 'idle'}>
-        <Text style={{ fontSize: 16, fontWeight: '600', color: colors.onAccent }}>
-          {busy ? `Sorting${'.'.repeat(dots)}` : count ? `Sort ${count} thought${count === 1 ? '' : 's'}` : 'Sort'}
-        </Text>
-      </Swap>
+      <Text style={{ fontSize: 16, fontWeight: '600', color: colors.onAccent }}>{label}</Text>
     </ElasticPressable>
   );
 }
