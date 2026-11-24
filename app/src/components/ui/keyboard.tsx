@@ -34,7 +34,7 @@ export const ACTION_BAR_CLEARANCE = 64 + 10 + FIELD_CLEARANCE;
 // the full scroll view props. `KeyboardScrollViewProps` keeps callers typed.
 const CssTarget = KeyboardAwareScrollView as unknown as ComponentType<Record<string, unknown>>;
 
-type KeyboardScrollViewProps =ComponentProps<typeof KeyboardAwareScrollView> & {
+type KeyboardScrollViewProps = ComponentProps<typeof KeyboardAwareScrollView> & {
   ref?: Ref<KeyboardAwareScrollViewRef>;
   className?: string;
   contentContainerClassName?: string;
@@ -111,7 +111,7 @@ export function useKeyboardLift(bottom: number, gap = 10) {
   // `height` is negative while the keyboard is up: -0 closed, -kb open.
   const style = useAnimatedStyle(() => {
     const keyboard = -height.value;
-    const lift = Math.max(0, keyboard + gap - belowScreen.value - bottom);
+    const lift = keyboard > 0 ? Math.max(0, keyboard + gap - belowScreen.value - bottom) : 0;
     return { transform: [{ translateY: -lift }] };
   });
 

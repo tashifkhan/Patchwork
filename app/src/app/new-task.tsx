@@ -10,6 +10,8 @@ import { ApiError } from '@/api/client';
 import type { AiGeneratedTask } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
+import { TimeBlockField } from '@/components/tasks/time-block-field';
+import { TaskComposer } from '@/components/tasks/task-composer';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -63,6 +65,8 @@ type AiBusy = 'text' | 'photo' | null;
  * replaces the old AI tab.
  */
 const IOS = Platform.OS === 'ios';
+/** Android creates on a full page (`TaskComposer`), not in a sheet. */
+const ANDROID_PAGE = Platform.OS === 'android';
 
 export default function NewTaskScreen() {
   const { colors } = useTheme();
@@ -132,6 +136,7 @@ export default function NewTaskScreen() {
     normalizeTags(handoff?.task?.tags ?? (selectedTag ? [selectedTag] : [])),
   );
   const [dueAt, setDueAt] = useState<string | null>(handoff?.task?.due_at ?? null);
+  const [startAt, setStartAt] = useState<string | null>(handoff?.task?.start_at ?? null);
   const [reminderAt, setReminderAt] = useState<string | null>(handoff?.task?.reminder_at ?? null);
   const [priority, setPriority] = useState<number | null>(handoff?.task?.priority ?? null);
   const [calendarId, setCalendarId] = useState<string | null>(handoff?.task?.calendar_id ?? null);
@@ -150,11 +155,6 @@ export default function NewTaskScreen() {
   const [warningTaskUid, setWarningTaskUid] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
-
-  // iOS: KeyboardScrollView keeps the focused field above the keyboard and
-  // the Add button lives in the sheet's nav bar. Android: the Compose sheet
-  // already lifts its content, pinned Add button included, above the
-  // keyboard. Adding the keyboard height again floated it ~290dp too high.
 
   const listName = repo
     ? repo.fullName
@@ -299,6 +299,7 @@ export default function NewTaskScreen() {
         markdown: notes.trim(),
         tags: normalizeTags(tags),
         due_at: dueAt,
+        start_at: startAt,
         reminder_at: reminderAt,
         priority,
       });
@@ -365,6 +366,13 @@ export default function NewTaskScreen() {
   // ── Empty / loading states ─────────────────────────────────────────────
 
   if (listsQuery.isLoading && lists.length === 0) {
+    if (ANDROID_PAGE) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.bg }}>
+          <LoadingState message="Loading lists…" fullScreen={false} />
+        </View>
+      );
+    }
     return (
       <SheetSurface title="New To-Do" skipPartiallyExpanded={false}>
         <View style={{ flex: 1 }}>
@@ -426,6 +434,135 @@ export default function NewTaskScreen() {
     { icon: 'camera-outline', label: 'Camera', onPress: () => generateFromPhoto('camera') },
     { icon: 'image-outline', label: 'Photo', onPress: () => generateFromPhoto('library') },
   ];
+  // Dialogs and pickers shared by both layouts.
+  const overlays = (
+    <>
+      <ListPicker
+        visible={listPickerOpen}
+        lists={lists}
+        selectedId={listId}
+        title="Add to"
+        onSelect={(list) => {
+          setListId(list.id);
+          setListPickerOpen(false);
+        }}
+        repos={writableRepos}
+        selectedRepo={repo?.fullName ?? null}
+        onSelectRepo={(fullName) => {
+          setRepoName(fullName);
+          setListPickerOpen(false);
+        }}
+        onClose={() => setListPickerOpen(false)}
+      />
+      <NativeAlert
+        visible={aiError != null}
+        title="AI"
+        message={aiError ?? ''}
+        confirmLabel={aiError?.includes('Settings') ? 'Open Settings' : 'OK'}
+        dismissLabel={aiError?.includes('Settings') ? 'Not now' : undefined}
+        onDismiss={() => setAiError(null)}
+        onConfirm={() => {
+          const goSettings = aiError?.includes('Settings');
+          setAiError(null);
+          if (goSettings) {
+            router.back();
+            router.push('/settings/ai');
+          }
+        }}
+      />
+      <NativeAlert
+        visible={errorMessage != null}
+        title={createdWithWarnings ? 'To-do created' : 'Could not add'}
+        message={errorMessage ?? ''}
+        onDismiss={() => {
+          setErrorMessage(null);
+          if (createdWithWarnings) {
+            const uid = warningTaskUid;
+            setCreatedWithWarnings(false);
+            setWarningTaskUid(null);
+            router.back();
+            if (uid) router.push({ pathname: '/task/[uid]', params: { uid } });
+          }
+        }}
+      />
+      <DictationSheet
+        visible={dictating}
+        lists={lists}
+        availableTags={availableTags}
+        defaultListId={listId}
+        onClose={() => setDictating(false)}
+        // Close this dialog under the preview, like the other AI actions.
+        beforeReview={() => router.back()}
+      />
+      <ProgressOverlay
+        visible={aiBusy != null || aiDone != null}
+        state={aiDone ? 'done' : 'working'}
+        label={aiDone ?? (aiBusy === 'photo' ? 'Reading your photo…' : 'Turning that into to-dos…')}
+      />
+    </>
+  );
+
+  const calendarChoice = hasSchedule ? (
+    <CalendarChoice
+      open={calendarOpen}
+      selectedId={calendarId}
+      onToggle={() => setCalendarOpen((v) => !v)}
+      onPick={(id) => {
+        setCalendarId(id);
+        setCalendarOpen(false);
+      }}
+    />
+  ) : null;
+
+  // Android: the full-page composer. A GitHub issue keeps the form below.
+  if (ANDROID_PAGE && !isIssue) {
+    return (
+      <>
+        <TaskComposer
+          title={title}
+          onTitle={setTitle}
+          notes={notes}
+          onNotes={setNotes}
+          lists={lists}
+          listId={listId}
+          onList={setListId}
+          onMoreDestinations={() => {
+            haptics.tap();
+            setListPickerOpen(true);
+          }}
+          tags={tags}
+          onPickTags={pickTags}
+          dueAt={dueAt}
+          startAt={startAt}
+          onSchedule={(next) => {
+            setDueAt(next.due_at);
+            setStartAt(next.start_at);
+          }}
+          reminderAt={reminderAt}
+          onReminder={setReminderAt}
+          priority={priority}
+          priorities={PRIORITIES}
+          onPriority={setPriority}
+          checklist={checklist}
+          onRemoveChecklist={(index) => setChecklist((items) => items.filter((_, i) => i !== index))}
+          checklistDraft={checklistDraft}
+          onChecklistDraft={setChecklistDraft}
+          onAddChecklist={addChecklistItem}
+          ai={{
+            write: generateFromText,
+            dictate: aiInputs[0].onPress,
+            camera: aiInputs[1].onPress,
+            photo: aiInputs[2].onPress,
+          }}
+          canSubmit={canSubmit}
+          submitting={isSubmitting}
+          onSubmit={handleSubmit}
+          calendarChoice={calendarChoice}
+        />
+        {overlays}
+      </>
+    );
+  }
 
   return (
     <SheetSurface title={isIssue ? 'New Issue' : 'New To-Do'}>
@@ -537,6 +674,7 @@ export default function NewTaskScreen() {
                   marginTop: 16,
                   flexDirection: 'row',
                   alignItems: 'center',
+                  flexWrap: 'wrap',
                   gap: 8,
                 }}>
                 <AiChip
@@ -735,7 +873,21 @@ export default function NewTaskScreen() {
                   label="Deadline"
                   iconName="flag-outline"
                   value={dueAt}
-                  onChange={setDueAt}
+                  onChange={(next) => {
+                    // The block moves with its end and keeps its length.
+                    const length = startAt && dueAt ? new Date(dueAt).getTime() - new Date(startAt).getTime() : 0;
+                    setDueAt(next);
+                    setStartAt(next && length > 0 ? new Date(new Date(next).getTime() - length).toISOString() : null);
+                  }}
+                />
+              </View>
+              <View style={{ paddingVertical: 12 }}>
+                <TimeBlockField
+                  value={{ start_at: startAt, due_at: dueAt }}
+                  onChange={(block) => {
+                    setStartAt(block.start_at);
+                    setDueAt(block.due_at);
+                  }}
                 />
               </View>
               <View style={{ paddingVertical: 12 }}>
@@ -757,128 +909,56 @@ export default function NewTaskScreen() {
                 </View>
                 <SegmentedChoice options={PRIORITIES} value={priority} onChange={setPriority} />
               </View>
-              {hasSchedule ? (
-                <CalendarChoice
-                  open={calendarOpen}
-                  selectedId={calendarId}
-                  onToggle={() => setCalendarOpen((v) => !v)}
-                  onPick={(id) => {
-                    setCalendarId(id);
-                    setCalendarOpen(false);
-                  }}
-                />
-              ) : null}
+              {calendarChoice}
             </>
           )}
         </View>
-
-        <ListPicker
-          visible={listPickerOpen}
-          lists={lists}
-          selectedId={listId}
-          title="Add to"
-          onSelect={(list) => {
-            setListId(list.id);
-            setListPickerOpen(false);
-          }}
-          repos={writableRepos}
-          selectedRepo={repo?.fullName ?? null}
-          onSelectRepo={(fullName) => {
-            setRepoName(fullName);
-            setListPickerOpen(false);
-          }}
-          onClose={() => setListPickerOpen(false)}
-        />
-        <NativeAlert
-          visible={aiError != null}
-          title="AI"
-          message={aiError ?? ''}
-          confirmLabel={aiError?.includes('Settings') ? 'Open Settings' : 'OK'}
-          dismissLabel={aiError?.includes('Settings') ? 'Not now' : undefined}
-          onDismiss={() => setAiError(null)}
-          onConfirm={() => {
-            const goSettings = aiError?.includes('Settings');
-            setAiError(null);
-            if (goSettings) {
-              router.back();
-              router.push('/settings/ai');
-            }
-          }}
-        />
-        <NativeAlert
-          visible={errorMessage != null}
-          title={createdWithWarnings ? 'To-do created' : 'Could not add'}
-          message={errorMessage ?? ''}
-          onDismiss={() => {
-            setErrorMessage(null);
-            if (createdWithWarnings) {
-              const uid = warningTaskUid;
-              setCreatedWithWarnings(false);
-              setWarningTaskUid(null);
-              router.back();
-              if (uid) router.push({ pathname: '/task/[uid]', params: { uid } });
-            }
-          }}
-        />
       </KeyboardScrollView>
-        {/* Create, pinned under the form so it never scrolls off. iOS uses the
-            Add button in the sheet's navigation bar instead. */}
-        {Platform.OS !== 'ios' ? (
+      {/* Create, pinned under the form so it never scrolls off. iOS uses the
+          Add button in the sheet's navigation bar instead. */}
+      {Platform.OS !== 'ios' ? (
         <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
-        <Pressable
-          onPress={handleSubmit}
-          disabled={!canSubmit}
-          accessibilityRole="button"
-          accessibilityLabel={isIssue ? 'Create issue' : 'Add to-do'}
-          android_ripple={{ color: colors.separator }}
-          style={({ pressed }) => ({
-            height: 56,
-            borderRadius: pressed ? 16 : 28,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'row',
-            gap: 8,
-            backgroundColor: colors.accent,
-            opacity: canSubmit ? 1 : 0.4,
-          })}>
-          {isSubmitting ? (
-            <LoadingSpinner size={24} />
-          ) : (
-            <MaterialCommunityIcons
-              name={isIssue ? 'github' : 'plus'}
-              size={22}
-              color={colors.onAccent}
-            />
-          )}
-          <Text style={{ color: colors.onAccent, fontSize: 17, fontWeight: '600' }}>
-            {isSubmitting
-              ? isIssue
-                ? 'Creating issue…'
-                : 'Adding…'
-              : isIssue
-                ? 'Create issue'
-                : 'Add to-do'}
-          </Text>
-        </Pressable>
+            <Pressable
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+              accessibilityRole="button"
+              accessibilityLabel={isIssue ? 'Create issue' : 'Add to-do'}
+              android_ripple={{ color: colors.separator }}
+              style={({ pressed }) => ({
+                height: 56,
+                borderRadius: pressed ? 16 : 28,
+                borderCurve: 'continuous',
+                overflow: 'hidden',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 8,
+                backgroundColor: colors.accent,
+                opacity: canSubmit ? 1 : 0.4,
+              })}>
+              {isSubmitting ? (
+                <LoadingSpinner size={24} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={isIssue ? 'github' : 'plus'}
+                  size={22}
+                  color={colors.onAccent}
+                />
+              )}
+              <Text style={{ color: colors.onAccent, fontSize: 17, fontWeight: '600' }}>
+                {isSubmitting
+                  ? isIssue
+                    ? 'Creating issue…'
+                    : 'Adding…'
+                  : isIssue
+                    ? 'Create issue'
+                    : 'Add to-do'}
+              </Text>
+            </Pressable>
         </View>
-        ) : null}
+      ) : null}
 
-      <DictationSheet
-        visible={dictating}
-        lists={lists}
-        availableTags={availableTags}
-        defaultListId={listId}
-        onClose={() => setDictating(false)}
-        // Close this dialog under the preview, like the other AI actions.
-        beforeReview={() => router.back()}
-      />
-      <ProgressOverlay
-        visible={aiBusy != null || aiDone != null}
-        state={aiDone ? 'done' : 'working'}
-        label={aiDone ?? (aiBusy === 'photo' ? 'Reading your photo…' : 'Turning that into to-dos…')}
-      />
+      {overlays}
     </SheetSurface>
   );
 }

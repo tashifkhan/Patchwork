@@ -2,6 +2,7 @@ import { SegmentedControl } from '@expo/ui/community/segmented-control';
 import { View } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { haptics } from '@/lib/haptics';
 
 export interface SegmentedChoiceOption<T> {
   label: string;
@@ -43,7 +44,10 @@ export function SegmentedChoice<T>({
         tintColor={colors.accent}
         onChange={(event) => {
           const next = options[event.nativeEvent.selectedSegmentIndex];
-          if (next) onChange(next.value);
+          if (next) {
+            haptics.selection();
+            onChange(next.value);
+          }
         }}
       />
     </View>

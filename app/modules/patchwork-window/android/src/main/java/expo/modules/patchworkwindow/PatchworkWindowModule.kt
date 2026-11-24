@@ -1,6 +1,15 @@
 package expo.modules.patchworkwindow
 
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
@@ -22,6 +31,9 @@ import kotlinx.coroutines.launch
  * of the hinge in split screen). Bounds are window-relative, in dp, so JS
  * can compare them with `useWindowDimensions()` directly.
  */
+private const val TIMER_CHANNEL_ID = "patchwork-focus-timer"
+private const val TIMER_NOTIFICATION_ID = 4107
+
 class PatchworkWindowModule : Module() {
   private var job: Job? = null
   private var latest: Map<String, Any?>? = null
@@ -33,6 +45,20 @@ class PatchworkWindowModule : Module() {
 
     Function("getFold") { latest }
 
+    // Live timer notification for the focus timer and stopwatch. A
+    // chronometer that the system ticks itself, so JS never has to update
+    // it. On Android 16+ it asks to be promoted to a Live Update, which puts
+    // the running time in a status bar chip.
+    Function("showTimerNotification") { options: Map<String, Any?> ->
+      showTimer(options)
+    }
+
+    Function("hideTimerNotification") {
+      val context = appContext.reactContext ?: return@Function null
+      NotificationManagerCompat.from(context).cancel(TIMER_NOTIFICATION_ID)
+      null
+    }
+
     OnStartObserving { start() }
 
     OnStopObserving {
@@ -43,6 +69,76 @@ class PatchworkWindowModule : Module() {
     OnActivityEntersForeground { if (job == null) start() }
 
     OnDestroy { job?.cancel() }
+  }
+
+  private fun showTimer(options: Map<String, Any?>) {
+    val context = appContext.reactContext ?: return
+    val manager = NotificationManagerCompat.from(context)
+    if (!manager.areNotificationsEnabled()) return
+    ensureTimerChannel(context)
+
+    val title = options["title"] as? String ?: "Focus"
+    val text = options["text"] as? String ?: ""
+    val base = (options["baseTime"] as? Number)?.toLong() ?: System.currentTimeMillis()
+    val countDown = options["countDown"] as? Boolean ?: false
+    val paused = options["paused"] as? Boolean ?: false
+
+    val open = Intent(Intent.ACTION_VIEW, Uri.parse("patchwork://pomodoro")).apply {
+      setPackage(context.packageName)
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+    }
+    val contentIntent = PendingIntent.getActivity(
+      context,
+      TIMER_NOTIFICATION_ID,
+      open,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val builder = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
+      // Status bar icons must be monochrome; the launcher icon renders as a blob.
+      .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+      .setContentTitle(title)
+      .setContentText(text)
+      .setContentIntent(contentIntent)
+      .setOngoing(true)
+      .setOnlyAlertOnce(true)
+      .setSilent(true)
+      .setCategory(if (countDown) NotificationCompat.CATEGORY_PROGRESS else NotificationCompat.CATEGORY_STOPWATCH)
+      .setPriority(NotificationCompat.PRIORITY_LOW)
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+    if (!paused) {
+      builder.setWhen(base).setShowWhen(true).setUsesChronometer(true)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) builder.setChronometerCountDown(countDown)
+      // A countdown removes itself at zero instead of ticking into negative
+      // time; the "block done" notification from JS takes over from there.
+      val timeoutAt = (options["timeoutAt"] as? Number)?.toLong()
+      if (timeoutAt != null) builder.setTimeoutAfter(maxOf(1_000L, timeoutAt - System.currentTimeMillis()))
+    } else {
+      builder.setShowWhen(false)
+    }
+
+    // Live Updates (API 36). The extra is what NotificationCompat's
+    // setRequestPromotedOngoing writes, set directly so this builds against
+    // older androidx.core too. Needs POST_PROMOTED_NOTIFICATIONS in the manifest.
+    builder.extras.putBoolean("android.requestPromotedOngoing", true)
+
+    try {
+      manager.notify(TIMER_NOTIFICATION_ID, builder.build())
+    } catch (_: SecurityException) {
+      // POST_NOTIFICATIONS not granted: the in-app timer still runs.
+    }
+  }
+
+  private fun ensureTimerChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val system = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    if (system.getNotificationChannel(TIMER_CHANNEL_ID) != null) return
+    val channel = NotificationChannel(TIMER_CHANNEL_ID, "Focus timer", NotificationManager.IMPORTANCE_LOW).apply {
+      description = "The running focus timer or stopwatch"
+      setShowBadge(false)
+    }
+    system.createNotificationChannel(channel)
   }
 
   private fun start() {

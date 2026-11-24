@@ -20,7 +20,8 @@ import { useGitHubIssues } from '@/hooks/use-github';
 import { useJiraSearch } from '@/hooks/use-jira-search';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
-import { buildSearchNodes, createSearchIndex, jiraSearchNodes, type SearchNode } from '@/lib/search';
+import { boardSearchNodes, buildSearchNodes, createSearchIndex, jiraSearchNodes, type SearchNode } from '@/lib/search';
+import { useBoardSummaries } from '@/hooks/use-boards';
 import {
   useFloatingTabBar,
   useTabBarContentPadding,
@@ -30,6 +31,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useTabBarChromeStore } from '@/stores/tab-bar-chrome-store';
 import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
+import { ELASTIC_CONTROL, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 
 const RECENTS_KEY = 'search:recents';
 const MAX_RECENTS = 6;
@@ -71,9 +73,15 @@ const TYPE_META: Record<
     mdIcon: 'jira',
     accentKey: 'accent',
   },
+  board: {
+    label: 'Board',
+    plural: 'Boards',
+    mdIcon: 'view-column-outline',
+    accentKey: 'purple',
+  },
 };
 
-const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'deck-card', 'github-issue', 'jira-issue'];
+const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'board', 'deck-card', 'jira-issue', 'github-issue'];
 
 interface ResultRow {
   node: SearchNode;
@@ -145,14 +153,18 @@ export default function SearchScreen() {
     return () => clearTimeout(t);
   }, []);
 
+  // Deck and Jira boards themselves, by name (only while the Boards tab is on).
+  const boardSummaries = useBoardSummaries();
   const nodes = useMemo(
-    () =>
-      buildSearchNodes(
+    () => [
+      ...buildSearchNodes(
         tasksQuery.data ?? [],
         deckCardsQuery.data,
         githubRepositories.length > 0 ? githubIssuesQuery.data?.issues : undefined
       ),
-    [tasksQuery.data, deckCardsQuery.data, githubRepositories.length, githubIssuesQuery.data?.issues]
+      ...(boardsTab ? boardSearchNodes(boardSummaries.boards) : []),
+    ],
+    [tasksQuery.data, deckCardsQuery.data, githubRepositories.length, githubIssuesQuery.data?.issues, boardsTab, boardSummaries.boards]
   );
   const fuse = useMemo(() => createSearchIndex(nodes), [nodes]);
 
@@ -202,7 +214,7 @@ export default function SearchScreen() {
   }, [fuse, deferredQuery, jiraNodes]);
 
   const counts = useMemo(() => {
-    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0, 'jira-issue': 0 };
+    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0, 'jira-issue': 0, board: 0 };
     for (const r of allResults) c[r.node.type] += 1;
     return c;
   }, [allResults]);
@@ -215,6 +227,7 @@ export default function SearchScreen() {
       'deck-card': [],
       'github-issue': [],
       'jira-issue': [],
+      board: [],
     };
     for (const r of filtered) grouped[r.node.type].push(r);
     return SECTION_ORDER.filter((t) => grouped[t].length > 0).map((t) => ({
@@ -268,6 +281,8 @@ export default function SearchScreen() {
             },
           });
         }
+      } else if (node.type === 'board') {
+        if (node.boardRef) router.push({ pathname: '/deck/board/[ref]', params: { ref: node.boardRef } });
       } else if (node.type === 'jira-issue') {
         if (node.jiraKey) {
           router.push({
@@ -327,7 +342,7 @@ export default function SearchScreen() {
             Platform.OS === 'ios'
               ? {
                   ref: iosSearchRef,
-                  placeholder: 'Search tasks, cards, issues',
+                  placeholder: 'Search everything',
                   onChangeText: (e) => setQuery(e.nativeEvent.text),
                   hideWhenScrolling: false,
                   obscureBackground: false,
@@ -486,6 +501,7 @@ function FilterBar({
     { value: 'all', label: 'All', count: total, icon: 'magnify' },
     { value: 'task', label: 'Tasks', count: counts.task, icon: 'checkbox-blank-outline' },
     { value: 'subtask', label: 'Subtasks', count: counts.subtask, icon: 'subdirectory-arrow-right' },
+    { value: 'board', label: 'Boards', count: counts.board, icon: 'view-column-outline' },
     { value: 'deck-card', label: 'Cards', count: counts['deck-card'], icon: 'card-text-outline' },
     { value: 'github-issue', label: 'GitHub', count: counts['github-issue'], icon: 'github' },
     { value: 'jira-issue', label: 'Jira', count: counts['jira-issue'], icon: 'jira' },
@@ -652,6 +668,7 @@ function GroupRow({
 }) {
   const { colors } = useTheme();
   return (
+    <ElasticView {...ELASTIC_CONTROL}>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
@@ -699,6 +716,7 @@ function GroupRow({
         ) : null}
       </View>
     </Pressable>
+    </ElasticView>
   );
 }
 
@@ -729,6 +747,7 @@ function ResultRowView({
   const snippet = makeSnippet(row.node.descriptionText, descMatch);
 
   return (
+    <ElasticView {...ELASTIC_ROW}>
     <Pressable
       onPress={() => onPress(row.node)}
       android_ripple={{ color: colors.separator }}
@@ -803,6 +822,7 @@ function ResultRowView({
         <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text3} />
       </View>
     </Pressable>
+    </ElasticView>
   );
 }
 

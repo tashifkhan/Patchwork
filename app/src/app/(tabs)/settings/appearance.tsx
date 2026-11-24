@@ -17,7 +17,8 @@ import {
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
-import { COLOR_PALETTES } from '@/lib/palettes';
+import { BUILT_IN_FONTS, importFontFile } from '@/lib/fonts';
+import { COLOR_PALETTES, PAPER_PALETTE } from '@/lib/palettes';
 import { useSettingsStore, type ThemeMode } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -34,7 +35,9 @@ const THEME_MODES: {
 const FEATURED_COUNT = 4;
 
 /** Fixed swatch for the System / Wallpaper option so it never mirrors the active palette. */
-const SYSTEM_SEED = Platform.OS === 'android' ? '#6750A4' : '#007AFF';
+const SYSTEM_SEED = Platform.OS === 'android' ? '#6750A4' : PAPER_PALETTE.seed;
+/** iOS: Paper is the default row itself, so it isn't listed again below it. */
+const PICKABLE_PALETTES = Platform.OS === 'ios' ? COLOR_PALETTES.filter((p) => p.id !== PAPER_PALETTE.id) : COLOR_PALETTES;
 
 export default function AppearanceScreen() {
   const { scheme } = useTheme();
@@ -67,8 +70,8 @@ export default function AppearanceScreen() {
     return idx >= FEATURED_COUNT;
   });
 
-  const visiblePalettes = showAllPalettes ? COLOR_PALETTES : COLOR_PALETTES.slice(0, FEATURED_COUNT);
-  const hiddenCount = COLOR_PALETTES.length - FEATURED_COUNT;
+  const visiblePalettes = showAllPalettes ? PICKABLE_PALETTES : PICKABLE_PALETTES.slice(0, FEATURED_COUNT);
+  const hiddenCount = PICKABLE_PALETTES.length - FEATURED_COUNT;
 
   return (
     <SettingsScreen>
@@ -85,8 +88,9 @@ export default function AppearanceScreen() {
             footer="Tints buttons, switches, icons and selections across the app.">
             <SettingsRow
               leading={<Swatch color={SYSTEM_SEED} />}
-              title="System Blue"
-              selected={!colorPalette && !accentColor}
+              title="Paper"
+              subtitle="Default · cream and teal, from taf.sh"
+              selected={(!colorPalette || colorPalette === PAPER_PALETTE.id) && !accentColor}
               onPress={() => {
                 setColorPalette(null);
                 setAccentColor(null);
@@ -107,7 +111,7 @@ export default function AppearanceScreen() {
               <>
                 <RowSeparator />
                 <SettingsActionRow
-                  title={showAllPalettes ? 'Show Fewer Colors' : `Show All Colors (${COLOR_PALETTES.length})`}
+                  title={showAllPalettes ? 'Show Fewer Colors' : `Show All Colors (${PICKABLE_PALETTES.length})`}
                   onPress={() => setShowAllPalettes((v) => !v)}
                 />
               </>
@@ -133,8 +137,8 @@ export default function AppearanceScreen() {
           <SettingsSectionHeader title="Color palette" />
           <View className="flex-row flex-wrap gap-2">
             <PaletteCard
-              label={isAndroid ? 'Wallpaper' : 'System'}
-              subtitle={isAndroid ? 'Material You' : 'Default blue'}
+              label={isAndroid ? 'Wallpaper' : 'Paper'}
+              subtitle={isAndroid ? 'Material You' : 'Default'}
               seed={SYSTEM_SEED}
               selected={!colorPalette && (isAndroid ? dynamicColor : !accentColor)}
               onPress={() => {
@@ -165,6 +169,8 @@ export default function AppearanceScreen() {
         </View>
         </>
       )}
+
+      <TypographyGroup />
 
       {/* Display options */}
       <SettingsGroup title="Display">
@@ -244,6 +250,116 @@ export default function AppearanceScreen() {
         ) : null}
       </SettingsGroup>
     </SettingsScreen>
+  );
+}
+
+const TEXT_SIZES = [
+  { label: 'Small', value: 0.9 },
+  { label: 'Default', value: 1 },
+  { label: 'Large', value: 1.15 },
+  { label: 'Larger', value: 1.3 },
+];
+
+/** Font choice and text size, applied to every text in the app. */
+function TypographyGroup() {
+  const { colors } = useTheme();
+  const fontFamily = useSettingsStore((s) => s.fontFamily);
+  const fontScale = useSettingsStore((s) => s.fontScale);
+  const customFonts = useSettingsStore((s) => s.customFonts);
+  const setExtras = useSettingsStore((s) => s.setExtras);
+  const [error, setError] = useState<string | null>(null);
+  const choices = [
+    ...BUILT_IN_FONTS.map((font) => ({ id: font.id, label: font.label, family: font.family, custom: false })),
+    ...customFonts.map((font) => ({ id: font.id as string | null, label: font.name, family: font.id as string | undefined, custom: true })),
+  ];
+
+  return (
+    <SettingsGroup
+      title="Text"
+      footer={error ?? 'Long-press an imported font to remove it. Imported fonts stay on this device.'}>
+      <SettingsCell>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {choices.map((font) => {
+            const active = (font.id ?? null) === (fontFamily ?? null);
+            return (
+              <Pressable
+                key={font.id ?? 'system'}
+                onPress={() => setExtras({ fontFamily: font.id })}
+                onLongPress={
+                  font.custom
+                    ? () =>
+                        setExtras({
+                          customFonts: customFonts.filter((c) => c.id !== font.id),
+                          fontFamily: fontFamily === font.id ? null : fontFamily,
+                        })
+                    : undefined
+                }
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                accessibilityLabel={`${font.label} font`}
+                style={({ pressed }) => ({
+                  // M3 Expressive filter chip: selected chips round out and fill.
+                  borderRadius: active || pressed ? 18 : 8,
+                  borderCurve: 'continuous',
+                  paddingHorizontal: 14,
+                  height: 36,
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  backgroundColor: active ? colors.selectionBg : 'transparent',
+                  borderWidth: active ? 0 : 1,
+                  borderColor: colors.gray2,
+                })}>
+                {active ? <MaterialCommunityIcons name="check" size={16} color={colors.onSelectionBg} /> : null}
+                <Text style={{ fontFamily: font.family, fontSize: 15, color: active ? colors.onSelectionBg : colors.text }}>
+                  {font.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {process.env.EXPO_OS !== 'web' ? (
+            <Pressable
+              onPress={async () => {
+                setError(null);
+                try {
+                  const font = await importFontFile();
+                  if (font) setExtras({ customFonts: [...customFonts, font], fontFamily: font.id });
+                } catch (cause) {
+                  setError(cause instanceof Error ? cause.message : 'That font could not be loaded.');
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Import a font file"
+              style={({ pressed }) => ({
+                borderRadius: pressed ? 18 : 8,
+                paddingHorizontal: 14,
+                height: 36,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                borderWidth: 1,
+                borderColor: colors.gray2,
+              })}>
+              <MaterialCommunityIcons name="plus" size={16} color={colors.accent} />
+              <Text style={{ fontSize: 15, color: colors.accent }}>Import font</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </SettingsCell>
+      <RowSeparator />
+      <SettingsCell>
+        <Text className="text-sf-text text-base">Text size</Text>
+        <SegmentedChoice
+          options={TEXT_SIZES}
+          value={TEXT_SIZES.some((size) => size.value === fontScale) ? fontScale : 1}
+          onChange={(value) => setExtras({ fontScale: value })}
+        />
+        <Text className="text-sf-text-2" style={{ fontSize: 15 }}>
+          Buy oat milk, call the landlord, water the plants.
+        </Text>
+      </SettingsCell>
+    </SettingsGroup>
   );
 }
 

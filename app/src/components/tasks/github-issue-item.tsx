@@ -11,6 +11,7 @@ import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
 import { Text, View } from '@/tw';
+import { ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 
 interface GitHubIssueItemProps {
   issue: GitHubIssue;
@@ -68,6 +69,7 @@ function GitHubIssueItemComponent({ issue, onToggle, showRepo = true, dimmed }: 
           )}
         </View>
 
+        <ElasticView {...ELASTIC_ROW} style={{ flex: 1 }}>
         <Pressable
           onPress={openDetail}
           accessibilityRole="button"
@@ -119,6 +121,7 @@ function GitHubIssueItemComponent({ issue, onToggle, showRepo = true, dimmed }: 
             ) : null}
           </View>
         </Pressable>
+        </ElasticView>
       </View>
     </Animated.View>
   );

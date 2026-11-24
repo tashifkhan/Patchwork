@@ -61,6 +61,7 @@ export function MoveToDeck({ task, inline = false }: { task: Task; inline?: bool
         taskId: task.id,
         accountId: task.account_id,
         etag: task.etag,
+        skipBin: true,
       });
       router.back();
     } catch (error) {

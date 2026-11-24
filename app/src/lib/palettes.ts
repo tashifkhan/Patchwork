@@ -17,9 +17,72 @@ export interface ColorPalette {
   surfaceDark: string;
   elevatedLight: string;
   elevatedDark: string;
+  /**
+   * Optional neutrals (text, borders, tracks). Without them a palette uses
+   * Material's cool grays, which look off against warm surfaces like Paper.
+   */
+  neutrals?: { light: PaletteNeutrals; dark: PaletteNeutrals };
+  /** Text on the accent, when the automatic black/white pick isn't right. */
+  onPrimaryLight?: string;
+  onPrimaryDark?: string;
 }
 
+export interface PaletteNeutrals {
+  text: string;
+  text2: string;
+  text3: string;
+  /** Mid gray: grabbers, inactive glyphs. */
+  gray: string;
+  /** Borders and outlines. */
+  gray2: string;
+  /** Tracks and subtle fills. */
+  gray3: string;
+  separator: string;
+}
+
+/**
+ * The app's default look, from taf.sh (src/styles/global.css): warm paper
+ * cream with a deep teal accent in light, near-black ink with a bright teal
+ * in dark.
+ */
+export const PAPER_PALETTE: ColorPalette = {
+  id: 'paper',
+  label: 'Paper',
+  seed: '#0F7A6C',
+  primaryLight: '#0F7A6C',
+  primaryDark: '#4FD1C5',
+  backgroundLight: '#F6F1E9',
+  backgroundDark: '#0E0D0D',
+  surfaceLight: '#FDFAF4',
+  surfaceDark: '#151313',
+  elevatedLight: '#FFFDF8',
+  elevatedDark: '#1C1A1A',
+  onPrimaryLight: '#FFFFFF',
+  onPrimaryDark: '#04211F',
+  neutrals: {
+    light: {
+      text: '#171615',
+      text2: '#5F5956',
+      text3: '#857F7B',
+      gray: '#857F7B',
+      gray2: '#DED4C5',
+      gray3: '#ECE5DA',
+      separator: '#DED4C5',
+    },
+    dark: {
+      text: '#F2F1F0',
+      text2: '#A19C9B',
+      text3: '#77716F',
+      gray: '#77716F',
+      gray2: '#3B3737',
+      gray3: '#242121',
+      separator: '#2C2828',
+    },
+  },
+};
+
 export const COLOR_PALETTES: ColorPalette[] = [
+  PAPER_PALETTE,
   {
     id: 'ocean',
     label: 'Ocean',

@@ -5,7 +5,8 @@ import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
 import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { useTheme } from '@/components/theme/context';
 import { toggleTaskInMarkdown } from '@/lib/markdown';
-import { View } from '@/tw';
+import { textStats } from '@/lib/task-actions';
+import { Text, View } from '@/tw';
 
 /**
  * Task notes the way Things shows them: rendered Markdown while you read,
@@ -64,6 +65,19 @@ export function MarkdownNotes({
         accessibilityLabel="Notes"
         style={[{ minHeight: 32 }, inputStyle]}
       />
+      {editing && value.trim() ? <TextStats text={value} color={colors.text3} /> : null}
     </View>
+  );
+}
+
+/** Words and characters, shown while editing notes. */
+export function TextStats({ text, color }: { text: string; color: string }) {
+  const { words, characters } = textStats(text);
+  return (
+    <Text
+      accessibilityLabel={`${words} words, ${characters} characters`}
+      style={{ fontSize: 12, color, marginTop: 2, fontVariant: ['tabular-nums'] }}>
+      {words} {words === 1 ? 'word' : 'words'} · {characters} {characters === 1 ? 'character' : 'characters'}
+    </Text>
   );
 }

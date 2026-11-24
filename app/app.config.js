@@ -23,11 +23,26 @@ module.exports = ({ config }) => {
     android: {
       ...config.android,
       package: iosBundleId,
+      // Lets the focus timer notification become a Live Update (status bar chip) on Android 16+.
+      permissions: [...((config.android && config.android.permissions) || []), 'android.permission.POST_PROMOTED_NOTIFICATIONS'],
     },
     plugins: [
       ...(config.plugins ?? []),
       'expo-background-task',
-      'expo-font',
+      [
+        'expo-font',
+        {
+          // Google Sans Flex cuts for the focus timer (see assets/fonts/OFL.txt).
+          fonts: [
+            './assets/fonts/PatchworkClock-Stopwatch.ttf',
+            './assets/fonts/PatchworkClock-TimerRun.ttf',
+            './assets/fonts/PatchworkClock-TimerIdle.ttf',
+            './assets/fonts/PatchworkClock-Title.ttf',
+            './assets/fonts/PatchworkClock-Label.ttf',
+            './assets/fonts/PatchworkClock-Body.ttf',
+          ],
+        },
+      ],
       'expo-image',
       'expo-secure-store',
       [

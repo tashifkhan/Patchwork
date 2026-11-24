@@ -47,6 +47,14 @@ const second: CalDavAccount | null = env.CALDAV_TEST2_USERNAME
 
 if (live) {
   // Only the device storage modules are faked; every request is real.
+  mock.module('expo-file-system', () => ({
+    File: class {
+      constructor(private uri: string) {}
+      arrayBuffer() {
+        return Bun.file(new URL(this.uri)).arrayBuffer();
+      }
+    },
+  }));
   mock.module('@/lib/credentials', () => ({ getAccounts: async () => (second ? [account, second] : [account]) }));
   mock.module('@/lib/local-tasks', () => ({
     LOCAL_ACCOUNT_ID: 'local',
@@ -146,6 +154,15 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
       expect(task.attachments).toEqual([second]);
       const gone = await fetch(attachmentFileUri(access, first)!, { headers: access.headers });
       expect(gone.status).toBe(404);
+
+      // A soft delete keeps the file and restoring the UID relinks it.
+      await api.deleteTask(task.id, account.id, task.etag, { keepAttachments: true });
+      task = await api.restoreTask(
+        { list_id: list.id, uid: task.uid, title: task.title },
+        { account_id: account.id, attachments: task.attachments },
+      );
+      expect(task.attachments).toEqual([second]);
+      expect((await fetch(attachmentFileUri(access, second)!, { headers: access.headers })).status).toBe(200);
 
       await api.deleteTask(task.id, account.id, task.etag);
       const folder = await fetch(`${access.filesRoot}Tasks/${encodeURIComponent(task.uid)}/`, {

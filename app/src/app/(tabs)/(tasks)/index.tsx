@@ -1,5 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -20,7 +22,7 @@ import { DraggableColumn } from '@/components/tasks/draggable-column';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { GitHubSection } from '@/components/tasks/github-section';
 import { Section } from '@/components/tasks/task-section';
-import { TaskActionBar } from '@/components/tasks/task-action-bar';
+import { SelectionBar, TaskActionBar } from '@/components/tasks/task-action-bar';
 import {
   TaskCard,
   type TaskCardHandle,
@@ -31,6 +33,8 @@ import { TaskDetailView, TaskPaneContext, type TaskPane } from '@/components/tas
 import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
+import { SmartTiles } from '@/components/tasks/smart-tiles';
+import { ConnectedButtonGroup } from '@/components/ui/button-group';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
   ACTION_BAR_CLEARANCE,
@@ -39,7 +43,9 @@ import {
   KeyboardScrollView,
   type KeyboardAwareScrollViewRef,
 } from '@/components/ui/keyboard';
+import { ElasticPressable } from '@/components/ui/motion';
 import { Fab } from '@/components/ui/fab';
+import { Frost } from '@/components/ui/frost';
 import { DictateFab } from '@/components/tasks/dictate-fab';
 import { DictationSheet } from '@/components/tasks/dictation-sheet';
 import { OutboxBanner } from '@/components/tasks/outbox-banner';
@@ -47,7 +53,10 @@ import { LOCAL_ACCOUNT_ID, LOCAL_ACCOUNT_NAME } from '@/lib/local-tasks';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { READABLE_MAX_WIDTH, useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
+import { celebrate, playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
+import { matchesSmart, smartCounts, type SmartKey } from '@/lib/smart-lists';
+import { completionPercent, togglePatch } from '@/lib/task-actions';
 import {
   useTabBarContentPadding,
   useTabBarFabOffset,
@@ -56,6 +65,7 @@ import {
 import { cancelTaskReminder } from '@/lib/notifications';
 import { setCreateHandoff } from '@/stores/create-handoff';
 import {
+  useBulkTaskAction,
   useCreateTask,
   useDeleteTask,
   useReorderTasks,
@@ -75,6 +85,7 @@ import {
   liftOpenSubtasks,
   type BucketKey,
 } from '@/lib/task-buckets';
+import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -112,6 +123,7 @@ export default function TasksScreen() {
   const reorderTasks = useReorderTasks();
   const createTask = useCreateTask();
   const deleteTask = useDeleteTask();
+  const bulk = useBulkTaskAction();
   const fabBottom = useTabBarFabOffset();
   const taskWarnings = useSyncStatusStore((state) => state.taskWarnings);
 
@@ -128,9 +140,17 @@ export default function TasksScreen() {
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [moveListId, setMoveListId] = useState<string | null>(null);
   const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
+  /** The smart tile filtering the to-dos (Today, Scheduled, All, Overdue), if any. */
+  const [smart, setSmart] = useState<SmartKey | null>(null);
   const [pulling, setPulling] = useState(false);
+  /** iOS: rows have scrolled up under the status bar, so it frosts over. */
+  const [underStatusBar, setUnderStatusBar] = useState(false);
   const insets = useSafeAreaInsets();
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  /** Multi-select: ids of the chosen to-dos, or null when not selecting. */
+  const [selection, setSelection] = useState<string[] | null>(null);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState<'delete' | 'merge' | 'clear' | null>(null);
   // Split view (iPad, unfolded foldables, tablets): the to-do open in the
   // detail pane. Phones open to-dos in place and push the full editor.
   const { twoPane, listPaneWidth, hingeGap } = useAdaptiveLayout();
@@ -151,6 +171,7 @@ export default function TasksScreen() {
     }
   }, [twoPane, paneUid]);
   const cardRef = useRef<TaskCardHandle>(null);
+  const handleCreateListRef = useRef<(name: string) => Promise<void>>(async () => {});
   const scrollRef = useRef<KeyboardAwareScrollViewRef>(null);
   const scrollY = useRef(0);
 
@@ -199,7 +220,8 @@ export default function TasksScreen() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [allIssues, repoFilter]);
 
-  const visibleTasks = useMemo(
+  /** To-dos in the chosen list and tag, before a smart tile narrows them. */
+  const baseTasks = useMemo(
     () =>
       allTasks.filter((task) => {
         if (selectedListId?.startsWith('gh:')) return false;
@@ -209,9 +231,15 @@ export default function TasksScreen() {
       }),
     [allTasks, selectedListId, selectedTag]
   );
+  const visibleTasks = useMemo(
+    () => (smart ? baseTasks.filter((task) => matchesSmart(task, smart)) : baseTasks),
+    [baseTasks, smart]
+  );
+  const smartTileCounts = useMemo(() => smartCounts(baseTasks), [baseTasks]);
 
-  const { buckets, completed } = useMemo(() => {
-    const active = visibleTasks.filter((task) => !task.completed);
+  const { buckets, completed, pinned } = useMemo(() => {
+    const active = visibleTasks.filter((task) => !task.completed && !task.pinned);
+    const pinnedOpen = visibleTasks.filter((task) => !task.completed && task.pinned).sort(byManualOrder);
     const done = visibleTasks.filter((task) => task.completed).sort(byManualOrder);
     const grouped: Record<BucketKey, Task[]> = {
       overdue: [],
@@ -222,16 +250,23 @@ export default function TasksScreen() {
     };
     for (const task of active) grouped[bucketOf(task)].push(task);
     for (const key of BUCKET_ORDER) grouped[key].sort(byManualOrder);
-    return { buckets: grouped, completed: done };
+    return { buckets: grouped, completed: done, pinned: pinnedOpen };
   }, [visibleTasks]);
 
   const handleToggle = useCallback(
     async (task: Task) => {
+      const { patch, repeated } = togglePatch(task);
+      if (!task.completed) {
+        // Celebrate when the last open to-do in view just got done.
+        const othersOpen = visibleTasks.some((t) => !t.completed && t.id !== task.id);
+        if (!repeated && !othersOpen && visibleTasks.length > 1) celebrate();
+        else playSound('complete');
+      }
       try {
         await updateTask.mutateAsync({
           taskId: task.id,
           accountId: task.account_id,
-          patch: { completed: !task.completed, etag: task.etag },
+          patch,
         });
       } catch (error) {
         if (error instanceof ApiError && error.isNotImplemented) {
@@ -241,7 +276,7 @@ export default function TasksScreen() {
         }
       }
     },
-    [updateTask]
+    [updateTask, visibleTasks]
   );
 
   const handleGitHubToggle = useCallback(
@@ -269,6 +304,12 @@ export default function TasksScreen() {
   // while one is open just closes the open one first.
   const handleOpen = useCallback(
     (task: Task) => {
+      if (selection) {
+        setSelection((ids) =>
+          ids == null ? ids : ids.includes(task.id) ? ids.filter((id) => id !== task.id) : [...ids, task.id]
+        );
+        return;
+      }
       if (closeCard()) return;
       if (twoPane) {
         setPaneUid(task.uid);
@@ -276,7 +317,15 @@ export default function TasksScreen() {
       }
       setExpandedId(task.id);
     },
-    [closeCard, twoPane]
+    [closeCard, selection, twoPane]
+  );
+
+  const startSelecting = useCallback(
+    (task: Task) => {
+      closeCard();
+      setSelection((ids) => (ids == null ? [task.id] : ids.includes(task.id) ? ids : [...ids, task.id]));
+    },
+    [closeCard]
   );
 
   const openNewCard = useCallback(() => {
@@ -326,10 +375,13 @@ export default function TasksScreen() {
               message: error instanceof ApiError ? error.message : 'Please try again.',
             })
           );
+      } else if (result.kind === 'create-list') {
+        await handleCreateListRef.current(result.name);
       } else if (result.kind === 'create') {
         try {
           const created = await createTask.mutateAsync(result.payload);
           haptics.success();
+          playSound('add');
           for (const item of result.checklist) {
             await createTask.mutateAsync({
               list_id: created.list_id,
@@ -430,6 +482,16 @@ export default function TasksScreen() {
     router.push('/new-task');
   }, []);
 
+  // Android back leaves select mode first.
+  useEffect(() => {
+    if (selection == null) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSelection(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [selection]);
+
   // Android back folds the open card instead of leaving the screen.
   useEffect(() => {
     if (expandedId == null) return;
@@ -467,6 +529,9 @@ export default function TasksScreen() {
       });
     }
   }, [createList, listAccounts, selectedListAccountId, setSelectedListId]);
+  useEffect(() => {
+    handleCreateListRef.current = (name) => handleCreateList(name);
+  }, [handleCreateList]);
 
   const handleReorder = useCallback(
     (next: Task[]) => {
@@ -504,9 +569,62 @@ export default function TasksScreen() {
           }),
     [allIssues, repoFilter, selectedList, selectedTag]
   );
+  const selectedTasks = useMemo(() => {
+    if (!selection) return [];
+    const byId = new Map(flattenTasks(allTasks).map((task) => [task.id, task]));
+    return selection.map((id) => byId.get(id)).filter((task): task is Task => task != null);
+  }, [allTasks, selection]);
+
+  const runBulk = useCallback(
+    (input: Parameters<typeof bulk.mutateAsync>[0]) => {
+      setSelection(null);
+      if (input.tasks.length === 0) return;
+      bulk
+        .mutateAsync(input)
+        .then(({ failed, total }) => {
+          if (failed) {
+            setAlert({
+              title: `${failed} of ${total} didn't go through`,
+              message: 'Check your connection and try those again.',
+            });
+          }
+        })
+        .catch(() => setAlert({ title: 'Something went wrong', message: 'Please try again.' }));
+    },
+    [bulk]
+  );
+
+  /** Merge: the first pick keeps its title, the rest join its notes. */
+  const mergeSelected = useCallback(async () => {
+    const [keep, ...rest] = selectedTasks;
+    if (!keep || rest.length === 0) return;
+    const lines = rest.map((task) => {
+      const notes = task.markdown.trim();
+      return notes ? `- ${task.title}\n${notes.replace(/^/gm, '  ')}` : `- ${task.title}`;
+    });
+    const markdown = [keep.markdown.trim(), lines.join('\n')].filter(Boolean).join('\n\n');
+    const tags = [...new Set([...keep.tags, ...rest.flatMap((task) => task.tags)])];
+    setSelection(null);
+    try {
+      await updateTask.mutateAsync({
+        taskId: keep.id,
+        accountId: keep.account_id,
+        patch: { markdown, tags, etag: keep.etag },
+      });
+      runBulk({ kind: 'delete', tasks: rest });
+    } catch (error) {
+      setAlert({
+        title: 'Could not merge',
+        message: error instanceof ApiError ? error.message : 'Please try again.',
+      });
+    }
+  }, [runBulk, selectedTasks, updateTask]);
+
   const isLoading = tasksQuery.isLoading;
   const isFetching = tasksQuery.isFetching || (githubEnabled && githubQuery.isFetching);
-  const isEmpty = visibleTasks.length === 0 && (!githubEnabled || githubIssues.length === 0);
+  const isEmpty = baseTasks.length === 0 && (!githubEnabled || githubIssues.length === 0);
+  /** A smart tile is on and nothing matches it, while the list itself has to-dos. */
+  const smartEmpty = smart != null && visibleTasks.length === 0 && baseTasks.length > 0;
   const showCenteredState = isEmpty && !githubEnabled && !isLoading;
   const needsCalDavAccount = isMissingCalDavAccountError(tasksQuery.error);
   const showingOffline = taskWarnings[0]?.startsWith("You're offline") ?? false;
@@ -515,9 +633,12 @@ export default function TasksScreen() {
   const heroTitle = repoFilter
     ? (repoFilter.split('/')[1] ?? repoFilter)
     : (selectedList?.name ?? 'All Tasks');
+  const percent = selectedList ? completionPercent(visibleTasks) : null;
   const heroSubtitle = repoFilter
     ? `${repoOpen} open issue${repoOpen === 1 ? '' : 's'} · ${repoFilter.split('/')[0]}`
-    : `${visibleOpen} open${selectedList?.account_name ? ` · ${selectedList.account_name}` : ''}`;
+    : selection
+      ? `${selection.length} selected · long-press more or tap to add`
+      : `${visibleOpen} open${percent != null && percent > 0 ? ` · ${percent}% done` : ''}${selectedList?.account_name ? ` · ${selectedList.account_name}` : ''}`;
 
   const listView = (
     <>
@@ -535,6 +656,10 @@ export default function TasksScreen() {
         onScroll={(event) => {
           scrollY.current = event.nativeEvent.contentOffset.y;
           onTabBarScroll(event);
+          if (Platform.OS === 'ios') {
+            const under = event.nativeEvent.contentOffset.y + event.nativeEvent.contentInset.top > 8;
+            if (under !== underStatusBar) setUnderStatusBar(under);
+          }
         }}
         contentContainerStyle={{
           flexGrow: 1,
@@ -579,14 +704,41 @@ export default function TasksScreen() {
             gap: 12,
             opacity: expandedId ? 0.38 : 1,
           }}>
-          <ListHero
-            title={heroTitle}
-            subtitle={heroSubtitle}
-            kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
-            onPress={() => setListSwitcherOpen(true)}
-          />
+          <View className="flex-row items-start justify-between gap-2">
+            <View style={{ flexShrink: 1 }}>
+              <ListHero
+                title={heroTitle}
+                subtitle={heroSubtitle}
+                kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
+                onPress={() => setListSwitcherOpen(true)}
+              />
+            </View>
+            {process.env.EXPO_OS !== 'web' ? (
+              <View style={{ marginTop: Platform.OS === 'ios' ? 4 : 2 }}>
+                <HeaderIcons
+                  items={[
+                    { icon: 'calendar-month-outline', label: 'Calendar', href: '/calendar' },
+                    { icon: 'head-lightbulb-outline', label: 'Brain dump', href: '/brain-dump' },
+                    { icon: 'timer-outline', label: 'Focus timer', href: '/pomodoro' },
+                  ]}
+                />
+              </View>
+            ) : null}
+          </View>
           {/* Background refresh: under the title, clear of the status bar and cutout. */}
           {isFetching && !isLoading && !pulling ? <LoadingBar style={{ marginTop: -4 }} /> : null}
+          {!repoFilter && selection == null && !isLoading && !showCenteredState ? (
+            <SmartTiles
+              counts={smartTileCounts}
+              selected={smart}
+              onSelect={setSmart}
+              listCount={lists.length}
+              onOpenLists={() => {
+                if (closeCard()) return;
+                router.push('/lists');
+              }}
+            />
+          ) : null}
           <TagFilterTabs
             tags={repoFilter ? repoLabels : allTags}
             selectedTag={selectedTag}
@@ -684,19 +836,26 @@ export default function TasksScreen() {
           </View>
         ) : (
           <>
-            {BUCKET_ORDER.filter((key) => buckets[key].length > 0).map((key) => (
+            {smartEmpty ? (
+              <View style={{ alignItems: 'center', paddingVertical: 40, gap: 6 }}>
+                <MaterialCommunityIcons name="check-circle-outline" size={36} color={colors.text3} />
+                <Text style={{ color: colors.text2, fontSize: 15 }}>Nothing here. Enjoy the gap.</Text>
+              </View>
+            ) : null}
+            {pinned.length > 0 ? (
               <Section
-                key={key}
-                title={BUCKET_LABELS[key]}
-                count={buckets[key].length}
-                collapsed={!!collapsed[key]}
-                onToggle={() => (closeCard() ? undefined : toggleSection(key))}>
+                title="Pinned"
+                icon="pin-outline"
+                count={pinned.length}
+                collapsed={!!collapsed.pinned}
+                onToggle={() => (closeCard() ? undefined : toggleSection('pinned'))}>
                 <DraggableColumn
-                  data={buckets[key]}
+                  data={pinned}
                   keyExtractor={(task) => task.id}
                   onReorder={handleReorder}
                   indicatorColor={colors.accent}
-                  dragEnabled={expandedId == null}
+                  dragEnabled={expandedId == null && selection == null}
+                  onHold={startSelecting}
                   renderItem={(task) =>
                     task.id === expandedId ? (
                       <TaskCard
@@ -716,6 +875,54 @@ export default function TasksScreen() {
                         task={task}
                         onToggle={handleToggle}
                         onOpen={handleOpen}
+                        onLongPress={startSelecting}
+                        selecting={selection != null}
+                        checked={selection?.includes(task.id) ?? false}
+                        showList={!selectedListId}
+                        dimmed={expandedId != null}
+                        selected={twoPane && task.uid === paneUid}
+                      />
+                    )
+                  }
+                />
+              </Section>
+            ) : null}
+            {BUCKET_ORDER.filter((key) => buckets[key].length > 0).map((key) => (
+              <Section
+                key={key}
+                title={BUCKET_LABELS[key]}
+                count={buckets[key].length}
+                collapsed={!!collapsed[key]}
+                onToggle={() => (closeCard() ? undefined : toggleSection(key))}>
+                <DraggableColumn
+                  data={buckets[key]}
+                  keyExtractor={(task) => task.id}
+                  onReorder={handleReorder}
+                  indicatorColor={colors.accent}
+                  dragEnabled={expandedId == null && selection == null}
+                  onHold={startSelecting}
+                  renderItem={(task) =>
+                    task.id === expandedId ? (
+                      <TaskCard
+                        ref={cardRef}
+                        task={task}
+                        lists={lists}
+                        defaultListId={task.list_id}
+                        availableTags={allTags}
+                        onClose={handleCardClose}
+                        onToggleComplete={handleToggle}
+                        onToggleChild={handleToggle}
+                        onAddChild={handleAddChild}
+                        onPlaced={revealCard}
+                      />
+                    ) : (
+                      <TaskItem
+                        task={task}
+                        onToggle={handleToggle}
+                        onOpen={handleOpen}
+                        onLongPress={startSelecting}
+                        selecting={selection != null}
+                        checked={selection?.includes(task.id) ?? false}
                         showList={!selectedListId}
                         dimmed={expandedId != null}
                         selected={twoPane && task.uid === paneUid}
@@ -753,16 +960,37 @@ export default function TasksScreen() {
                       task={task}
                       onToggle={handleToggle}
                       onOpen={handleOpen}
+                      onLongPress={startSelecting}
+                      selecting={selection != null}
+                      checked={selection?.includes(task.id) ?? false}
                       showList={!selectedListId}
                       dimmed={expandedId != null}
                       selected={twoPane && task.uid === paneUid}
                     />
                   )
                 )}
+                {selection == null ? (
+                  <Pressable
+                    onPress={() => {
+                      if (closeCard()) return;
+                      haptics.tap();
+                      setConfirmBulk('clear');
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Clear ${completed.length} completed to-dos`}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44, justifyContent: 'center', paddingLeft: 4 })}>
+                    <View className="flex-row items-center gap-2">
+                      <MaterialCommunityIcons name="broom" size={18} color={colors.accent} />
+                      <Text style={{ color: colors.accent, fontSize: 15, fontWeight: '600' }}>
+                        Clear completed
+                      </Text>
+                    </View>
+                  </Pressable>
+                ) : null}
               </Section>
             ) : null}
 
-            {githubEnabled && !selectedList ? (
+            {githubEnabled && !selectedList && !smart ? (
               <GitHubSection
                 issues={githubIssues}
                 repoMode={repoFilter != null}
@@ -781,12 +1009,88 @@ export default function TasksScreen() {
         )}
         </Pressable>
       </KeyboardScrollView>
-      {process.env.EXPO_OS !== 'web' && expandedId == null ? (
+      {Platform.OS === 'ios' ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: insets.top,
+            overflow: 'hidden',
+            opacity: underStatusBar ? 1 : 0,
+          }}>
+          <Frost strength={0.2} intensity={80} />
+        </View>
+      ) : null}
+      {process.env.EXPO_OS !== 'web' && expandedId == null && selection == null ? (
         <>
           <DictateFab onPress={() => setDictating(true)} />
           <Fab onPress={openNewCard} accessibilityLabel="New to-do" />
         </>
       ) : null}
+      {selection != null ? (
+        <SelectionBar
+          bottom={fabBottom}
+          count={selectedTasks.length}
+          onCancel={() => setSelection(null)}
+          onComplete={() => runBulk({ kind: 'update', tasks: selectedTasks, patch: (task) => togglePatch({ ...task, completed: false }).patch })}
+          onMove={() => setBulkMoveOpen(true)}
+          onPin={() => {
+            const pin = !selectedTasks.every((task) => task.pinned);
+            runBulk({ kind: 'update', tasks: selectedTasks, patch: () => ({ pinned: pin }) });
+          }}
+          onMerge={() => setConfirmBulk('merge')}
+          onDelete={() => setConfirmBulk('delete')}
+        />
+      ) : null}
+      <ListPicker
+        visible={bulkMoveOpen}
+        lists={lists}
+        selectedId={null}
+        title={`Move ${selectedTasks.length} to`}
+        onSelect={(list) => {
+          setBulkMoveOpen(false);
+          runBulk({
+            kind: 'update',
+            tasks: selectedTasks.filter((task) => task.list_id !== list.id),
+            patch: () => ({ list_id: list.id }),
+          });
+        }}
+        onClose={() => setBulkMoveOpen(false)}
+      />
+      <NativeAlert
+        visible={confirmBulk != null}
+        title={
+          confirmBulk === 'merge'
+            ? `Merge ${selectedTasks.length} to-dos?`
+            : confirmBulk === 'clear'
+              ? `Clear ${completed.length} completed?`
+              : `Delete ${selectedTasks.length} to-do${selectedTasks.length === 1 ? '' : 's'}?`
+        }
+        message={
+          confirmBulk === 'merge'
+            ? `"${selectedTasks[0]?.title ?? ''}" keeps its title. The others become a list in its notes and move to the recycle bin.`
+            : 'They move to the recycle bin in Settings, where you can restore them for 30 days.'
+        }
+        confirmLabel={confirmBulk === 'merge' ? 'Merge' : confirmBulk === 'clear' ? 'Clear' : 'Delete'}
+        dismissLabel="Cancel"
+        onDismiss={() => setConfirmBulk(null)}
+        onConfirm={() => {
+          const action = confirmBulk;
+          setConfirmBulk(null);
+          if (action === 'clear') {
+            playSound('delete');
+            runBulk({ kind: 'delete', tasks: completed });
+          } else if (action === 'delete') {
+            playSound('delete');
+            runBulk({ kind: 'delete', tasks: selectedTasks });
+          } else if (action === 'merge') {
+            void mergeSelected();
+          }
+        }}
+      />
       <DictationSheet
         visible={dictating}
         lists={lists}
@@ -869,6 +1173,7 @@ export default function TasksScreen() {
           if (!task) return;
           cardRef.current?.discard();
           haptics.warning();
+          playSound('delete');
           deleteTask
             .mutateAsync({ taskId: task.id, accountId: task.account_id, etag: task.etag })
             .then(() => cancelTaskReminder(task.uid))
@@ -935,6 +1240,73 @@ export default function TasksScreen() {
       </View>
     </View>
   );
+}
+
+const HEADER_SF = {
+  '/calendar': 'calendar',
+  '/brain-dump': 'brain.head.profile',
+  '/pomodoro': 'timer',
+} as const;
+
+/**
+ * Shortcuts in the title row. Android: M3 standard icon buttons that morph
+ * their shape while pressed, tonal when the timer runs. iOS 26: one Liquid
+ * Glass capsule holding SF Symbols, like a system toolbar group.
+ */
+function HeaderIcons({ items }: { items: { icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; label: string; href: keyof typeof HEADER_SF }[] }) {
+  const { colors, scheme } = useTheme();
+  const running = usePomodoroStore((s) => s.phase !== 'idle');
+  if (Platform.OS === 'android') {
+    // M3 Expressive connected button group; the timer button is "selected" while it runs.
+    return (
+      <ConnectedButtonGroup
+        items={items.map((item) => ({
+          icon: item.icon,
+          label: item.label,
+          selected: item.href === '/pomodoro' && running,
+          onPress: () => router.push(item.href),
+        }))}
+      />
+    );
+  }
+  const buttons = items.map((item) => {
+    const active = item.href === '/pomodoro' && running;
+    return (
+      <ElasticPressable
+        variant="button"
+        key={item.href}
+        onPress={() => {
+          haptics.tap();
+          router.push(item.href);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={active ? `${item.label}, running` : item.label}
+        android_ripple={{ color: colors.separator, borderless: true, radius: 22 }}
+        style={({ pressed }) => ({
+          width: 44,
+          height: 44,
+          borderRadius: pressed ? 12 : 22,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: active && Platform.OS !== 'ios' ? colors.selectionBg : 'transparent',
+          opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
+        })}>
+        {Platform.OS === 'ios' ? (
+          <SymbolView name={HEADER_SF[item.href]} size={20} weight="medium" tintColor={active ? colors.accent : colors.text} />
+        ) : (
+          <MaterialCommunityIcons name={item.icon} size={24} color={active ? colors.onSelectionBg : colors.text2} />
+        )}
+      </ElasticPressable>
+    );
+  });
+  if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
+    return (
+      <GlassView glassEffectStyle="regular" isInteractive colorScheme={scheme} style={{ flexDirection: 'row', borderRadius: 22, paddingHorizontal: 2 }}>
+        {buttons}
+      </GlassView>
+    );
+  }
+  return <View className="flex-row">{buttons}</View>;
 }
 
 function TasksEmptyState({

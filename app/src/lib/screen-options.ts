@@ -16,6 +16,9 @@ export const stackScreenOptions = {
   headerBackButtonDisplayMode: 'minimal' as const,
 };
 
+/** Android screen transition: fade in while rising, as Paisa's `riseIn` does. */
+export const ANDROID_PUSH = 'fade_from_bottom' as const;
+
 /** iOS 26+: the system draws Liquid Glass bars, so headers stay transparent. */
 export const IOS_GLASS = Platform.OS === 'ios' && isLiquidGlassAvailable();
 
@@ -64,6 +67,9 @@ export function themedStackScreenOptions(colors: ThemeColors, background: string
     headerLargeStyle: { backgroundColor: background },
     ...(Platform.OS === 'android'
       ? {
+          // Paisa opens a screen by fading it in as it rises (riseIn); this is
+          // the native-stack transition closest to that. iOS keeps its push.
+          animation: ANDROID_PUSH,
           // Hide the native up-arrow so only the circular headerLeft renders.
           headerBackVisible: false as const,
           // Rendered as an element, not passed as the render function itself:
