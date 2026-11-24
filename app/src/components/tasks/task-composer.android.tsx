@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { router } from 'expo-router';
-import { type ComponentProps, useEffect, useState } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput as RNTextInput } from 'react-native';
 import Animated, {
   FadeIn,
@@ -18,6 +18,7 @@ import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
 import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
+import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { LoadingSpinner } from '@/components/ui/loading';
 import { RiseIn } from '@/components/ui/motion';
@@ -224,20 +225,18 @@ export function TaskComposer(props: TaskComposerProps) {
             </Animated.View>
           ) : null}
 
-          <UnderlineField label="Description" ink={colors.text} muted={colors.text2}>
-            {(focus) => (
-              <LiveMarkdownInput
-                value={props.notes}
-                onChangeText={props.onNotes}
-                placeholder="Add notes, links, details"
-                placeholderTextColor={colors.text3}
-                accessibilityLabel="Description"
-                onFocus={() => focus(true)}
-                onBlur={() => focus(false)}
-                style={{ minHeight: 44, fontSize: 18, lineHeight: 26 }}
-              />
-            )}
-          </UnderlineField>
+          <DescriptionField value={props.notes} onChange={props.onNotes} />
+
+          {/* AI fills the form in from words, speech or a photo. */}
+          <View style={{ gap: 10, marginTop: -6 }}>
+            <Text style={{ fontSize: 13, color: colors.text2 }}>Fill in with AI</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
+              <AssistChip icon="creation" label="Write with AI" onPress={props.ai.write} emphasized />
+              <AssistChip icon="microphone-outline" label="Dictate" onPress={props.ai.dictate} />
+              <AssistChip icon="camera-outline" label="Camera" onPress={props.ai.camera} />
+              <AssistChip icon="image-outline" label="Photo" onPress={props.ai.photo} />
+            </ScrollView>
+          </View>
 
           <View style={{ gap: 12 }}>
             <Text style={{ fontSize: 16, color: colors.text2 }}>Category</Text>
@@ -291,7 +290,7 @@ export function TaskComposer(props: TaskComposerProps) {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>More options</Text>
                 <Text numberOfLines={1} style={{ fontSize: 13, color: colors.text2 }}>
-                  Reminder, priority, checklist, AI
+                  Reminder, priority, checklist
                 </Text>
               </View>
               <Turning open={more} />
@@ -330,15 +329,6 @@ export function TaskComposer(props: TaskComposerProps) {
                       accessibilityLabel="Add checklist item"
                       style={{ flex: 1, fontSize: 16, color: colors.text, paddingVertical: 8 }}
                     />
-                  </View>
-                </View>
-                <View style={{ gap: 10 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text2 }}>Fill in with AI</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    <AssistChip icon="creation" label="Write with AI" onPress={props.ai.write} emphasized />
-                    <AssistChip icon="microphone-outline" label="Dictate" onPress={props.ai.dictate} />
-                    <AssistChip icon="camera-outline" label="Camera" onPress={props.ai.camera} />
-                    <AssistChip icon="image-outline" label="Photo" onPress={props.ai.photo} />
                   </View>
                 </View>
               </Animated.View>
@@ -391,6 +381,130 @@ export function TaskComposer(props: TaskComposerProps) {
           onDismiss={() => setPicking(null)}
         />
       ) : null}
+    </View>
+  );
+}
+
+type Selection = { start: number; end: number };
+
+/** Markdown actions for the toolbar: wrap the selection, or start the current line. */
+const FORMATS: { icon: IconName; label: string; wrap?: [string, string]; line?: string }[] = [
+  { icon: 'format-header-pound', label: 'Heading', line: '## ' },
+  { icon: 'format-bold', label: 'Bold', wrap: ['**', '**'] },
+  { icon: 'format-italic', label: 'Italic', wrap: ['*', '*'] },
+  { icon: 'format-list-bulleted', label: 'Bullet list', line: '- ' },
+  { icon: 'checkbox-marked-outline', label: 'Checklist', line: '- [ ] ' },
+  { icon: 'link-variant', label: 'Link', wrap: ['[', '](https://)'] },
+  { icon: 'code-tags', label: 'Code', wrap: ['`', '`'] },
+];
+
+function applyFormat(text: string, sel: Selection, format: (typeof FORMATS)[number]): { text: string; sel: Selection } {
+  if (format.wrap) {
+    const [open, close] = format.wrap;
+    const picked = text.slice(sel.start, sel.end);
+    const next = text.slice(0, sel.start) + open + picked + close + text.slice(sel.end);
+    const cursor = sel.start + open.length + picked.length;
+    return { text: next, sel: { start: picked ? cursor + close.length : sel.start + open.length, end: picked ? cursor + close.length : sel.start + open.length } };
+  }
+  const prefix = format.line ?? '';
+  const lineStart = text.lastIndexOf('\n', sel.start - 1) + 1;
+  // Pressing it again on a line that already has it takes it off.
+  if (text.startsWith(prefix, lineStart)) {
+    const next = text.slice(0, lineStart) + text.slice(lineStart + prefix.length);
+    const at = Math.max(lineStart, sel.start - prefix.length);
+    return { text: next, sel: { start: at, end: at } };
+  }
+  const next = text.slice(0, lineStart) + prefix + text.slice(lineStart);
+  return { text: next, sel: { start: sel.start + prefix.length, end: sel.end + prefix.length } };
+}
+
+/**
+ * Markdown notes. Write shows the markdown styled as you type (headings grow,
+ * bold goes bold, markers dim) with a formatting toolbar under it; Preview
+ * shows it fully rendered.
+ */
+function DescriptionField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { colors } = useTheme();
+  const [mode, setMode] = useState<'write' | 'preview'>('write');
+  const [sel, setSel] = useState<Selection>({ start: value.length, end: value.length });
+  const [controlled, setControlled] = useState<Selection | undefined>(undefined);
+  const input = useRef<RNTextInput>(null);
+  const focused = useSharedValue(0);
+  const line = useAnimatedStyle(() => ({ height: 1 + focused.value, opacity: 0.25 + 0.75 * focused.value }));
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={{ flex: 1, fontSize: 13, color: colors.text2 }}>Description</Text>
+        <View style={{ flexDirection: 'row', borderRadius: 16, backgroundColor: colors.bg3, padding: 2 }}>
+          {(['write', 'preview'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => {
+                haptics.selection();
+                setMode(m);
+              }}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: mode === m }}
+              style={{ height: 28, paddingHorizontal: 12, borderRadius: 14, justifyContent: 'center', backgroundColor: mode === m ? colors.selectionBg : 'transparent' }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: mode === m ? colors.onSelectionBg : colors.text2 }}>
+                {m === 'write' ? 'Write' : 'Preview'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {mode === 'write' ? (
+        <Animated.View key="write" entering={FadeIn.duration(160)} style={{ gap: 8 }}>
+          <LiveMarkdownInput
+            value={value}
+            onChangeText={onChange}
+            placeholder="Add notes, links, details. Markdown works."
+            placeholderTextColor={colors.text3}
+            accessibilityLabel="Description"
+            ref={input}
+            selection={controlled}
+            onSelectionChange={(e) => {
+              setSel(e.nativeEvent.selection);
+              if (controlled) setControlled(undefined);
+            }}
+            onFocus={() => focused.set(withTiming(1, { duration: 180 }))}
+            onBlur={() => focused.set(withTiming(0, { duration: 180 }))}
+            style={{ minHeight: 52 }}
+          />
+          <Animated.View style={[{ backgroundColor: colors.text }, line]} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ gap: 4 }}>
+            {FORMATS.map((format) => (
+              <Pressable
+                key={format.label}
+                onPress={() => {
+                  haptics.tap();
+                  const next = applyFormat(value, sel, format);
+                  onChange(next.text);
+                  setSel(next.sel);
+                  setControlled(next.sel);
+                  // Typing carries on in the notes, after the new markers.
+                  input.current?.focus();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={format.label}
+                android_ripple={{ color: withAlpha(colors.text, 0.1), borderless: true, radius: 20 }}
+                style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
+                <MaterialCommunityIcons name={format.icon} size={20} color={colors.text2} />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </Animated.View>
+      ) : (
+        <Animated.View key="preview" entering={FadeIn.duration(160)} style={{ minHeight: 52, borderRadius: 20, backgroundColor: colors.bg3, padding: 16 }}>
+          {value.trim() ? (
+            <MarkdownViewer markdown={value} />
+          ) : (
+            <Text style={{ fontSize: 15, color: colors.text3 }}>Nothing to preview yet.</Text>
+          )}
+        </Animated.View>
+      )}
     </View>
   );
 }
