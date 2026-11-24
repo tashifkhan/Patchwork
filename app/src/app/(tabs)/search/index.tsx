@@ -419,6 +419,12 @@ export default function SearchScreen() {
               </View>
             ) : null}
 
+            {hasQuery && jiraSearch.error ? (
+              <Text className="text-sf-text-2 px-1 text-xs">
+                Some Jira results could not load.
+              </Text>
+            ) : null}
+
             {hasQuery ? (
               <FilterBar
                 filter={filter}
@@ -461,7 +467,9 @@ export default function SearchScreen() {
         }}
         ListEmptyComponent={
           hasQuery ? (
-            <EmptyResults query={deferredQuery} onClear={() => setQuery('')} />
+            isIndexing || jiraSearch.isSearching ? null : (
+              <EmptyResults query={deferredQuery} onClear={() => setQuery('')} />
+            )
           ) : (
             <EmptyIdle
               recents={recents}

@@ -141,21 +141,10 @@ export interface BrainDumpResult {
 export async function sortBrainDump(input: BrainDumpInput): Promise<BrainDumpResult> {
   const responseText = await generateModelJson(buildBrainDumpPrompt(input), undefined, 'brain-dump');
   const tasks = parseTaskJson(responseText, input.available_lists, input.available_tags);
-  let note: BrainDumpResult['note'] = null;
-  try {
-    const payload = JSON.parse(stripMarkdownFence(responseText)) as {
-      note?: { title?: unknown; markdown?: unknown };
-    };
-    const markdown = typeof payload.note?.markdown === 'string' ? payload.note.markdown.trim() : '';
-    if (markdown) {
-      const title =
-        typeof payload.note?.title === 'string' && payload.note.title.trim() ? payload.note.title.trim() : 'Notes';
-      note = { title, markdown };
-    }
-  } catch {
-    // parseTaskJson already threw for invalid JSON; a missing note is fine.
-  }
-  return { tasks, note };
+  const payload = JSON.parse(responseText) as { note?: { title?: unknown; markdown?: unknown } };
+  const markdown = typeof payload.note?.markdown === 'string' ? payload.note.markdown.trim() : '';
+  const title = typeof payload.note?.title === 'string' ? payload.note.title.trim() : '';
+  return { tasks, note: markdown ? { title: title || 'Notes', markdown } : null };
 }
 
 export interface VoiceDumpInput {
@@ -187,12 +176,7 @@ export async function transcribeBrainDump(input: VoiceDumpInput): Promise<VoiceD
     { kind: 'audio', mimeType: input.mimeType, data: bytesToBase64(bytes) },
     'brain-dump'
   );
-  let payload: { transcript?: unknown; refined?: unknown };
-  try {
-    payload = JSON.parse(stripMarkdownFence(responseText)) as typeof payload;
-  } catch {
-    throw new ApiError(502, 'The AI sent back something unreadable. Try again.');
-  }
+  const payload = JSON.parse(responseText) as { transcript?: unknown; refined?: unknown };
   const transcript = typeof payload.transcript === 'string' ? payload.transcript.trim() : '';
   // No heard speech, no thoughts: never keep a "refined" text made from silence.
   if (!transcript) return { transcript: '', refined: '' };
@@ -329,9 +313,7 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
           prompt,
           imageBase64: attachment?.kind === 'image' ? attachment.data : undefined,
         });
-        if (text.trim()) return text;
-        failures.push({ label, message: 'empty response', network: false });
-        continue;
+        return validateModelReply(text, feature, attachment);
       }
       // RelayRoom: one gateway call; it picks the credential, enforces JSON
       // natively and records usage under the feature tag.
@@ -351,9 +333,7 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
             tags: { feature },
           }
         );
-        if (result.text.trim()) return result.text;
-        failures.push({ label, message: 'empty response', network: false });
-        continue;
+        return validateModelReply(result.text, feature, attachment);
       }
       const model = await languageModelFor(selection, settings.aiBaseUrlOverrides, providers);
       const result = await generateText({
@@ -380,8 +360,7 @@ async function generateModelJson(prompt: string, attachment?: Attachment, featur
           },
         ],
       });
-      if (result.text.trim()) return result.text;
-      failures.push({ label, message: 'empty response', network: false });
+      return validateModelReply(result.text, feature, attachment);
     } catch (error) {
       const timedOut = controller.signal.aborted;
       failures.push({
@@ -614,20 +593,26 @@ Rules:
 - Do not save anything; this response is still only a staging draft.`;
 }
 
-function parseTaskJson(
-  responseText: string,
-  availableLists: TaskList[] = [],
-  availableTags: string[] = []
-): AiGeneratedTask[] {
-  // Small on-device models wrap JSON in prose; take the JSON part.
-  const cleaned = extractJsonText(responseText);
+function validateModelReply(text: string, feature: Feature, attachment?: Attachment) {
+  if (!text.trim()) throw new Error('Empty response');
+  const json = extractJsonText(text);
   let payload: unknown;
   try {
-    payload = JSON.parse(cleaned);
-  } catch (error) {
-    throw new ApiError(502, 'AI model returned invalid JSON', error);
+    payload = JSON.parse(json);
+  } catch {
+    throw new Error('Invalid JSON');
   }
+  if (feature === 'brain-dump' && attachment?.kind === 'audio') {
+    if (!payload || typeof payload !== 'object' || !('transcript' in payload) || typeof payload.transcript !== 'string') {
+      throw new Error('Missing transcript');
+    }
+  } else {
+    taskArray(payload);
+  }
+  return json;
+}
 
+function taskArray(payload: unknown): unknown[] {
   const tasks = Array.isArray(payload)
     ? payload
     : typeof payload === 'object' && payload !== null && 'tasks' in payload
@@ -637,6 +622,15 @@ function parseTaskJson(
   if (!Array.isArray(tasks)) {
     throw new ApiError(502, 'AI JSON must be a task array or an object with a tasks array');
   }
+  return tasks;
+}
+
+function parseTaskJson(
+  responseText: string,
+  availableLists: TaskList[] = [],
+  availableTags: string[] = []
+): AiGeneratedTask[] {
+  const tasks = taskArray(JSON.parse(responseText));
 
   const listIds = new Set(availableLists.map((list) => list.id));
   const canonicalTags = new Map(availableTags.map((tag) => [tag.toLocaleLowerCase(), tag]));

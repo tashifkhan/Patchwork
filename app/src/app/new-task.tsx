@@ -311,6 +311,7 @@ export default function NewTaskScreen() {
             calendarId,
             title: created.title,
             notes: created.markdown,
+            startAt: created.start_at,
             dueAt: created.due_at,
             reminderAt: created.reminder_at,
           });

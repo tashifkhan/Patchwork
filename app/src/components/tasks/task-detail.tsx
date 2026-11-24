@@ -592,6 +592,7 @@ function TaskDocument({
                           calendarId,
                           title: latest.current.title,
                           notes: latest.current.markdown,
+                          startAt: latest.current.start_at,
                           dueAt: latest.current.due_at,
                           reminderAt: latest.current.reminder_at,
                         });
@@ -953,6 +954,7 @@ function TaskDocument({
                     calendarId,
                     title: latest.current.title,
                     notes: latest.current.markdown,
+                    startAt: latest.current.start_at,
                     dueAt: latest.current.due_at,
                     reminderAt: latest.current.reminder_at,
                   });
