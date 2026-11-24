@@ -54,6 +54,12 @@ export interface ElasticPress {
   touchY: SharedValue<number>;
   /** 1 while held, easing back to 0 after release. */
   glow: SharedValue<number>;
+  /**
+   * Lets go. The touch handlers call it, but a touch end can get lost (a
+   * layout animation moving the view mid-press), so also wire it to the inner
+   * Pressable's onPressOut. Safe to call twice.
+   */
+  release: () => void;
 }
 
 /**
@@ -143,7 +149,7 @@ export function useElasticPress({
     };
   });
 
-  return { handlers, style, touchX, touchY, glow };
+  return { handlers, style, touchX, touchY, glow, release };
 }
 
 /**

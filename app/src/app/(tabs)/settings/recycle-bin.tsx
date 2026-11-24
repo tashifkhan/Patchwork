@@ -15,15 +15,15 @@ import { emptyRecycleBin, loadRecycleBin, useRecycleBinStore, type BinEntry } fr
 import Animated from 'react-native-reanimated';
 import { COLLAPSE_OUT, listPlacement } from '@/lib/motion';
 
-const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
+// Hermes on Android has no Intl.RelativeTimeFormat, so this is spelled out.
 function deletedAgo(iso: string) {
-  const days = Math.round((new Date(iso).getTime() - Date.now()) / 86_400_000);
-  if (days === 0) {
-    const hours = Math.round((new Date(iso).getTime() - Date.now()) / 3_600_000);
-    return hours === 0 ? 'just now' : relative.format(hours, 'hour');
-  }
-  return relative.format(days, 'day');
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
 /**

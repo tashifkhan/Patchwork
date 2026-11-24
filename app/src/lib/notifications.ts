@@ -156,8 +156,16 @@ async function syncDailyNow(
   if (!Notifications) return;
   const storageKey = `${DAILY_KEY_PREFIX}${key}`;
   const previous = await AsyncStorage.getItem(storageKey).catch(() => null);
-  const ids: string[] = previous ? (JSON.parse(previous) as string[]) : [];
-  await cancelReminders(ids);
+  const ids = new Set<string>(previous ? (JSON.parse(previous) as string[]) : []);
+  // Also anything scheduled under this key that we lost track of (an
+  // interrupted sync, an app update): every daily repeat carries its key.
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  for (const request of scheduled) {
+    const data = request.content.data;
+    // `href` catches repeats scheduled before the `daily` tag existed.
+    if (data?.daily === key || data?.href === content.href) ids.add(request.identifier);
+  }
+  await cancelReminders([...ids]);
   await AsyncStorage.removeItem(storageKey);
   if (times.length === 0 || !useSettingsStore.getState().notificationsEnabled) return;
   if (!(await ensureNotificationPermissions())) return;
@@ -167,7 +175,7 @@ async function syncDailyNow(
     if (!(hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59)) continue;
     next.push(
       await Notifications.scheduleNotificationAsync({
-        content: { title: content.title, body: content.body, data: { href: content.href } },
+        content: { title: content.title, body: content.body, data: { href: content.href, daily: key } },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute },
       })
     );
@@ -211,7 +219,20 @@ export async function cancelAllTaskReminders(): Promise<void> {
   if (keys.length) await AsyncStorage.multiRemove(keys);
 }
 
-export async function syncTaskReminders(tasks: Task[]): Promise<void> {
+/**
+ * Brings every task's reminders in line with the task list. Runs one at a
+ * time: two overlapping runs (a quick refetch after a save) each found no
+ * stored record and both scheduled, leaving duplicate reminders behind.
+ */
+export function syncTaskReminders(tasks: Task[]): Promise<void> {
+  const run = reminderQueue.then(() => syncTaskRemindersNow(tasks));
+  reminderQueue = run.catch(() => {});
+  return run;
+}
+
+let reminderQueue: Promise<void> = Promise.resolve();
+
+async function syncTaskRemindersNow(tasks: Task[]): Promise<void> {
   const flat = flattenTasks(tasks);
   const activeUids = new Set(flat.map((task) => task.uid));
   const storedKeys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(REMINDER_KEY_PREFIX));
@@ -230,6 +251,24 @@ export async function syncTaskReminders(tasks: Task[]): Promise<void> {
       .filter((key) => !activeUids.has(key.slice(REMINDER_KEY_PREFIX.length)))
       .map((key) => cancelTaskReminder(key.slice(REMINDER_KEY_PREFIX.length))),
   ]);
+  await sweepUntrackedTaskReminders();
+}
+
+/** Cancels task reminders that no stored record knows about (left by an earlier race). */
+async function sweepUntrackedTaskReminders() {
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  const tracked = new Map<string, Set<string>>();
+  for (const request of scheduled) {
+    const uid = request.content.data?.taskUid;
+    if (typeof uid !== 'string' || !uid) continue;
+    if (!tracked.has(uid)) {
+      const stored = await readStoredReminder(reminderStorageKey(uid));
+      tracked.set(uid, new Set(stored?.notificationIds ?? []));
+    }
+    if (!tracked.get(uid)!.has(request.identifier)) await cancelReminder(request.identifier).catch(() => {});
+  }
 }
 
 export async function startNotificationResponseObserver(

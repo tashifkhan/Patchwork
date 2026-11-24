@@ -95,7 +95,8 @@ class PatchworkWindowModule : Module() {
     )
 
     val builder = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
-      .setSmallIcon(context.applicationInfo.icon)
+      // Status bar icons must be monochrome; the launcher icon renders as a blob.
+      .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
       .setContentTitle(title)
       .setContentText(text)
       .setContentIntent(contentIntent)

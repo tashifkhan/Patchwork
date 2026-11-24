@@ -654,6 +654,7 @@ function RowPressable({
   return (
     <Animated.View {...(elastic ? press.handlers : null)} style={elastic ? press.style : undefined}>
     <Pressable
+      onPressOut={press.release}
       onPress={onPress}
       disabled={!interactive}
       // A row with nothing to do must not swallow its children's focus, or

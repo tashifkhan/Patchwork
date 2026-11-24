@@ -24,7 +24,7 @@ export type TimerPhase = 'idle' | 'work' | 'break' | 'stopwatch';
 
 export interface FocusSession {
   id: string;
-  kind: 'pomodoro' | 'stopwatch';
+  kind: 'pomodoro' | 'stopwatch' | 'manual';
   /** Epoch ms. */
   start: number;
   end: number;
@@ -140,7 +140,7 @@ export const usePomodoroStore = create<TimerState>()(
           void endLiveTimer().catch(() => {});
           return;
         }
-        const title = s.taskTitle ?? (s.phase === 'stopwatch' ? 'Tracking time' : 'Focus');
+        const title = s.taskTitle ?? (s.phase === 'stopwatch' ? 'Stopwatch' : 'Focus timer');
         if (s.phase === 'stopwatch') {
           const paused = s.pausedElapsed != null;
           void showLiveTimer({
@@ -303,7 +303,7 @@ export const usePomodoroStore = create<TimerState>()(
         },
 
         logManual: (minutes, t, at = Date.now()) => {
-          log({ kind: 'stopwatch', start: at - minutes * 60_000, end: at, minutes, ...task(t), title: t?.title ?? null });
+          log({ kind: 'manual', start: at - minutes * 60_000, end: at, minutes, ...task(t), title: t?.title ?? null });
         },
 
         refreshLive: () => syncLive(),

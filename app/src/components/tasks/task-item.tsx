@@ -134,6 +134,7 @@ function TaskItemComponent({
             haptics.tap();
             onOpen(task);
           }}
+          onPressOut={press.release}
           onLongPress={
             onLongPress
               ? () => {

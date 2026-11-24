@@ -109,7 +109,13 @@ export function ElasticPressable({
   const press = useElasticPress(PRESETS[variant]);
   return (
     <Animated.View {...press.handlers} style={[containerStyle, press.style]}>
-      <Pressable {...props} style={style}>
+      <Pressable
+        {...props}
+        onPressOut={(event) => {
+          press.release();
+          props.onPressOut?.(event);
+        }}
+        style={style}>
         {(state) => (
           <>
             {glow ? <PressGlow press={press} color={glow} radius={radius} /> : null}
