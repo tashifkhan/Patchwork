@@ -19,7 +19,7 @@ const DELAYS = [
   { label: '1 hr', value: 3600 },
 ];
 
-/** App lock, Karui's "lock a tab with a PIN" done with the phone's own lock. */
+/** App lock, using the phone's own Face ID, fingerprint or passcode. */
 export default function PrivacySettingsScreen() {
   const appLock = useSettingsStore((s) => s.appLock);
   const delay = useSettingsStore((s) => s.appLockDelaySeconds);

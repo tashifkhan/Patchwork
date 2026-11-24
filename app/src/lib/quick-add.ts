@@ -3,7 +3,7 @@ import { normalizeTags } from '@/lib/tags';
 import { atDay } from '@/lib/when';
 
 /**
- * Karui-style shorthand typed straight into a new to-do's title:
+ * Shorthand typed straight into a new to-do's title:
  *
  * - `/Groceries` on its own makes a list called Groceries
  * - `!1d`, `!2w`, `!m15`, `!wmo`, `!y12-25` set a repeat (see `shorthandToRrule`)

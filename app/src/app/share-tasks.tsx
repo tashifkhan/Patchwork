@@ -9,14 +9,14 @@ import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
 import { flattenTasks } from '@/lib/task-buckets';
-import { listToKaruiFrames } from '@/lib/karui-qr';
+import { listToShareFrames } from '@/lib/qr-share';
 import { listsToMarkdown } from '@/lib/task-text';
 import type { Task } from '@/api/types';
 import { ScrollView, Text, View } from '@/tw';
 
 /**
  * Share a list (`?listId=`) or one to-do (`?uid=`) as a QR code another
- * phone can scan into Patchwork or Karui, or as plain Markdown text.
+ * phone can scan into Patchwork, or as plain Markdown text.
  * Open to-dos only by default, which keeps the code small enough to scan.
  */
 export default function ShareTasksScreen() {
@@ -44,13 +44,12 @@ export default function ShareTasksScreen() {
     return {
       name: params.uid ? tasks[0].title : name,
       text: listsToMarkdown([{ name, tasks }]),
-      // The QR speaks Karui's format, so either app can scan it.
-      frames: listToKaruiFrames(name, tasks),
+      frames: listToShareFrames(name, tasks),
       count: flattenTasks(tasks).length,
     };
   }, [includeDone, listsQuery.data, params.listId, params.uid, tasksQuery.data]);
 
-  // Long lists span several codes, shown in a loop like Karui does.
+  // Long lists span several codes, shown in a loop.
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     if (frames.length < 2) return;
@@ -60,7 +59,7 @@ export default function ShareTasksScreen() {
   const shown = frames[frame % Math.max(1, frames.length)] ?? '';
 
   return (
-    <SheetSurface title={`Share ${name}`} subtitle="Scan it with Patchwork or Karui on another phone">
+    <SheetSurface title={`Share ${name}`} subtitle="Scan it with Patchwork on another phone">
       <Stack.Screen options={{ title: 'Share' }} />
       <ScrollView
         className="flex-1"

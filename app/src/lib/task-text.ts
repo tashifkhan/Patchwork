@@ -2,7 +2,7 @@ import type { Task } from '@/api/types';
 import { describeRrule } from '@/lib/recurrence';
 
 /**
- * Plain-text to-dos, the way Karui syncs them: Markdown checklists under a
+ * Plain-text to-dos: Markdown checklists under a
  * heading per list. Used for Markdown export and import, QR sharing, and
  * editing a whole list as text.
  *

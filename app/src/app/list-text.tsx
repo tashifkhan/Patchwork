@@ -24,7 +24,7 @@ function randomUuid() {
 }
 
 /**
- * Karui's "edit tab as text": the whole list as a Markdown checklist. Tick
+ * Edit a whole list as a Markdown checklist. Tick
  * with [x], indent for checklist items, add lines, delete lines. Saving shows
  * what will change first; deleted to-dos go to the recycle bin.
  */

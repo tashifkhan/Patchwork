@@ -41,7 +41,7 @@ const narrowDay = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
 const REPEAT_PREVIEW = 60;
 
 /**
- * Karui's calendar tab: a month of due dates. Tap a day to see its to-dos,
+ * A month of due dates. Tap a day to see its to-dos,
  * tick them off, or add one due that day (quick-add shorthand works here too).
  */
 export default function CalendarScreen() {

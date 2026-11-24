@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { useSettingsStore } from '@/stores/settings-store';
 
 /**
- * Karui's UI sounds and confetti. Both are opt-in through Settings: sounds
+ * UI sounds and confetti. Both are opt-in through Settings: sounds
  * default off, confetti on. Sounds respect the iOS silent switch because we
  * never change the audio session (dictation owns it).
  */

@@ -4,8 +4,8 @@ import { flattenTasks } from '@/lib/task-buckets';
 import type { TextTask } from '@/lib/task-text';
 
 /**
- * Turns an edited Markdown checklist back into changes for one list (Karui's
- * "edit tab as text"). Lines are matched to existing to-dos by title, so
+ * Turns an edited Markdown checklist back into changes for one list ("edit
+ * as text"). Lines are matched to existing to-dos by title, so
  * retyping a title makes a new to-do and drops the old one; everything else
  * (ticking, tags, notes, order, indenting under another item) is an update.
  */

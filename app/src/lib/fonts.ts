@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { useSettingsStore } from '@/stores/settings-store';
 
 /**
- * Karui's font picker: a few families every phone already has, plus any
+ * Font choice: a few families every phone already has, plus any
  * .ttf/.otf the user imports. Imported files are copied into the app's
  * documents folder and loaded at launch.
  */

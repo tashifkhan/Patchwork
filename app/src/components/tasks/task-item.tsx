@@ -14,7 +14,7 @@ import { describeWhen } from '@/lib/when';
 import { router } from 'expo-router';
 
 import { describeRrule } from '@/lib/recurrence';
-import { usePomodoroStore } from '@/stores/pomodoro-store';
+import { formatMinutes, usePomodoroStore } from '@/stores/pomodoro-store';
 import { Text, View } from '@/tw';
 
 const ROW_ELASTIC = Platform.OS === 'android';
@@ -32,7 +32,7 @@ interface TaskItemProps {
   dimmed?: boolean;
   /** Open in the split view's detail pane: tinted like a selected list row. */
   selected?: boolean;
-  /** Show the focus timer button (iOS by default). A running session always shows it. */
+  /** Show the timer button. On by default; a running session always shows it. */
   showFocus?: boolean;
   /** Multi-select mode: the checkbox selects instead of completing. */
   selecting?: boolean;
@@ -54,7 +54,7 @@ function TaskItemComponent({
   showList = true,
   dimmed = false,
   selected = false,
-  showFocus = Platform.OS === 'ios',
+  showFocus = true,
   selecting = false,
   checked = false,
   onLongPress,
@@ -69,10 +69,16 @@ function TaskItemComponent({
   const listLabel = showList && depth === 0 ? task.list_name : '';
   const focusUid = usePomodoroStore((s) => (s.phase === 'idle' ? null : s.taskUid));
   const isFocused = focusUid === task.uid;
+  // Minutes logged against this to-do, from pomodoros, stopwatches and manual entries.
+  const loggedMinutes = usePomodoroStore((s) => {
+    let total = 0;
+    for (const session of s.sessions) if (session.taskUid === task.uid) total += session.minutes;
+    return Math.round(total);
+  });
   const focusEnabled = process.env.EXPO_OS !== 'web' && !task.completed && (isFocused || showFocus);
   const pending = task.pending_sync === true;
   const repeat = task.rrule ? describeRrule(task.rrule) : null;
-  const showMeta = Boolean(when || listLabel || pending || repeat);
+  const showMeta = Boolean(when || listLabel || pending || repeat || loggedMinutes > 0);
 
   return (
     <Animated.View
@@ -211,6 +217,12 @@ function TaskItemComponent({
                   {when ? null : <Text style={{ fontSize: 13, color: colors.text2 }}>{repeat}</Text>}
                 </View>
               ) : null}
+              {loggedMinutes > 0 ? (
+                <View className="flex-row items-center gap-1" accessibilityLabel={`${formatMinutes(loggedMinutes)} logged`}>
+                  <MaterialCommunityIcons name="timer-outline" size={13} color={colors.text2} />
+                  <Text style={{ fontSize: 13, color: colors.text2 }}>{formatMinutes(loggedMinutes)}</Text>
+                </View>
+              ) : null}
               {listLabel ? (
                 <Text numberOfLines={1} style={{ fontSize: 13, color: colors.text3, flexShrink: 1 }}>
                   {listLabel}
@@ -231,12 +243,13 @@ function TaskItemComponent({
         {focusEnabled ? (
           <Pressable
             onPress={() => {
-              haptics.impact(isFocused ? 'light' : 'medium');
-              if (!isFocused) void usePomodoroStore.getState().start({ uid: task.uid, title: task.title });
+              haptics.tap();
+              // Opens the timer on this to-do; pick a pomodoro or the stopwatch there.
+              if (!isFocused) usePomodoroStore.getState().selectTask({ uid: task.uid, title: task.title });
               router.push('/pomodoro');
             }}
             hitSlop={8}
-            accessibilityLabel={isFocused ? 'Open the focus timer' : 'Start a focus session on this to-do'}
+            accessibilityLabel={isFocused ? 'Open the running timer' : 'Time this to-do with a pomodoro or stopwatch'}
             accessibilityRole="button"
             style={({ pressed }) => ({
               opacity: pressed ? 0.5 : 1,
@@ -246,7 +259,7 @@ function TaskItemComponent({
               justifyContent: 'center',
             })}>
             <MaterialCommunityIcons
-              name={isFocused ? 'timer-off-outline' : 'timer-outline'}
+              name={isFocused ? 'timer-sand' : 'timer-outline'}
               size={22}
               color={isFocused ? colors.accent : colors.text3}
             />

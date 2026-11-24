@@ -206,12 +206,12 @@ export function repeatPresets(due: string | null): RepeatPreset[] {
   ];
 }
 
-// ── Karui-style shorthand ──────────────────────────────────────────────
+// ── Repeat shorthand ─────────────────────────────────────────────────────
 
 const SHORTHAND = /^(?:(\d+)([dwmy])|m(\d{1,2})|w(mo|tu|we|th|fr|sa|su)|y(\d{2})-(\d{2}))$/i;
 
 /**
- * Karui's repeat tokens, without the leading `!`:
+ * Repeat tokens for quick add, without the leading `!`:
  * `3d` every 3 days, `2w` every 2 weeks, `1m` monthly, `1y` yearly,
  * `m15` monthly on the 15th, `wmo` weekly on Monday, `y12-25` every Dec 25.
  */

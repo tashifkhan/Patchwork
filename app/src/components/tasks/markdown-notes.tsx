@@ -70,7 +70,7 @@ export function MarkdownNotes({
   );
 }
 
-/** Karui's note menu count: words and characters, shown while editing. */
+/** Words and characters, shown while editing notes. */
 export function TextStats({ text, color }: { text: string; color: string }) {
   const { words, characters } = textStats(text);
   return (

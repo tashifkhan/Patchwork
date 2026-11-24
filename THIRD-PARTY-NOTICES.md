@@ -1,6 +1,6 @@
 # Third-party notices
 
-The press response in `app/src/components/ui/elastic.tsx`, and the spring values under `EXPRESSIVE` in `app/src/lib/motion.ts`, are adapted from [Expressive Clock](https://github.com/samuelbeckman/expressive-clock), which is under the MIT License:
+The press response in `app/src/components/ui/elastic.tsx`, the spring values under `EXPRESSIVE` and `PAISA` in `app/src/lib/motion.ts`, and the stopwatch and timer faces and control row in `app/src/components/focus/` are adapted from [Expressive Clock](https://github.com/samuelbeckman/expressive-clock), which is under the MIT License:
 
     MIT License
     

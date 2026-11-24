@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Task } from '@/api/types';
-import { buildKaruiPayload, FrameCollector, karuiFrames, planFromKarui } from '@/lib/karui-qr';
+import { buildSharePayload, FRAME_PREFIX, FrameCollector, planFromSharePayload, shareFrames } from '@/lib/qr-share';
 
 const task = (title: string, patch: Partial<Task> = {}): Task =>
   ({ title, completed: false, tags: [], markdown: '', children: [], ...patch }) as Task;
 
-describe('karui qr', () => {
-  test('a list round-trips through the Karui payload', () => {
+describe('qr share', () => {
+  test('a list round-trips through the share payload', () => {
     const due = new Date(2026, 6, 20, 18, 30).toISOString();
-    const payload = buildKaruiPayload('Home', [
+    const payload = buildSharePayload('Home', [
       task('water plants', { pinned: true, due_at: due, markdown: 'the big ones' }),
       task('done thing', { completed: true }),
     ]);
-    const plan = planFromKarui(payload)!;
+    const plan = planFromSharePayload(payload)!;
     expect(plan.lists[0].name).toBe('Home');
     expect(plan.lists[0].tasks.map((t) => t.payload)).toEqual([
       expect.objectContaining({ title: 'water plants', markdown: 'the big ones', pinned: true, due_at: due }),
@@ -21,8 +21,8 @@ describe('karui qr', () => {
     ]);
   });
 
-  test('reads a real Karui tab with repeats and skips encrypted notes', () => {
-    const plan = planFromKarui(
+  test('reads a shared list with repeats and skips encrypted notes', () => {
+    const plan = planFromSharePayload(
       JSON.stringify({
         v: 1,
         t: 'Main',
@@ -42,10 +42,10 @@ describe('karui qr', () => {
   });
 
   test('long payloads split into frames and join back in any order', () => {
-    const payload = buildKaruiPayload('Big', Array.from({ length: 80 }, (_, i) => task(`item number ${i} with some words`)));
-    const frames = karuiFrames(payload);
+    const payload = buildSharePayload('Big', Array.from({ length: 80 }, (_, i) => task(`item number ${i} with some words`)));
+    const frames = shareFrames(payload);
     expect(frames.length).toBeGreaterThan(1);
-    expect(frames.every((f) => f.startsWith('KARUI1/'))).toBe(true);
+    expect(frames.every((f) => f.startsWith(`${FRAME_PREFIX}/`))).toBe(true);
     const collector = new FrameCollector();
     let complete: string | null = null;
     for (const frame of [...frames].reverse()) complete = collector.add(frame).complete ?? complete;

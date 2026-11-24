@@ -237,7 +237,7 @@ export default function TasksScreen() {
     async (task: Task) => {
       const { patch, repeated } = togglePatch(task);
       if (!task.completed) {
-        // Karui's celebration: the last open to-do in view just got done.
+        // Celebrate when the last open to-do in view just got done.
         const othersOpen = visibleTasks.some((t) => !t.completed && t.id !== task.id);
         if (!repeated && !othersOpen && visibleTasks.length > 1) celebrate();
         else playSound('complete');
@@ -571,7 +571,7 @@ export default function TasksScreen() {
     [bulk]
   );
 
-  /** Karui's "merge notes": the first pick keeps its title, the rest join its notes. */
+  /** Merge: the first pick keeps its title, the rest join its notes. */
   const mergeSelected = useCallback(async () => {
     const [keep, ...rest] = selectedTasks;
     if (!keep || rest.length === 0) return;
