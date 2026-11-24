@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { router } from 'expo-router';
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
+import Animated from 'react-native-reanimated';
 import { Platform, Pressable } from 'react-native';
 
 import {
@@ -15,6 +16,7 @@ import {
 import { useTheme } from '@/components/theme/context';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { playSound } from '@/lib/feedback';
+import { COLLAPSE_OUT, EXPAND_IN, listPlacement } from '@/lib/motion';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -141,7 +143,7 @@ function ReminderTimes({ times, onChange }: { times: string[]; onChange: (times:
   return (
     <>
       {times.map((time, index) => (
-        <Fragment key={`${time}-${index}`}>
+        <Animated.View key={`${time}-${index}`} layout={listPlacement()} entering={EXPAND_IN} exiting={COLLAPSE_OUT}>
           <RowSeparator />
           <SettingsCell>
             <View className="flex-row items-center gap-3">
@@ -178,7 +180,7 @@ function ReminderTimes({ times, onChange }: { times: string[]; onChange: (times:
               ) : null}
             </View>
           </SettingsCell>
-        </Fragment>
+        </Animated.View>
       ))}
       {times.length < MAX_REMINDERS ? (
         <>

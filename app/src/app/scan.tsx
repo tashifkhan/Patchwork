@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,6 +8,8 @@ import { useImportConfirm } from '@/components/tasks/import-confirm';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { planFromText } from '@/lib/backup';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import { EXPRESSIVE } from '@/lib/motion';
 import { FrameCollector, planFromKarui } from '@/lib/karui-qr';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
@@ -16,6 +18,19 @@ import { Text, View } from '@/tw';
  * Scans a QR code from Patchwork's Share or from Karui (same format, one or
  * several codes), or any code holding a Markdown checklist, and imports it.
  */
+/** The scan frame. It gives a springy bump each time another code is read. */
+function Viewfinder({ pulse, color }: { pulse: number; color: string }) {
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    if (pulse === 0) return;
+    scale.set(withSequence(withTiming(1.06, { duration: 90 }), withSpring(1, EXPRESSIVE.pressRelease)));
+  }, [pulse, scale]);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
+  return (
+    <Animated.View style={[{ width: 240, height: 240, borderRadius: 32, borderWidth: 3, borderColor: color }, style]} />
+  );
+}
+
 export default function ScanScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -36,7 +51,10 @@ export default function ScanScreen() {
     if (handled.current) return;
     // Karui splits long lists over several codes; keep scanning until all are in.
     const { complete, progress: next } = frames.current.add(data);
-    if (next) setProgress(next);
+    if (next) {
+      haptics.tap();
+      setProgress(next);
+    }
     if (!complete) return;
     try {
       const plan = planFromKarui(complete) ?? planFromText(complete, 'Scanned');
@@ -72,7 +90,7 @@ export default function ScanScreen() {
       )}
       {permission?.granted ? (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-          <View style={{ width: 240, height: 240, borderRadius: 32, borderWidth: 3, borderColor: colors.accent }} />
+          <Viewfinder pulse={progress?.have ?? 0} color={colors.accent} />
         </View>
       ) : null}
       <View style={{ position: 'absolute', left: 24, right: 24, bottom: insets.bottom + 24, alignItems: 'center' }}>

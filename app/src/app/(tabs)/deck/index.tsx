@@ -22,6 +22,7 @@ import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
+import { ELASTIC_BUTTON, ELASTIC_CARD, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 
 const IOS = Platform.OS === 'ios';
 
@@ -394,6 +395,7 @@ function BoardGroup({
                 {index > 0 ? (
                   <View style={{ height: 0.5, marginLeft: 72, backgroundColor: colors.separator }} />
                 ) : null}
+                <ElasticView {...ELASTIC_ROW}>
                 <Pressable
                   onPress={() => onOpen(board)}
                   accessibilityRole="button"
@@ -416,6 +418,7 @@ function BoardGroup({
                       {board.subtitle}
                     </Text>
                   </View>
+                  <ElasticView {...ELASTIC_BUTTON}>
                   <Pressable
                     onPress={() => {
                       haptics.toggle(!starredBoard);
@@ -437,7 +440,9 @@ function BoardGroup({
                       tintColor={starredBoard ? colors.yellow : colors.text3}
                     />
                   </Pressable>
+                  </ElasticView>
                 </Pressable>
+                </ElasticView>
               </View>
             );
           })}
@@ -465,6 +470,7 @@ function BoardGroup({
                 borderBottomLeftRadius: bottom,
                 borderBottomRightRadius: bottom,
               }}>
+              <ElasticView {...ELASTIC_CARD}>
               <Pressable
                 onPress={() => onOpen(board)}
                 accessibilityRole="button"
@@ -488,6 +494,7 @@ function BoardGroup({
                     {board.subtitle}
                   </Text>
                 </View>
+                <ElasticView {...ELASTIC_BUTTON}>
                 <Pressable
                   onPress={() => {
                     haptics.toggle(!starredBoard);
@@ -510,7 +517,9 @@ function BoardGroup({
                     color={starredBoard ? colors.yellow : colors.text2}
                   />
                 </Pressable>
+                </ElasticView>
               </Pressable>
+              </ElasticView>
             </View>
           );
         })}
@@ -533,6 +542,7 @@ function IconButton({
     return <GlassIconButton sf={SF_FOR[icon] ?? 'circle'} icon={icon} label={label} onPress={onPress} style={{ marginLeft: 8 }} />;
   }
   return (
+    <ElasticView {...ELASTIC_BUTTON}>
     <Pressable
       onPress={() => {
         haptics.tap();
@@ -551,6 +561,7 @@ function IconButton({
       })}>
       <MaterialCommunityIcons name={icon} size={26} color={colors.text} />
     </Pressable>
+    </ElasticView>
   );
 }
 

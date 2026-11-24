@@ -35,6 +35,7 @@ import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ElasticPressable } from '@/components/ui/motion';
 import { Fab } from '@/components/ui/fab';
 import { DictateFab } from '@/components/tasks/dictate-fab';
 import { DictationSheet } from '@/components/tasks/dictation-sheet';
@@ -1194,7 +1195,8 @@ function HeaderIcons({ items }: { items: { icon: React.ComponentProps<typeof Mat
   const buttons = items.map((item) => {
     const active = item.href === '/pomodoro' && running;
     return (
-      <Pressable
+      <ElasticPressable
+        variant="button"
         key={item.href}
         onPress={() => {
           haptics.tap();
@@ -1217,7 +1219,7 @@ function HeaderIcons({ items }: { items: { icon: React.ComponentProps<typeof Mat
         ) : (
           <MaterialCommunityIcons name={item.icon} size={24} color={active ? colors.onSelectionBg : colors.text2} />
         )}
-      </Pressable>
+      </ElasticPressable>
     );
   });
   if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {

@@ -1,3 +1,4 @@
+import { haptics } from '@/lib/haptics';
 import { Pressable } from 'react-native';
 
 import { Text, View } from '@/tw';
@@ -16,7 +17,10 @@ export interface ToggleChipProps {
 export function ToggleChip({ label, selected, onPress, disabled }: ToggleChipProps) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        haptics.selection();
+        onPress();
+      }}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}

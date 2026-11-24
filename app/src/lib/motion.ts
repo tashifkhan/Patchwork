@@ -10,7 +10,7 @@
  * small, functional changes (a chip toggling, an icon swapping).
  */
 
-import { Easing, ReduceMotion, withSpring, withTiming } from 'react-native-reanimated';
+import { Easing, FadeIn, FadeOut, LinearTransition, ReduceMotion, withSpring, withTiming } from 'react-native-reanimated';
 
 /** M3 easing curves as cubic-beziers. */
 export const EASING = {
@@ -109,3 +109,50 @@ export const PRESS_SCALE = 0.97;
 export function stagger(index: number, step = 22, max = 180): number {
   return Math.min(index * step, max);
 }
+
+/** Damping for `withSpring` from a Compose-style damping ratio: 2 x ratio x sqrt(stiffness). */
+function ratio(dampingRatio: number, stiffness: number) {
+  return { damping: 2 * dampingRatio * Math.sqrt(stiffness), stiffness, mass: 1 };
+}
+
+/**
+ * Paisa's shared springs (from Expressive Clock), the same few running every
+ * list, panel and empty state there. Values are Compose (dampingRatio,
+ * stiffness) pairs, converted.
+ */
+export const PAISA = {
+  /** Rows gliding to a new place, settling with a small bounce. `listPlacementSpring`. */
+  listPlacement: ratio(0.68, 380),
+  /** A panel opening or closing inside a card. `springExpand` / `springCollapse`. */
+  expand: ratio(0.8, 450),
+  /** Content fading in while it rises and grows. `riseIn`. */
+  rise: ratio(0.78, 380),
+  /** An expand arrow turning over. `expandArrowRotation`. */
+  arrow: ratio(0.7, 400),
+} as const;
+
+/** Reanimated layout transition for list rows: Paisa's `animateItem(placementSpec = listPlacementSpring())`. */
+export function listPlacement() {
+  return LinearTransition.springify()
+    .damping(PAISA.listPlacement.damping)
+    .stiffness(PAISA.listPlacement.stiffness)
+    .mass(1)
+    .reduceMotion(ReduceMotion.System);
+}
+
+/** Layout transition for a container whose panel opens or closes. */
+export function expandLayout() {
+  return LinearTransition.springify()
+    .damping(PAISA.expand.damping)
+    .stiffness(PAISA.expand.stiffness)
+    .mass(1)
+    .reduceMotion(ReduceMotion.System);
+}
+
+/** Paisa's `springExpand` fade (180ms) and `springCollapse` fade (150ms), for the panel itself. */
+export const EXPAND_IN = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
+export const COLLAPSE_OUT = FadeOut.duration(150).reduceMotion(ReduceMotion.System);
+
+/** `AnimatedContent(fadeIn() togetherWith fadeOut())`: content swapping in place. */
+export const SWAP_IN = FadeIn.duration(220).reduceMotion(ReduceMotion.System);
+export const SWAP_OUT = FadeOut.duration(90).reduceMotion(ReduceMotion.System);

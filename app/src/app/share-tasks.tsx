@@ -4,6 +4,7 @@ import { Share } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { QrCode } from '@/components/ui/qr-code';
+import { RiseIn } from '@/components/ui/motion';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
@@ -66,7 +67,9 @@ export default function ShareTasksScreen() {
         style={{ backgroundColor: 'transparent' }}
         contentContainerStyle={{ alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32 }}>
         {shown ? (
-          <QrCode value={shown} />
+          <RiseIn fromScale={0.92}>
+            <QrCode value={shown} />
+          </RiseIn>
         ) : (
           <Text className="text-sf-text-2 py-10 text-center">Nothing to share yet.</Text>
         )}

@@ -19,6 +19,7 @@ import Animated, {
 import type { Task, TaskCreate, TaskList, TaskUpdate } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
+import { ElasticPressable } from '@/components/ui/motion';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING, SPRING } from '@/lib/motion';
@@ -695,7 +696,8 @@ function WhenChip({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="control"
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -718,7 +720,7 @@ function WhenChip({
       })}>
       <MaterialCommunityIcons name={icon} size={17} color={iconColor ?? colors.accent} />
       <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{label}</Text>
-    </Pressable>
+    </ElasticPressable>
   );
 }
 
@@ -735,7 +737,8 @@ function FooterButton({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="button"
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -749,7 +752,7 @@ function FooterButton({
         opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
       })}>
       <MaterialCommunityIcons name={icon} size={22} color={active ? colors.accent : colors.text2} />
-    </Pressable>
+    </ElasticPressable>
   );
 }
 

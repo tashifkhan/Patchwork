@@ -2,7 +2,19 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Platform, Pressable, useWindowDimensions } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  interpolate,
+  interpolateColor,
+  ReduceMotion,
+  SlideInLeft,
+  SlideInRight,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
+
+import { ElasticPressable, RiseIn, useSpringValue } from '@/components/ui/motion';
 
 import type { Task } from '@/api/types';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
@@ -10,7 +22,7 @@ import { useTheme } from '@/components/theme/context';
 import { useCreateTask, useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
 import { playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
-import { DURATION } from '@/lib/motion';
+import { DURATION, PAISA } from '@/lib/motion';
 import { parseQuickAdd } from '@/lib/quick-add';
 import { describeRrule, nextDue } from '@/lib/recurrence';
 import { togglePatch } from '@/lib/task-actions';
@@ -45,6 +57,8 @@ export default function CalendarScreen() {
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(() => dayKey(today));
   const [draft, setDraft] = useState('');
+  /** Which way the last month change went, so the grid slides that way. */
+  const [direction, setDirection] = useState<1 | -1>(1);
 
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const targetList = lists.find((l) => l.id === selectedListId) ?? lists[0];
@@ -84,6 +98,16 @@ export default function CalendarScreen() {
     return Array.from({ length: 7 }, (_, i) => narrowDay.format(new Date(base.getFullYear(), 0, base.getDate() + i)));
   }, [mondayFirst]);
 
+  // Swipe the grid sideways to change month, like a pager.
+  const swipe = Gesture.Pan()
+    .activeOffsetX([-24, 24])
+    .failOffsetY([-16, 16])
+    .runOnJS(true)
+    .onEnd((event) => {
+      if (event.translationX < -50 || event.velocityX < -600) shift(1);
+      else if (event.translationX > 50 || event.velocityX > 600) shift(-1);
+    });
+
   const cell = Math.floor((Math.min(width, 640) - 32) / 7);
   const todayKey = dayKey(today);
   const dayItems = byDay.get(selected) ?? [];
@@ -92,6 +116,7 @@ export default function CalendarScreen() {
 
   function shift(months: number) {
     haptics.selection();
+    setDirection(months > 0 ? 1 : -1);
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + months, 1));
   }
 
@@ -146,7 +171,16 @@ export default function CalendarScreen() {
           </Text>
         ))}
       </View>
-      <View className="flex-row flex-wrap" style={{ marginTop: 6 }}>
+      <GestureDetector gesture={swipe}>
+      <Animated.View
+        key={`${month.getFullYear()}-${month.getMonth()}`}
+        entering={(direction > 0 ? SlideInRight : SlideInLeft)
+          .springify()
+          .damping(PAISA.expand.damping)
+          .stiffness(PAISA.expand.stiffness)
+          .reduceMotion(ReduceMotion.System)}
+        exiting={FadeOut.duration(90)}
+        style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>
         {cells.map((date, i) => {
           if (!date) return <View key={`e${i}`} style={{ width: cell, height: cell }} />;
           const key = dayKey(date);
@@ -165,50 +199,20 @@ export default function CalendarScreen() {
               accessibilityState={{ selected: isSelected }}
               accessibilityLabel={`${dayTitle.format(date)}, ${open} open`}
               style={{ width: cell, height: cell, alignItems: 'center', justifyContent: 'center' }}>
-              <View
-                style={{
-                  width: cell - 8,
-                  height: cell - 8,
-                  // M3 Expressive: the selected day is a full circle, today a tonal one.
-                  borderRadius: isSelected ? (cell - 8) / 2 : 12,
-                  borderCurve: 'continuous',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: isSelected ? colors.accent : isToday ? colors.selectionBg : 'transparent',
-                }}>
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: isToday || isSelected ? '700' : '400',
-                    color: isSelected ? colors.onAccent : isToday ? colors.onSelectionBg : colors.text,
-                    fontVariant: ['tabular-nums'],
-                  }}>
-                  {date.getDate()}
-                </Text>
-                <View className="flex-row" style={{ gap: 3, height: 5, marginTop: 2 }}>
-                  {items.slice(0, 3).map((it, n) => (
-                    <View
-                      key={n}
-                      style={{
-                        width: 5,
-                        height: 5,
-                        borderRadius: 3,
-                        backgroundColor: isSelected
-                          ? colors.onAccent
-                          : it.task.completed
-                            ? colors.gray2
-                            : it.projected
-                              ? colors.text3
-                              : colors.accent,
-                      }}
-                    />
-                  ))}
-                </View>
-              </View>
+              <DayFace
+                size={cell - 8}
+                day={date.getDate()}
+                selected={isSelected}
+                today={isToday}
+                dots={items.slice(0, 3).map((it) =>
+                  it.task.completed ? colors.gray2 : it.projected ? colors.text3 : colors.accent
+                )}
+              />
             </Pressable>
           );
         })}
-      </View>
+      </Animated.View>
+      </GestureDetector>
 
       <Animated.View key={selected} entering={FadeIn.duration(DURATION.short4)} style={{ marginTop: 20, gap: 4 }}>
         <Text
@@ -223,8 +227,9 @@ export default function CalendarScreen() {
         {dayItems.length === 0 ? (
           <Text className="text-sf-text-3 py-2 text-sm">Nothing due.</Text>
         ) : (
-          dayItems.map(({ task, projected }) => (
-            <View key={`${task.id}-${projected}`} className="flex-row items-center" style={{ minHeight: 48 }}>
+          dayItems.map(({ task, projected }, index) => (
+            <RiseIn key={`${task.id}-${projected}`} index={index}>
+            <View className="flex-row items-center" style={{ minHeight: 48 }}>
               <View style={{ marginLeft: -11, opacity: projected ? 0.4 : 1 }}>
                 <TaskCheckbox
                   checked={!projected && task.completed}
@@ -255,6 +260,7 @@ export default function CalendarScreen() {
                 </Text>
               </Pressable>
             </View>
+            </RiseIn>
           ))
         )}
         {targetList ? (
@@ -279,6 +285,51 @@ export default function CalendarScreen() {
   );
 }
 
+/**
+ * One day of the grid. Selecting it morphs the shape from a rounded square
+ * to a circle and fills it, on Paisa's expand spring; today is tonal.
+ */
+function DayFace({
+  size,
+  day,
+  selected,
+  today,
+  dots,
+}: {
+  size: number;
+  day: number;
+  selected: boolean;
+  today: boolean;
+  dots: string[];
+}) {
+  const { colors } = useTheme();
+  const on = useSpringValue(selected ? 1 : 0, 'expand');
+  const face = useAnimatedStyle(() => ({
+    borderRadius: interpolate(on.get(), [0, 1], [12, size / 2]),
+    backgroundColor: interpolateColor(on.get(), [0, 1], [today ? colors.selectionBg : 'transparent', colors.accent]),
+    transform: [{ scale: interpolate(on.get(), [0, 0.5, 1], [1, 0.9, 1]) }],
+  }));
+  return (
+    <Animated.View
+      style={[{ width: size, height: size, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center' }, face]}>
+      <Text
+        style={{
+          fontSize: 16,
+          fontWeight: today || selected ? '700' : '400',
+          color: selected ? colors.onAccent : today ? colors.onSelectionBg : colors.text,
+          fontVariant: ['tabular-nums'],
+        }}>
+        {day}
+      </Text>
+      <View className="flex-row" style={{ gap: 3, height: 5, marginTop: 2 }}>
+        {dots.map((color, n) => (
+          <View key={n} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: selected ? colors.onAccent : color }} />
+        ))}
+      </View>
+    </Animated.View>
+  );
+}
+
 function IconButton({
   icon,
   label,
@@ -290,7 +341,8 @@ function IconButton({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="button"
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -303,6 +355,6 @@ function IconButton({
         opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
       })}>
       <MaterialCommunityIcons name={icon} size={26} color={colors.text2} />
-    </Pressable>
+    </ElasticPressable>
   );
 }

@@ -645,7 +645,6 @@ function TaskDocument({
                       label={preset.label}
                       selected={active}
                       onPress={() => {
-                        haptics.selection();
                         // A repeat counts from a date; give it one if there's none yet.
                         const due =
                           preset.rrule && !latest.current.due_at

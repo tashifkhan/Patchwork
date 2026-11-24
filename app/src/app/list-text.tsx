@@ -7,6 +7,7 @@ import { createTask, deleteTask, updateTask } from '@/api/tasks';
 import { TextStats } from '@/components/tasks/markdown-notes';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { RiseIn } from '@/components/ui/motion';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
@@ -105,7 +106,8 @@ export default function ListTextScreen() {
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 40, gap: 12 }}>
-        <View style={{ backgroundColor: colors.bg3, borderRadius: 20, borderCurve: 'continuous', padding: 14 }}>
+        <RiseIn>
+        <View style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous', padding: 14 }}>
           <TextInput
             value={value}
             onChangeText={setText}
@@ -121,6 +123,7 @@ export default function ListTextScreen() {
           />
           <TextStats text={value} color={colors.text3} />
         </View>
+        </RiseIn>
         <Button label={busy ? 'Saving…' : 'Save'} loading={busy} disabled={busy || !listId} onPress={review} />
         <Text className="text-sf-text-3 text-xs">
           Lines are matched to to-dos by title. Changing a title replaces the to-do with a new one.

@@ -1,20 +1,23 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { memo } from 'react';
 import { Platform, Pressable } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ZoomIn } from 'react-native-reanimated';
 
 import type { Task } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
 import { haptics } from '@/lib/haptics';
-import { DURATION, EASING } from '@/lib/motion';
+import { useElasticPress } from '@/components/ui/elastic';
+import { DURATION, EASING, listPlacement, PAISA } from '@/lib/motion';
 import { describeWhen } from '@/lib/when';
 import { router } from 'expo-router';
 
 import { describeRrule } from '@/lib/recurrence';
 import { usePomodoroStore } from '@/stores/pomodoro-store';
 import { Text, View } from '@/tw';
+
+const ROW_ELASTIC = Platform.OS === 'android';
 
 interface TaskItemProps {
   task: Task;
@@ -57,6 +60,8 @@ function TaskItemComponent({
   onLongPress,
 }: TaskItemProps) {
   const { colors } = useTheme();
+  // Paisa's elasticCard: the whole row dips under the finger, lets go on scroll.
+  const press = useElasticPress({ maxStretch: 0.012, maxTranslate: 1, pressedScale: 0.98, releaseOnDrag: true });
   const when = describeWhen(task.due_at);
   const hasNotes = task.markdown.trim().length > 0;
   const childCount = task.children.length;
@@ -73,8 +78,11 @@ function TaskItemComponent({
     <Animated.View
       entering={FadeIn.duration(DURATION.medium1).easing(EASING.emphasizedDecelerate)}
       exiting={FadeOut.duration(DURATION.short4).easing(EASING.emphasizedAccelerate)}
-      layout={LinearTransition.duration(DURATION.medium2).easing(EASING.emphasized)}>
+      // Paisa: rows glide to their new place and settle with a small bounce.
+      layout={listPlacement()}>
       {/* Dimming lives on an inner view: the layout animation owns the outer opacity. */}
+      {/* Android rows dip like Paisa's cards; iOS rows keep the system highlight, as in Things. */}
+      <Animated.View {...(ROW_ELASTIC ? press.handlers : null)} style={ROW_ELASTIC ? press.style : undefined}>
       <View
         className="flex-row items-center"
         accessibilityState={selected ? { selected: true } : undefined}
@@ -96,16 +104,21 @@ function TaskItemComponent({
         <View style={{ marginLeft: -11 }}>
           {selecting ? (
             <Pressable
-              onPress={() => onOpen(task)}
+              onPress={() => {
+                haptics.toggle(!checked);
+                onOpen(task);
+              }}
               accessibilityRole="checkbox"
               accessibilityState={{ checked }}
               accessibilityLabel={`Select ${task.title}`}
               style={{ width: MIN_TOUCH_TARGET, height: MIN_TOUCH_TARGET, alignItems: 'center', justifyContent: 'center' }}>
-              <MaterialCommunityIcons
-                name={checked ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
-                size={24}
-                color={checked ? colors.accent : colors.text3}
-              />
+              <Animated.View key={checked ? 'on' : 'off'} entering={ZoomIn.springify().damping(PAISA.arrow.damping).stiffness(PAISA.arrow.stiffness)}>
+                <MaterialCommunityIcons
+                  name={checked ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+                  size={24}
+                  color={checked ? colors.accent : colors.text3}
+                />
+              </Animated.View>
             </Pressable>
           ) : (
             <TaskCheckbox
@@ -124,7 +137,7 @@ function TaskItemComponent({
           onLongPress={
             onLongPress
               ? () => {
-                  haptics.impact('medium');
+                  haptics.longPress();
                   onLongPress(task);
                 }
               : undefined
@@ -239,6 +252,7 @@ function TaskItemComponent({
           </Pressable>
         ) : null}
       </View>
+      </Animated.View>
 
       {showChildren && childCount > 0 ? (
         <View>

@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { useCallback, useRef } from 'react';
-import { Platform, Pressable, useWindowDimensions, type View as RNView } from 'react-native';
+import { Platform, useWindowDimensions, type View as RNView } from 'react-native';
 import Animated, {
   FadeOut,
   SlideInDown,
@@ -13,6 +13,8 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
+import { ElasticPressable } from '@/components/ui/motion';
+import { RollingNumber } from '@/components/ui/rolling-number';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING, SPRING } from '@/lib/motion';
 import { Text, View } from '@/tw';
@@ -53,7 +55,8 @@ export function TaskActionBar({
         pointerEvents="box-none"
         style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
         <BarSurface>
-          <Pressable
+          <ElasticPressable
+            variant="control"
             onPress={() => {
               haptics.tap();
               onMove();
@@ -81,7 +84,7 @@ export function TaskActionBar({
               <MaterialCommunityIcons name="arrow-right" size={22} color={colors.onAccent} />
             )}
             <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600' }}>Move</Text>
-          </Pressable>
+          </ElasticPressable>
           <IconAction
             icon="trash-can-outline"
             sf="trash"
@@ -143,7 +146,8 @@ export function SelectionBar({
         style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
         <BarSurface>
           <IconAction icon="close" sf="xmark" label="Cancel selection" color={iconColor} onPress={onCancel} />
-          <Pressable
+          <ElasticPressable
+            variant="control"
             disabled={disabled}
             onPress={() => {
               haptics.success();
@@ -166,10 +170,8 @@ export function SelectionBar({
               opacity: disabled ? 0.5 : pressed && Platform.OS === 'ios' ? 0.85 : 1,
             })}>
             <MaterialCommunityIcons name="check-all" size={20} color={colors.onAccent} />
-            <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>
-              {count}
-            </Text>
-          </Pressable>
+            <RollingNumber value={count} style={{ color: colors.onAccent, fontSize: 16, lineHeight: 22, fontWeight: '600' }} />
+          </ElasticPressable>
           {disabled ? null : (
             <>
               <IconAction icon="arrow-right" sf="arrow.right" label="Move selected" color={iconColor} onPress={onMove} />
@@ -249,7 +251,8 @@ function IconAction({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <ElasticPressable
+      variant="button"
       onPress={() => {
         haptics.tap();
         onPress();
@@ -271,7 +274,7 @@ function IconAction({
       ) : (
         <MaterialCommunityIcons name={icon} size={24} color={color} />
       )}
-    </Pressable>
+    </ElasticPressable>
   );
 }
 

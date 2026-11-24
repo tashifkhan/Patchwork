@@ -5,6 +5,7 @@ import { create } from 'zustand';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { RiseIn } from '@/components/ui/motion';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -106,6 +107,7 @@ export function AppLockGate() {
       onRequestClose={() => {}}>
       <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]}>
       <View className="flex-1 items-center justify-center gap-5 px-10">
+        <RiseIn fromScale={0.92}>
         <View
           style={{
             width: 88,
@@ -118,6 +120,7 @@ export function AppLockGate() {
           }}>
           <MaterialCommunityIcons name="lock-outline" size={40} color={colors.onPrimaryContainer} />
         </View>
+        </RiseIn>
         <Text className="text-sf-text text-center text-xl font-semibold">Patchwork is locked</Text>
         {locked ? (
           <View style={{ alignSelf: 'stretch' }}>
