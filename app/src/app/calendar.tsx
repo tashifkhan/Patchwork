@@ -14,7 +14,9 @@ import Animated, {
   useAnimatedStyle,
 } from 'react-native-reanimated';
 
-import { ElasticPressable, RiseIn, useSpringValue } from '@/components/ui/motion';
+import { M3MonthCard, type DayMark } from '@/components/calendar/m3-month';
+import { ELASTIC_ROW, ElasticPressable, ElasticView, RiseIn, useSpringValue } from '@/components/ui/motion';
+import { withAlpha } from '@/lib/theme';
 
 import type { Task } from '@/api/types';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
@@ -22,7 +24,7 @@ import { useTheme } from '@/components/theme/context';
 import { useCreateTask, useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
 import { playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
-import { DURATION, PAISA } from '@/lib/motion';
+import { DURATION, expandLayout, PAISA } from '@/lib/motion';
 import { parseQuickAdd } from '@/lib/quick-add';
 import { describeRrule, nextDue } from '@/lib/recurrence';
 import { togglePatch } from '@/lib/task-actions';
@@ -32,6 +34,9 @@ import { dayKey } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
+
+/** Android draws the Material 3 docked date picker and a segmented agenda. */
+const M3 = Platform.OS === 'android';
 
 const monthTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
 const dayTitle = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
@@ -140,6 +145,59 @@ export default function CalendarScreen() {
     } catch {
       // The list shows nothing new; the user can try again.
     }
+  }
+
+  if (M3) {
+    const marks = new Map<string, DayMark[]>();
+    for (const [key, items] of byDay) {
+      marks.set(
+        key,
+        items.map((it) => ({ kind: it.projected ? 'projected' : it.task.completed ? 'done' : 'open' }))
+      );
+    }
+    return (
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: colors.bg }}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 20, maxWidth: 640, width: '100%', alignSelf: 'center' }}>
+        <Stack.Screen options={{ title: 'Calendar' }} />
+        <RiseIn fromScale={0.97}>
+          <M3MonthCard
+            month={month}
+            direction={direction}
+            mondayFirst={mondayFirst}
+            selected={selected}
+            todayKey={todayKey}
+            marks={marks}
+            onSelect={setSelected}
+            onShift={shift}
+            onJump={(next, selectKey) => {
+              setDirection(next.getTime() >= month.getTime() ? 1 : -1);
+              setMonth(next);
+              if (selectKey) setSelected(selectKey);
+            }}
+          />
+        </RiseIn>
+        <Animated.View layout={expandLayout()}>
+        <M3Agenda
+          key={selected}
+          title={selected === todayKey ? 'Today' : dayTitle.format(selectedDate)}
+          items={dayItems}
+          onToggle={(task) => {
+            const { patch } = togglePatch(task);
+            if (!task.completed) playSound('complete');
+            updateTask.mutate({ taskId: task.id, accountId: task.account_id, patch });
+          }}
+          addLabel={targetList ? `Add to ${targetList.name}` : null}
+          draft={draft}
+          onDraft={setDraft}
+          onAdd={() => void addForDay()}
+        />
+        </Animated.View>
+      </ScrollView>
+    );
   }
 
   return (
@@ -357,5 +415,135 @@ function IconButton({
       })}>
       <MaterialCommunityIcons name={icon} size={26} color={colors.text2} />
     </ElasticPressable>
+  );
+}
+
+/**
+ * The chosen day's to-dos as an M3 segmented list: rows on surfaceContainer
+ * with 20dp outer and 4dp inner corners, 2dp apart, rising in one by one;
+ * then an add row styled as an M3 filled text field.
+ */
+function M3Agenda({
+  title,
+  items,
+  onToggle,
+  addLabel,
+  draft,
+  onDraft,
+  onAdd,
+}: {
+  title: string;
+  items: { task: Task; projected: boolean }[];
+  onToggle: (task: Task) => void;
+  addLabel: string | null;
+  draft: string;
+  onDraft: (text: string) => void;
+  onAdd: () => void;
+}) {
+  const { colors } = useTheme();
+  const open = items.filter((it) => !it.projected && !it.task.completed).length;
+  return (
+    <View style={{ gap: 8 }}>
+      <View className="flex-row items-center" style={{ paddingHorizontal: 4, gap: 8 }}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text, flex: 1 }}>{title}</Text>
+        {items.length ? (
+          <View style={{ minWidth: 24, height: 24, paddingHorizontal: 8, borderRadius: 12, backgroundColor: colors.selectionBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.onSelectionBg }}>{open}</Text>
+          </View>
+        ) : null}
+      </View>
+      {items.length === 0 ? (
+        <RiseIn>
+          <View className="items-center" style={{ paddingVertical: 24, gap: 8, borderRadius: 20, backgroundColor: colors.bg3 }}>
+            <MaterialCommunityIcons name="calendar-blank-outline" size={28} color={colors.text3} />
+            <Text style={{ fontSize: 14, color: colors.text2 }}>Nothing due</Text>
+          </View>
+        </RiseIn>
+      ) : (
+        <View style={{ gap: 2 }}>
+          {items.map(({ task, projected }, index) => {
+            const top = index === 0 ? 20 : 4;
+            const bottom = index === items.length - 1 ? 20 : 4;
+            return (
+              <RiseIn key={`${task.id}-${projected}`} index={index} fromScale={0.98} rise={8}>
+                <ElasticView
+                  {...ELASTIC_ROW}
+                  glowRadius={top}
+                  style={{
+                    backgroundColor: colors.bg3,
+                    borderTopLeftRadius: top,
+                    borderTopRightRadius: top,
+                    borderBottomLeftRadius: bottom,
+                    borderBottomRightRadius: bottom,
+                    overflow: 'hidden',
+                  }}>
+                  <Pressable
+                    onPress={() => router.push({ pathname: '/task/[uid]', params: { uid: task.uid } })}
+                    android_ripple={{ color: withAlpha(colors.text, 0.08) }}
+                    accessibilityRole="button"
+                    style={{ flexDirection: 'row', alignItems: 'center', minHeight: 64, paddingRight: 16 }}>
+                    <View style={{ paddingLeft: 4, opacity: projected ? 0.4 : 1 }}>
+                      <TaskCheckbox
+                        checked={!projected && task.completed}
+                        onToggle={() => {
+                          if (!projected) onToggle(task);
+                        }}
+                        label={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
+                      />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text
+                        numberOfLines={2}
+                        style={{
+                          fontSize: 16,
+                          color: task.completed && !projected ? colors.text3 : colors.text,
+                          textDecorationLine: task.completed && !projected ? 'line-through' : 'none',
+                        }}>
+                        {task.title}
+                      </Text>
+                      <Text numberOfLines={1} style={{ fontSize: 14, color: colors.text2 }}>
+                        {[projected ? describeRrule(task.rrule) : null, task.list_name].filter(Boolean).join(' · ')}
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={22} color={colors.text3} />
+                  </Pressable>
+                </ElasticView>
+              </RiseIn>
+            );
+          })}
+        </View>
+      )}
+      {addLabel ? (
+        // M3 filled text field: surfaceContainerHighest, 4dp top corners, an indicator line.
+        <View
+          style={{
+            marginTop: 4,
+            backgroundColor: colors.gray3,
+            borderTopLeftRadius: 4,
+            borderTopRightRadius: 4,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.text2,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 12,
+            minHeight: 56,
+            gap: 12,
+          }}>
+          <MaterialCommunityIcons name="plus" size={24} color={colors.text2} />
+          <TextInput
+            value={draft}
+            onChangeText={onDraft}
+            onSubmitEditing={onAdd}
+            submitBehavior="submit"
+            returnKeyType="done"
+            placeholder={`${addLabel} on this day`}
+            placeholderTextColor={colors.text2}
+            accessibilityLabel="New to-do due this day"
+            className="text-sf-text flex-1"
+            style={{ fontSize: 16, paddingVertical: 14 }}
+          />
+        </View>
+      ) : null}
+    </View>
   );
 }
