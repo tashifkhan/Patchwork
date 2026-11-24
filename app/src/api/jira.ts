@@ -413,6 +413,57 @@ async function pagedIssues(client: JiraClient, basePath: string): Promise<JiraIs
   return issues;
 }
 
+// ── Search ─────────────────────────────────────────────────────────────
+
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]+-\d+$/i;
+
+/**
+ * JQL for a free-text search. Jira's text search is Lucene underneath, so its
+ * reserved characters are dropped rather than escaped, and the last word gets a
+ * trailing `*` so "login cra" finds "login crashes". A query shaped like an issue
+ * key also matches that key exactly.
+ */
+export function jiraSearchJql(query: string, includeKey = true): string | null {
+  const clean = query
+    .replace(/[+\-&|!(){}[\]^~*?\\/:"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return null;
+  const text = `text ~ "${clean}*"`;
+  const key = query.trim().toUpperCase();
+  const where = includeKey && ISSUE_KEY.test(key) ? `(key = "${key}" OR ${text})` : text;
+  return `${where} ORDER BY updated DESC`;
+}
+
+/**
+ * Issues on one Jira login that match `query`, newest first. Uses the
+ * `/search/jql` endpoint, which replaced `/search` on Jira Cloud.
+ */
+export async function searchJiraIssues(
+  creds: JiraCredentials,
+  query: string,
+  limit = 20
+): Promise<JiraIssue[]> {
+  const client = new JiraClient(creds);
+  const run = async (jql: string) => {
+    const data = await client.request<{ issues?: ApiIssue[] }>(
+      'GET',
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${ISSUE_FIELDS}&maxResults=${limit}`
+    );
+    return (data?.issues ?? []).map(toIssue);
+  };
+  const jql = jiraSearchJql(query);
+  if (!jql) return [];
+  try {
+    return await run(jql);
+  } catch (error) {
+    // `key = X` is a 400 when the project does not exist on this site; retry as plain text.
+    const plain = jiraSearchJql(query, false);
+    if (error instanceof JiraError && error.status === 400 && plain && plain !== jql) return run(plain);
+    throw error;
+  }
+}
+
 /** The JQL a board loads with. Kanban boards drop work finished over two weeks ago. */
 export function jiraBoardJql(scope: JiraIssueScope, sprint: boolean): string {
   const mine = SCOPE_JQL[scope];

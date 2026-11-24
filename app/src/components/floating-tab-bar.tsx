@@ -411,7 +411,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
               <RNTextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search tasks, cards, issues"
+                placeholder="Search everything"
                 placeholderTextColor={colors.text3}
                 returnKeyType="search"
                 autoFocus
