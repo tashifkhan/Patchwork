@@ -87,8 +87,38 @@ function SmartTile({
   onPress: () => void;
 }) {
   const { colors, scheme } = useTheme();
+  const { fill, ink } = smartTone(colors, scheme === 'dark', smartKey);
+  return (
+    <ToneTile
+      icon={ICONS[smartKey]}
+      label={SMART_LABELS[smartKey]}
+      count={count}
+      fill={fill}
+      ink={ink}
+      selected={selected}
+      onPress={onPress}
+    />
+  );
+}
+
+export interface ToneTileProps {
+  icon: IconName;
+  label: string;
+  count: number;
+  /** Container and content colors, e.g. from `smartTone` or `containerTone`. */
+  fill: string;
+  ink: string;
+  selected: boolean;
+  onPress: () => void;
+}
+
+/**
+ * One tonal tile: icon disc on top, label and a rolling count below. Shared
+ * by the Tasks smart lists and the Boards home so the two read as one app.
+ */
+export function ToneTile({ icon, label, count, fill, ink, selected, onPress }: ToneTileProps) {
+  const { scheme } = useTheme();
   const dark = scheme === 'dark';
-  const { fill, ink } = smartTone(colors, dark, smartKey);
   const press = useElasticPress({ maxStretch: 0.05, maxTranslate: 2, pressedScale: 0.95, releaseOnDrag: true });
 
   const radius = useSharedValue(selected ? RADIUS_SELECTED : RADIUS);
@@ -135,7 +165,7 @@ function SmartTile({
         onPressOut={press.release}
         accessibilityRole="button"
         accessibilityState={{ selected }}
-        accessibilityLabel={`${SMART_LABELS[smartKey]}, ${count} open`}>
+        accessibilityLabel={`${label}, ${count}`}>
         <Animated.View
           style={[
             {
@@ -162,11 +192,11 @@ function SmartTile({
               },
               iconStyle,
             ]}>
-            <MaterialCommunityIcons name={ICONS[smartKey]} size={21} color={selected ? fill : ink} />
+            <MaterialCommunityIcons name={icon} size={21} color={selected ? fill : ink} />
           </Animated.View>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
             <Text style={{ color: ink, fontSize: 16, fontWeight: '600', includeFontPadding: false }}>
-              {SMART_LABELS[smartKey]}
+              {label}
             </Text>
             <RollingNumber
               value={count}

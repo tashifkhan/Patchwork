@@ -14,6 +14,9 @@ interface UiState {
    */
   openTaskUid: string | null;
   requestOpenTask: (uid: string | null) => void;
+  /** One-shot request from My lists: Tasks opens its New list form, then clears it. */
+  createListRequested: boolean;
+  requestCreateList: (requested: boolean) => void;
   setSelectedListId: (listId: string | null) => void;
   setSelectedTag: (tag: string | null) => void;
   setSelectedBoardId: (boardId: number | null) => void;
@@ -26,6 +29,8 @@ export const useUiStore = create<UiState>((set) => ({
   selectedBoardId: null,
   openTaskUid: null,
   requestOpenTask: (openTaskUid) => set({ openTaskUid }),
+  createListRequested: false,
+  requestCreateList: (createListRequested) => set({ createListRequested }),
   setSelectedListId: (selectedListId) => {
     set({ selectedListId });
     if (selectedListId) {

@@ -31,7 +31,7 @@ import {
 import { TagFilterTabs } from '@/components/tasks/tag-chip-list';
 import { TaskDetailView, TaskPaneContext, type TaskPane } from '@/components/tasks/task-detail';
 import { TaskItem } from '@/components/tasks/task-item';
-import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
+import { ListHero } from '@/components/tasks/list-hero';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { SmartTiles } from '@/components/tasks/smart-tiles';
 import { ConnectedButtonGroup } from '@/components/ui/button-group';
@@ -48,7 +48,8 @@ import { Fab } from '@/components/ui/fab';
 import { Frost } from '@/components/ui/frost';
 import { DictateFab } from '@/components/tasks/dictate-fab';
 import { DictationSheet } from '@/components/tasks/dictation-sheet';
-import { OutboxBanner } from '@/components/tasks/outbox-banner';
+import { SyncBanner } from '@/components/tasks/sync-banner';
+import { StatusBanner } from '@/components/ui/status-banner';
 import { LOCAL_ACCOUNT_ID, LOCAL_ACCOUNT_NAME } from '@/lib/local-tasks';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
@@ -139,7 +140,6 @@ export default function TasksScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [moveListId, setMoveListId] = useState<string | null>(null);
-  const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
   /** The smart tile filtering the to-dos (Today, Scheduled, All, Overdue), if any. */
   const [smart, setSmart] = useState<SmartKey | null>(null);
   const [pulling, setPulling] = useState(false);
@@ -422,6 +422,19 @@ export default function TasksScreen() {
     [fabBottom]
   );
 
+  // My lists hands over "New list": open the form here, where the accounts are.
+  const createListRequested = useUiStore((s) => s.createListRequested);
+  const requestCreateList = useUiStore((s) => s.requestCreateList);
+  useEffect(() => {
+    if (!createListRequested) return;
+    // Wait for the back transition so the form doesn't open under it.
+    const timer = setTimeout(() => {
+      requestCreateList(false);
+      setCreateListOpen(true);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [createListRequested, requestCreateList]);
+
   // Search hands over a task to open in place (Things Quick Find behavior).
   const openTaskUid = useUiStore((s) => s.openTaskUid);
   const requestOpenTask = useUiStore((s) => s.requestOpenTask);
@@ -627,7 +640,6 @@ export default function TasksScreen() {
   const smartEmpty = smart != null && visibleTasks.length === 0 && baseTasks.length > 0;
   const showCenteredState = isEmpty && !githubEnabled && !isLoading;
   const needsCalDavAccount = isMissingCalDavAccountError(tasksQuery.error);
-  const showingOffline = taskWarnings[0]?.startsWith("You're offline") ?? false;
 
   const repoOpen = repoFilter ? (repoIssueCounts[repoFilter.toLowerCase()] ?? 0) : 0;
   const heroTitle = repoFilter
@@ -710,7 +722,25 @@ export default function TasksScreen() {
                 title={heroTitle}
                 subtitle={heroSubtitle}
                 kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
-                onPress={() => setListSwitcherOpen(true)}
+                // One list switcher everywhere: My lists, the same screen the tiles open.
+                onPress={() => {
+                  if (closeCard()) return;
+                  router.push('/lists');
+                }}
+                menu={{
+                  lists,
+                  repos: githubConnection.status === 'connected' ? githubRepositories : [],
+                  selectedListId,
+                  onSelect: setSelectedListId,
+                  onCreate: () => setCreateListOpen(true),
+                  onEdit: selectedList
+                    ? () =>
+                        router.push({
+                          pathname: '/edit-list',
+                          params: { listId: selectedList.id, name: selectedList.name },
+                        })
+                    : null,
+                }}
               />
             </View>
             {process.env.EXPO_OS !== 'web' ? (
@@ -760,57 +790,22 @@ export default function TasksScreen() {
 
 
         {needsCalDavAccount && !showCenteredState ? (
-          <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
-            <MaterialCommunityIcons name="cloud-plus-outline" size={20} color={colors.accent} />
-            <View className="flex-1 gap-1">
-              <Text className="text-sf-text text-sm font-semibold">
-                CalDAV account not connected
-              </Text>
-              <Text selectable className="text-sf-text-2 text-xs">
-                GitHub issues are still available. Connect CalDAV to add synchronized tasks.
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => router.push('/settings/account')}>
-                <Text className="text-sf-blue text-sm font-semibold">Connect account</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : tasksQuery.isError && !showCenteredState ? (
-          <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
-            <MaterialCommunityIcons name="cloud-alert-outline" size={20} color={colors.red} />
-            <View className="flex-1 gap-1">
-              <Text className="text-sf-text text-sm font-semibold">CalDAV sync failed</Text>
-              <Text selectable className="text-sf-text-2 text-xs">
-                {tasksQuery.error instanceof Error ? tasksQuery.error.message : 'Tasks could not be refreshed.'}
-              </Text>
-              <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()}>
-                <Text className="text-sf-blue text-sm font-semibold">Retry</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-        {!tasksQuery.isError && taskWarnings.length > 0 ? (
-          <View className="bg-sf-bg-2 mt-2 flex-row items-start gap-3 rounded-xl px-3 py-3">
-            <MaterialCommunityIcons
-              name={showingOffline ? 'cloud-off-outline' : 'cloud-alert-outline'}
-              size={20}
-              color={colors.orange}
-            />
-            <View className="flex-1 gap-1">
-              <Text className="text-sf-text text-sm font-semibold">
-                {showingOffline ? 'Offline' : 'Partially synchronized'}
-              </Text>
-              <Text selectable className="text-sf-text-2 text-xs">{taskWarnings[0]}</Text>
-              <Pressable accessibilityRole="button" onPress={() => tasksQuery.refetch()}>
-                <Text className="text-sf-blue text-sm font-semibold">
-                  {showingOffline ? 'Try again' : 'Retry all sources'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-        {process.env.EXPO_OS !== 'web' ? <OutboxBanner /> : null}
+          <StatusBanner
+            tone="info"
+            icon="cloud-plus-outline"
+            sf="person.crop.circle.badge.plus"
+            title="Connect a CalDAV account"
+            body="GitHub issues work already. Connect CalDAV to sync your to-dos too."
+            primary={{ label: 'Connect', onPress: () => router.push('/settings/account') }}
+          />
+        ) : (
+          // Offline, failed loads, partial sync and the outbox, as one banner.
+          <SyncBanner
+            warnings={tasksQuery.isError ? [] : taskWarnings}
+            error={tasksQuery.isError && !showCenteredState ? tasksQuery.error : undefined}
+            onRetry={() => tasksQuery.refetch()}
+          />
+        )}
 
         {isLoading ? (
           // Full M3 loading first (visible on AMOLED); skeleton is for soft reloads only.
@@ -1097,25 +1092,6 @@ export default function TasksScreen() {
         availableTags={allTags}
         defaultListId={selectedListId && !selectedListId.startsWith('gh:') ? selectedListId : lists[0]?.id}
         onClose={() => setDictating(false)}
-      />
-      <ListSwitcherSheet
-        visible={listSwitcherOpen}
-        lists={lists}
-        repos={githubConnection.status === 'connected' ? githubRepositories : []}
-        repoCounts={repoIssueCounts}
-        counts={listCounts}
-        totalCount={openTotal}
-        selectedListId={selectedListId}
-        onSelect={setSelectedListId}
-        onCreate={() => setCreateListOpen(true)}
-        onEdit={() => {
-          if (!selectedList) return;
-          router.push({
-            pathname: '/edit-list',
-            params: { listId: selectedList.id, name: selectedList.name },
-          });
-        }}
-        onClose={() => setListSwitcherOpen(false)}
       />
       {expandedId != null ? (
         <TaskActionBar

@@ -1,5 +1,5 @@
 import { Stack, router } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { useEffect, useMemo } from 'react';
 import { Pressable, ScrollView } from 'react-native';
 import Animated, {
@@ -16,10 +16,10 @@ import { GroupedCard, RowSeparator, useSettingsColors } from '@/components/setti
 import { useTheme } from '@/components/theme/context';
 import { RiseIn } from '@/components/ui/motion';
 import { RollingNumber } from '@/components/ui/rolling-number';
-import { useTaskLists, useTasks } from '@/hooks/use-tasks';
+import { useListEntries } from '@/hooks/use-list-entries';
 import { haptics } from '@/lib/haptics';
 import { stagger } from '@/lib/motion';
-import { type ListSummary, summarizeLists } from '@/lib/smart-lists';
+import type { ListSummary } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
 import { useUiStore } from '@/stores/ui-store';
 import { Text, View } from '@/tw';
@@ -35,13 +35,13 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 export function ListsScreen() {
   const { colors } = useTheme();
   const settings = useSettingsColors();
-  const tasksQuery = useTasks();
-  const listsQuery = useTaskLists();
+  const { summaries: allSummaries, all, repos, loading } = useListEntries();
+  const requestCreateList = useUiStore((s) => s.requestCreateList);
   const selectedListId = useUiStore((s) => s.selectedListId);
   const setSelectedListId = useUiStore((s) => s.setSelectedListId);
 
   const areas = useMemo(() => {
-    const summaries = summarizeLists(listsQuery.data ?? [], tasksQuery.data ?? []);
+    const summaries = allSummaries;
     // The running index staggers the pies down the whole screen, across groups.
     const byArea = new Map<string, { summary: ListSummary; index: number }[]>();
     summaries.forEach((summary, index) => {
@@ -49,10 +49,10 @@ export function ListsScreen() {
       byArea.set(area, [...(byArea.get(area) ?? []), { summary, index }]);
     });
     return [...byArea.entries()];
-  }, [listsQuery.data, tasksQuery.data]);
+  }, [allSummaries]);
 
-  const open = (summary: ListSummary) => {
-    setSelectedListId(summary.list.id);
+  const open = (id: string | null) => {
+    setSelectedListId(id);
     router.back();
   };
 
@@ -67,13 +67,35 @@ export function ListsScreen() {
           headerLargeTitleShadowVisible: false,
         }}
       />
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon="plus"
+          accessibilityLabel="New List"
+          onPress={() => {
+            requestCreateList(true);
+            router.back();
+          }}
+        />
+      </Stack.Toolbar>
       <ScrollView
         style={{ flex: 1, backgroundColor: settings.screen }}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, gap: 22 }}>
-        {areas.length === 0 && !listsQuery.isLoading ? (
-          <Text style={{ fontSize: 15, color: colors.text2, textAlign: 'center', marginTop: 40 }}>
-            No lists yet. Add one from the list switcher on Tasks.
+        {/* Things' Inbox/Anytime spot: everything, above the lists. */}
+        <RiseIn rise={8}>
+          <GroupedCard>
+            <PlainRow
+              sf="tray.full.fill"
+              label="All Tasks"
+              count={all.open}
+              current={selectedListId == null}
+              onPress={() => open(null)}
+            />
+          </GroupedCard>
+        </RiseIn>
+        {areas.length === 0 && !loading ? (
+          <Text style={{ fontSize: 15, color: colors.text2, textAlign: 'center' }}>
+            No lists yet. Tap + to make one.
           </Text>
         ) : null}
         {areas.map(([area, summaries]) => (
@@ -93,7 +115,7 @@ export function ListsScreen() {
                       summary={summary}
                       index={index}
                       current={summary.list.id === selectedListId}
-                      onPress={() => open(summary)}
+                      onPress={() => open(summary.list.id)}
                     />
                   </View>
                 ))}
@@ -101,8 +123,75 @@ export function ListsScreen() {
             </RiseIn>
           </View>
         ))}
+        {repos.length > 0 ? (
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+              <SymbolView name="chevron.left.forwardslash.chevron.right" size={15} tintColor={colors.text3} />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: colors.text }}>GitHub</Text>
+            </View>
+            <GroupedCard>
+              {repos.map((repo, i) => (
+                <View key={repo.id}>
+                  {i > 0 ? <RowSeparator /> : null}
+                  <PlainRow
+                    sf="arrow.triangle.branch"
+                    label={repo.name}
+                    count={repo.open}
+                    current={selectedListId === repo.id}
+                    onPress={() => open(repo.id)}
+                  />
+                </View>
+              ))}
+            </GroupedCard>
+          </View>
+        ) : null}
       </ScrollView>
     </>
+  );
+}
+
+/** A row with a glyph instead of a progress pie: All Tasks and GitHub repos. */
+function PlainRow({
+  sf,
+  label,
+  count,
+  current,
+  onPress,
+}: {
+  sf: SFSymbol;
+  label: string;
+  count: number;
+  current: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const settings = useSettingsColors();
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.selection();
+        onPress();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${count} open${current ? ', showing' : ''}`}
+      style={({ pressed }) => ({
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 16,
+        backgroundColor: pressed ? settings.pressed : 'transparent',
+      })}>
+      <View style={{ width: 22, alignItems: 'center' }}>
+        <SymbolView name={sf} size={19} tintColor={colors.accent} />
+      </View>
+      <Text numberOfLines={1} style={{ flex: 1, fontSize: 17, color: colors.text }}>
+        {label}
+      </Text>
+      {current ? <SymbolView name="checkmark" size={15} weight="semibold" tintColor={colors.accent} /> : null}
+      <RollingNumber value={count} style={{ fontSize: 17, color: colors.text2 }} />
+      <SymbolView name="chevron.right" size={13} weight="semibold" tintColor={colors.text3} />
+    </Pressable>
   );
 }
 
