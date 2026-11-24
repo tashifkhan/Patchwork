@@ -25,10 +25,11 @@ export type { KeyboardAwareScrollViewRef } from 'react-native-keyboard-controlle
 export const FIELD_CLEARANCE = 24;
 
 /**
- * `bottomOffset` for screens with the floating `TaskActionBar`: the bar (64)
+ * `bottomOffset` for screens with the floating `TaskActionBar`: the bar (a
+ * toolbar button plus 8 of padding each side; see `floating-toolbar.tsx`)
  * rides 10 above the keyboard, so a focused field must clear it too.
  */
-export const ACTION_BAR_CLEARANCE = 64 + 10 + FIELD_CLEARANCE;
+export const ACTION_BAR_CLEARANCE = (Platform.OS === 'android' ? 72 : 64) + 10 + FIELD_CLEARANCE;
 
 // Loosely typed for `useCssElement`, whose generic inference runs too deep on
 // the full scroll view props. `KeyboardScrollViewProps` keeps callers typed.
