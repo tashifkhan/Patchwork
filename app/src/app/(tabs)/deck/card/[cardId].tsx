@@ -12,6 +12,7 @@ import {
   EditorPrimaryButton,
   EditorTitle,
 } from '@/components/boards/item-editor';
+import { CardPage } from '@/components/boards/card-page';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { MoveToTasks } from '@/components/deck/move-to-tasks';
 import { HeaderTextButton } from '@/components/settings/settings-list';
@@ -125,6 +126,85 @@ function CardEditor({
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not delete the card.');
     }
+  }
+
+  const details = (
+    <>
+      <View style={{ paddingVertical: 12 }}>
+        <DateField label="Due date" iconName="flag-outline" value={duedate} onChange={setDuedate} />
+      </View>
+      <MoveToTasks
+        boardId={boardId}
+        stackId={stackId}
+        cardId={cardId}
+        title={title.trim() || (card.title ?? 'Untitled')}
+        description={description}
+        duedate={duedate}
+      />
+    </>
+  );
+
+  const sheets = (
+    <>
+      <PickerSheet
+        visible={columnOpen}
+        title="Column"
+        items={columns.map((stack) => ({
+          key: String(stack.id),
+          label: stack.title ?? 'Column',
+          subtitle: `${stack.cards?.length ?? 0} cards`,
+          icon: 'view-column-outline' as const,
+          selected: stack.id === targetStackId,
+          onPress: () => {
+            haptics.selection();
+            setTargetStackId(stack.id);
+            setColumnOpen(false);
+          },
+        }))}
+        onClose={() => setColumnOpen(false)}
+      />
+      <NativeAlert
+        visible={deleteVisible}
+        title="Delete card?"
+        message={`"${card.title ?? 'Untitled'}" is removed from Deck.`}
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteVisible(false)}
+        onConfirm={confirmDelete}
+      />
+      <NativeAlert
+        visible={errorMessage != null}
+        title="Deck"
+        message={errorMessage ?? ''}
+        onDismiss={() => setErrorMessage(null)}
+      />
+    </>
+  );
+
+  // Android: the full-page card in the composer's style.
+  if (!IOS) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <CardPage
+          card={card}
+          columnTitle={column?.title ?? 'Column'}
+          columnIndex={Math.max(0, columns.findIndex((stack) => stack.id === targetStackId))}
+          title={title}
+          onTitle={setTitle}
+          description={description}
+          onDescription={setDescription}
+          details={details}
+          dirty={dirty}
+          canSave={canSave}
+          saving={updateCard.isPending}
+          onSave={save}
+          onMove={() => setColumnOpen(true)}
+          onDelete={() => setDeleteVisible(true)}
+        />
+        {sheets}
+      </>
+    );
   }
 
   return (
