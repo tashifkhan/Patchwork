@@ -2,6 +2,22 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.9.2] - 2026-11-24
+
+Offline gets out of the way, the calendar keeps its header in place, and Android boards stack like your lists.
+
+### Added
+
+- The offline banner on Tasks has a close button. An Offline chip next to the task count stays, and tapping it brings the banner back.
+- Patchwork checks the connection in the background while offline. Once it's back, it sends saved changes and refreshes every list without a tap.
+
+### Changed
+
+- The Android calendar keeps the day, month and week fixed, and only the hours scroll. The timeline covers the whole day and opens with the now line in view. Tapping a day no longer scrolls the header away.
+- Android Boards shows boards as a stack of cards like My lists, with starred and recently opened boards first. The Starred, Recent, Jira and Deck tiles are gone.
+- Labels, section headers and chips no longer use all caps.
+- Android loading screens show the morphing shapes without the circle behind them.
+
 ## [1.9.1] - 2026-11-24
 
 Brain dumps keep their raw text, sync problems read in plain words, and the navbar takes Paisa's options.

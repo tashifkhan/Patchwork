@@ -332,7 +332,7 @@ export default function BrainDumpScreen() {
                           <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.selectionBg, alignItems: 'center', justifyContent: 'center' }}>
                             <Text style={{ fontSize: 15, fontWeight: '700', color: colors.onSelectionBg, lineHeight: 17 }}>{d}</Text>
                             <Text style={{ fontSize: 10, fontWeight: '600', color: colors.onSelectionBg, lineHeight: 12 }}>
-                              {new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(2024, mo - 1, 1)).toUpperCase()}
+                              {new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(2024, mo - 1, 1))}
                             </Text>
                           </View>
                           <View style={{ flex: 1, gap: 2 }}>

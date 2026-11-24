@@ -8,6 +8,7 @@ import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { ApiError } from '@/api/client';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 
+import { BoardStack } from '@/components/boards/board-stack';
 import { BoardTile } from '@/components/boards/board-tile';
 import { READABLE_MAX_WIDTH } from '@/hooks/use-adaptive-layout';
 import { GroupedCard, useSettingsColors } from '@/components/settings/settings-list';
@@ -15,8 +16,6 @@ import { GlassIconButton } from '@/components/ui/glass-button';
 import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBanner } from '@/components/ui/status-banner';
-import { ToneTile } from '@/components/tasks/smart-tiles';
-import { containerTone } from '@/lib/smart-lists';
 import { LoadingState } from '@/components/ui/loading';
 import type { BoardSummary } from '@/features/boards/model';
 import { useBoardSummaries } from '@/hooks/use-boards';
@@ -27,7 +26,7 @@ import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
 import { Text, TextInput, View } from '@/tw';
-import { ELASTIC_BUTTON, ELASTIC_CARD, ELASTIC_ROW, ElasticView, RiseIn } from '@/components/ui/motion';
+import { ELASTIC_BUTTON, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 
 const IOS = Platform.OS === 'ios';
 
@@ -42,9 +41,6 @@ const SF_FOR: Record<string, SFSymbol> = {
   'table-column-plus-after': 'rectangle.badge.plus',
   'open-in-new': 'arrow.up.right.square',
 };
-
-const OUTER_RADIUS = 24;
-const INNER_RADIUS = 6;
 
 function needsCalDavAccount(error: unknown) {
   if (!(error instanceof ApiError)) return false;
@@ -78,8 +74,6 @@ export default function BoardsScreen() {
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const [pulling, setPulling] = useState(false);
-  /** Android tile filter: one group of boards, or every group when null. */
-  const [section, setSection] = useState<BoardSection | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -92,24 +86,30 @@ export default function BoardsScreen() {
   const byRef = useMemo(() => new Map(summaries.boards.map((board) => [board.ref, board])), [summaries.boards]);
   const starred = favorites.flatMap((ref) => byRef.get(ref) ?? []);
   const recentAll = recents.flatMap((ref) => byRef.get(ref) ?? []);
-  // A chosen Recent tile shows the whole history; the overview keeps three.
-  const recent = section === 'recent' ? recentAll : recentAll.slice(0, 3);
+  const recent = recentAll.slice(0, 3);
   const jiraBoards = filtered.filter((board) => board.source === 'jira');
   const deckBoards = filtered.filter((board) => board.source === 'deck');
   const bothSources = jiraBoards.length > 0 && deckBoards.length > 0;
-  const sectionCount =
-    section === 'starred'
-      ? starred.length
-      : section === 'recent'
-        ? recentAll.length
-        : section === 'jira'
-          ? jiraBoards.length
-          : deckBoards.length;
+  // Android shows one stack: starred, then recently opened, then the rest.
+  const stacked = [...new Map([...starred, ...recentAll, ...filtered].map((board) => [board.ref, board])).values()];
 
   const deckNeedsAccount = needsCalDavAccount(summaries.deckError);
   // iOS shows a failed Deck load as the empty state itself, not a banner above it.
   const deckUnreachable = IOS && !!summaries.deckError && !deckNeedsAccount;
   const noBoards = summaries.boards.length === 0;
+
+  const jiraConnect = jiraState.status === 'disconnected' ? (
+    <View style={{ paddingTop: 8 }}>
+      <StatusBanner
+        tone="info"
+        icon="jira"
+        sf="square.stack.3d.up"
+        title="Bring in your Jira boards"
+        body="Sprints and issues show up here next to your Deck boards."
+        primary={{ label: 'Connect', onPress: () => router.push('/settings/jira') }}
+      />
+    </View>
+  ) : null;
 
   function open(board: BoardSummary) {
     haptics.tap();
@@ -156,16 +156,10 @@ export default function BoardsScreen() {
         </View>
       ) : null}
       {!searching && !noBoards ? (
-        <BoardTiles
-          counts={{
-            starred: starred.length,
-            recent: recentAll.length,
-            jira: jiraBoards.length,
-            deck: deckBoards.length,
-          }}
-          selected={section}
-          onSelect={setSection}
-        />
+        <Text style={{ fontSize: 15, color: colors.text2, marginTop: -12 }}>
+          {summaries.boards.length} {summaries.boards.length === 1 ? 'board' : 'boards'}
+          {starred.length > 0 ? ` · ${starred.length} starred` : ''}
+        </Text>
       ) : null}
     </View>
   );
@@ -323,6 +317,23 @@ export default function BoardsScreen() {
           IOS ? null : (
             <View style={{ flex: 1, justifyContent: 'center', paddingVertical: 48 }}>{emptyState}</View>
           )
+        ) : !IOS ? (
+          query.trim() && filtered.length === 0 ? (
+            <Text style={{ fontSize: 15, color: colors.text2, marginTop: 24, textAlign: 'center' }}>No boards match</Text>
+          ) : (
+            <>
+              <View style={{ paddingTop: 16 }}>
+                <BoardStack
+                  boards={query.trim() ? filtered : stacked}
+                  favorites={favorites}
+                  recents={recents}
+                  onOpen={open}
+                  onToggleFavorite={toggleFavorite}
+                />
+              </View>
+              {jiraConnect}
+            </>
+          )
         ) : query.trim() ? (
           <BoardGroup
             title={filtered.length === 0 ? 'No boards match' : 'Results'}
@@ -333,7 +344,7 @@ export default function BoardsScreen() {
           />
         ) : (
           <>
-            {(section == null || section === 'starred') && starred.length > 0 ? (
+            {starred.length > 0 ? (
               <BoardGroup
                 title="Starred"
                 boards={starred}
@@ -342,8 +353,7 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {section != null && sectionCount === 0 ? <SectionEmpty text={SECTION_EMPTY[section]} /> : null}
-            {(section == null || section === 'recent') && recent.length > 0 ? (
+            {recent.length > 0 ? (
               <BoardGroup
                 title="Recently viewed"
                 boards={recent}
@@ -352,7 +362,7 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {(section == null || section === 'jira') && jiraBoards.length > 0 ? (
+            {jiraBoards.length > 0 ? (
               <BoardGroup
                 title={bothSources ? 'Jira' : 'All boards'}
                 boards={jiraBoards}
@@ -361,7 +371,7 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {(section == null || section === 'deck') && deckBoards.length > 0 ? (
+            {deckBoards.length > 0 ? (
               <BoardGroup
                 title={bothSources ? 'Deck' : 'All boards'}
                 boards={deckBoards}
@@ -370,18 +380,7 @@ export default function BoardsScreen() {
                 onToggleFavorite={toggleFavorite}
               />
             ) : null}
-            {jiraState.status === 'disconnected' ? (
-              <View style={{ paddingTop: 8 }}>
-                <StatusBanner
-                  tone="info"
-                  icon="jira"
-                  sf="square.stack.3d.up"
-                  title="Bring in your Jira boards"
-                  body="Sprints and issues show up here next to your Deck boards."
-                  primary={{ label: 'Connect', onPress: () => router.push('/settings/jira') }}
-                />
-              </View>
-            ) : null}
+            {jiraConnect}
           </>
         )}
       </KeyboardScrollView>
@@ -411,11 +410,11 @@ function BoardGroup({
 }) {
   const { colors } = useTheme();
   const grouped = useSettingsColors();
-  if (IOS) {
-    // iOS inset-grouped list: one rounded card, hairlines inset to the text.
-    return (
+  // iOS only (Android shows a BoardStack): an inset-grouped list, one
+  // rounded card with hairlines inset to the text.
+  return (
       <View style={{ paddingTop: 22, gap: 7 }}>
-        <Text style={{ fontSize: 13, color: colors.text2, paddingHorizontal: 16, textTransform: 'uppercase' }}>
+        <Text style={{ fontSize: 13, color: colors.text2, paddingHorizontal: 16 }}>
           {title}
         </Text>
         <GroupedCard radius={26}>
@@ -480,83 +479,6 @@ function BoardGroup({
         </GroupedCard>
       </View>
     );
-  }
-  return (
-    <View style={{ paddingTop: 16, gap: 10 }}>
-      <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text2, paddingHorizontal: 4 }}>{title}</Text>
-      {/* M3 Expressive segmented list: one card per row, 2dp apart. */}
-      <View style={{ gap: 2 }}>
-        {boards.map((board, index) => {
-          const top = index === 0 ? OUTER_RADIUS : INNER_RADIUS;
-          const bottom = index === boards.length - 1 ? OUTER_RADIUS : INNER_RADIUS;
-          const starredBoard = favorites.includes(board.ref);
-          return (
-            <View
-              key={board.ref}
-              style={{
-                overflow: 'hidden',
-                backgroundColor: colors.bg2,
-                borderTopLeftRadius: top,
-                borderTopRightRadius: top,
-                borderBottomLeftRadius: bottom,
-                borderBottomRightRadius: bottom,
-              }}>
-              <ElasticView {...ELASTIC_CARD}>
-              <Pressable
-                onPress={() => onOpen(board)}
-                accessibilityRole="button"
-                accessibilityLabel={`${board.title}, ${board.subtitle}`}
-                android_ripple={{ color: colors.separator }}
-                style={({ pressed }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 16,
-                  minHeight: 80,
-                  paddingLeft: 20,
-                  paddingRight: 8,
-                  opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
-                })}>
-                <BoardTile board={board} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text numberOfLines={1} style={{ fontSize: 17, color: colors.text }}>
-                    {board.title}
-                  </Text>
-                  <Text numberOfLines={1} style={{ fontSize: 14, color: colors.text2 }}>
-                    {board.subtitle}
-                  </Text>
-                </View>
-                <ElasticView {...ELASTIC_BUTTON}>
-                <Pressable
-                  onPress={() => {
-                    haptics.toggle(!starredBoard);
-                    onToggleFavorite(board.ref);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={starredBoard ? `Unstar ${board.title}` : `Star ${board.title}`}
-                  hitSlop={4}
-                  style={({ pressed }) => ({
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: pressed ? colors.bg3 : 'transparent',
-                  })}>
-                  <MaterialCommunityIcons
-                    name={starredBoard ? 'star' : 'star-outline'}
-                    size={24}
-                    color={starredBoard ? colors.yellow : colors.text2}
-                  />
-                </Pressable>
-                </ElasticView>
-              </Pressable>
-              </ElasticView>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
 }
 
 function IconButton({
@@ -593,76 +515,6 @@ function IconButton({
       <MaterialCommunityIcons name={icon} size={26} color={colors.text} />
     </Pressable>
     </ElasticView>
-  );
-}
-
-type BoardSection = 'starred' | 'recent' | 'jira' | 'deck';
-
-const SECTION_TILES: { key: BoardSection; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'] }[] = [
-  { key: 'starred', label: 'Starred', icon: 'star-outline' },
-  { key: 'recent', label: 'Recent', icon: 'history' },
-  { key: 'jira', label: 'Jira', icon: 'jira' },
-  { key: 'deck', label: 'Deck', icon: 'view-column-outline' },
-];
-
-/**
- * Android: the Tasks screen's tonal tiles, for boards. Tapping one shows
- * just that group below; tapping it again brings every group back.
- */
-function BoardTiles({
-  counts,
-  selected,
-  onSelect,
-}: {
-  counts: Record<BoardSection, number>;
-  selected: BoardSection | null;
-  onSelect: (section: BoardSection | null) => void;
-}) {
-  const { colors, scheme } = useTheme();
-  const dark = scheme === 'dark';
-  const tone: Record<BoardSection, { fill: string; ink: string }> = {
-    starred: containerTone(colors.yellow, dark),
-    recent: { fill: colors.primaryContainer, ink: colors.onPrimaryContainer },
-    jira: containerTone('#2684FF', dark),
-    deck: { fill: colors.selectionBg, ink: colors.onSelectionBg },
-  };
-  const rows = [SECTION_TILES.slice(0, 2), SECTION_TILES.slice(2, 4)];
-  return (
-    <View style={{ gap: 10 }}>
-      {rows.map((row, r) => (
-        <View key={r} style={{ flexDirection: 'row', gap: 10 }}>
-          {row.map((tile, c) => (
-            <RiseIn key={tile.key} index={r * 2 + c} style={{ flex: 1 }}>
-              <ToneTile
-                icon={tile.icon}
-                label={tile.label}
-                count={counts[tile.key]}
-                fill={tone[tile.key].fill}
-                ink={tone[tile.key].ink}
-                selected={selected === tile.key}
-                onPress={() => onSelect(selected === tile.key ? null : tile.key)}
-              />
-            </RiseIn>
-          ))}
-        </View>
-      ))}
-    </View>
-  );
-}
-
-const SECTION_EMPTY: Record<BoardSection, string> = {
-  starred: 'Star a board to keep it here.',
-  recent: 'Boards you open show up here.',
-  jira: 'No Jira boards yet. Connect Jira in Settings.',
-  deck: 'No Deck boards yet. Tap + to make one.',
-};
-
-function SectionEmpty({ text }: { text: string }) {
-  const { colors } = useTheme();
-  return (
-    <Text style={{ paddingTop: 24, paddingHorizontal: 4, fontSize: 15, color: colors.text2, textAlign: 'center' }}>
-      {text}
-    </Text>
   );
 }
 

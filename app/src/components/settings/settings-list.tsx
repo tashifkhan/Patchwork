@@ -339,7 +339,6 @@ export function SettingsSectionHeader({
                 fontSize: 13,
                 lineHeight: 18,
                 letterSpacing: -0.08,
-                textTransform: 'uppercase',
                 color: colors.text2,
               }
             : {

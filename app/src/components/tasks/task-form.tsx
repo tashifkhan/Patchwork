@@ -499,7 +499,6 @@ function Field({
             fontWeight: '600',
             color: colors.accent,
             letterSpacing: 0.3,
-            textTransform: 'uppercase',
           }}>
           {label}
         </Text>

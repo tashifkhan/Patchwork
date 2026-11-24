@@ -8,13 +8,14 @@ import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
 
 import type { ListHeroProps } from './list-hero-types';
+import { OfflineChip } from './offline-chip';
 
 /**
  * Android: the list name as a Material 3 Expressive selector: a large title
  * with a tonal chevron and the count under it. The whole row gives under a
  * finger. Tapping opens My lists, the app's one list switcher.
  */
-export function ListHero({ title, subtitle, onPress }: ListHeroProps) {
+export function ListHero({ title, subtitle, onPress, onOfflinePress }: ListHeroProps) {
   const { colors } = useTheme();
   const press = useElasticPress({ maxStretch: 0.02, maxTranslate: 1.5, pressedScale: 0.97, releaseOnDrag: true });
 
@@ -57,9 +58,12 @@ export function ListHero({ title, subtitle, onPress }: ListHeroProps) {
             </View>
             {/* Keyed by its text: Android can leave the old count half-drawn when
                 it changes in place inside the elastic (scaled) row. */}
-            <Text key={subtitle} numberOfLines={1} style={{ fontSize: 14, color: colors.text2 }}>
-              {subtitle}
-            </Text>
+            <View className="flex-row items-center" style={{ gap: 8 }}>
+              <Text key={subtitle} numberOfLines={1} style={{ flexShrink: 1, fontSize: 14, color: colors.text2 }}>
+                {subtitle}
+              </Text>
+              {onOfflinePress ? <OfflineChip onPress={onOfflinePress} /> : null}
+            </View>
           </View>
       </Pressable>
     </Animated.View>

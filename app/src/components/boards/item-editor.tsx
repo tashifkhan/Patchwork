@@ -271,7 +271,6 @@ export function EditorHeading({ title }: { title: string }) {
           paddingHorizontal: 4,
           fontSize: 13,
           color: colors.text2,
-          textTransform: 'uppercase',
         }}>
         {title}
       </Text>

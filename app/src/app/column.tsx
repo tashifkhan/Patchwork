@@ -74,7 +74,7 @@ export default function StackScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="gap-2 px-5 pt-4">
-          <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Column name</Text>
+          <Text className="text-sf-text-2 px-1 text-xs font-semibold">Column name</Text>
           <TextInput
             value={title}
             onChangeText={setTitle}

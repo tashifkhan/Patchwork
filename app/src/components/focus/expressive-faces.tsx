@@ -213,8 +213,8 @@ export function StopwatchFace({
             {pad(seconds)}.{pad(hundredths)}
           </Text>
         </View>
-        <Text style={{ fontSize: 11, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '600', letterSpacing: 1.5, color: colors.text2, opacity: 0.65 }}>
-          {running ? 'RUNNING' : ms > 0 ? 'PAUSED' : 'STOPWATCH'}
+        <Text style={{ fontSize: 11, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '600', letterSpacing: 0.2, color: colors.text2, opacity: 0.65 }}>
+          {running ? 'Running' : ms > 0 ? 'Paused' : 'Stopwatch'}
         </Text>
       </View>
     </Face>
@@ -272,7 +272,7 @@ export function TimerFace({
   size: number;
   /** "24:56". */
   text: string;
-  /** "FOCUS", "BREAK", "PAUSED", "READY". */
+  /** "Focus", "Break", "Paused", "Ready". */
   caption: string;
   /** Fraction of the block still left, 0–1. */
   progress: number;
@@ -325,7 +325,7 @@ export function TimerFace({
             letterSpacing: 0.5,
           }}
         />
-        <Text style={{ fontSize: 11, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '600', letterSpacing: 1.8, color: colors.text2, opacity: 0.65 }}>
+        <Text style={{ fontSize: 11, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '600', letterSpacing: 0.2, color: colors.text2, opacity: 0.65 }}>
           {caption}
         </Text>
       </View>

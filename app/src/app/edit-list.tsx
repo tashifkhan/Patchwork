@@ -57,7 +57,7 @@ export default function EditListScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="gap-2 px-5 pt-4">
-          <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">List name</Text>
+          <Text className="text-sf-text-2 px-1 text-xs font-semibold">List name</Text>
           <TextInput
             value={title}
             onChangeText={setTitle}

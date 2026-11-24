@@ -75,7 +75,7 @@ export function MoveToDeck({ task, inline = false }: { task: Task; inline?: bool
       {inline ? null : (
         <View className="flex-row items-center gap-1.5 px-1">
           <MaterialCommunityIcons name="rectangle-outline" size={14} color={colors.text2} />
-          <Text className="text-sf-text-2 text-xs font-semibold uppercase">Demote to Deck</Text>
+          <Text className="text-sf-text-2 text-xs font-semibold">Demote to Deck</Text>
         </View>
       )}
 

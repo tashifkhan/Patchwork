@@ -14,8 +14,8 @@ import { haptics } from '@/lib/haptics';
 import { Text, TextInput, View } from '@/tw';
 
 /**
- * One board column, Jira-app style: a rounded surface with an uppercase
- * "TO DO  8" header, its cards scrolling inside, and an inline Create row
+ * One board column, Jira-app style: a rounded surface with a
+ * "To Do  8" header, its cards scrolling inside, and an inline Create row
  * pinned to the bottom.
  *
  * With `drag`, long-press lifts a card so it can be dropped anywhere on the

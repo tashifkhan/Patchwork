@@ -32,6 +32,7 @@ import { TagFilterTabs } from '@/components/tasks/tag-chip-list';
 import { TaskDetailView, TaskPaneContext, type TaskPane } from '@/components/tasks/task-detail';
 import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero } from '@/components/tasks/list-hero';
+import { useIsOffline, useOfflineBannerStore } from '@/hooks/use-offline';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { SmartTiles } from '@/components/tasks/smart-tiles';
 import { ConnectedButtonGroup } from '@/components/ui/button-group';
@@ -127,6 +128,8 @@ export default function TasksScreen() {
   const bulk = useBulkTaskAction();
   const fabBottom = useTabBarFabOffset();
   const taskWarnings = useSyncStatusStore((state) => state.taskWarnings);
+  const offline = useIsOffline();
+  const setOfflineDismissed = useOfflineBannerStore((s) => s.setDismissed);
 
   const selectedListId = useUiStore((s) => s.selectedListId);
   const selectedTag = useUiStore((s) => s.selectedTag);
@@ -722,6 +725,7 @@ export default function TasksScreen() {
                 title={heroTitle}
                 subtitle={heroSubtitle}
                 kind={repoFilter ? 'repo' : selectedList ? 'list' : 'all'}
+                onOfflinePress={offline ? () => setOfflineDismissed(false) : undefined}
                 // One list switcher everywhere: My lists, the same screen the tiles open.
                 onPress={() => {
                   if (closeCard()) return;

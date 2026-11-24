@@ -77,7 +77,7 @@ export default function NewBoardScreen() {
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{ paddingBottom: 32 }}>
           <View className="gap-2 px-5 pt-4">
-            <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Board name</Text>
+            <Text className="text-sf-text-2 px-1 text-xs font-semibold">Board name</Text>
             <TextInput
               value={title}
               onChangeText={setTitle}
@@ -99,7 +99,7 @@ export default function NewBoardScreen() {
 
           {accounts.length > 1 ? (
             <View className="gap-2 px-5 pt-5">
-              <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Account</Text>
+              <Text className="text-sf-text-2 px-1 text-xs font-semibold">Account</Text>
               <View className="flex-row flex-wrap gap-2">
                 {accounts.map((account) => {
                   const selected = account.id === accountId;

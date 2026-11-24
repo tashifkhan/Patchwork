@@ -7,6 +7,7 @@ import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
 
 import type { ListHeroKind, ListHeroProps } from './list-hero-types';
+import { OfflineChip } from './offline-chip';
 
 const GLYPH: Record<ListHeroKind, SFSymbol> = {
   all: 'tray.full.fill',
@@ -19,7 +20,7 @@ const GLYPH: Record<ListHeroKind, SFSymbol> = {
  * shows every list grouped by account, GitHub repos, and the list actions,
  * with a check on the current one. "All lists" opens the sheet with counts.
  */
-export function ListHero({ title, subtitle, kind = 'all', onPress, menu }: ListHeroProps) {
+export function ListHero({ title, subtitle, kind = 'all', onPress, menu, onOfflinePress }: ListHeroProps) {
   const { colors } = useTheme();
   const accounts = menu ? [...new Set(menu.lists.map((l) => l.account_name).filter(Boolean))] : [];
   const grouped = accounts.length > 1;
@@ -87,7 +88,10 @@ export function ListHero({ title, subtitle, kind = 'all', onPress, menu }: ListH
           <Button onPress={onPress}>{label}</Button>
         )}
       </Host>
-      <Text style={{ fontSize: 15, color: colors.text2, marginTop: 2, marginLeft: 36 }}>{subtitle}</Text>
+      <View className="flex-row items-center" style={{ gap: 8, marginTop: 2, marginLeft: 36 }}>
+        <Text style={{ fontSize: 15, color: colors.text2 }}>{subtitle}</Text>
+        {onOfflinePress ? <OfflineChip onPress={onOfflinePress} /> : null}
+      </View>
     </View>
   );
 }

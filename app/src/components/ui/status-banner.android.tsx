@@ -19,7 +19,7 @@ const LAYOUT = LinearTransition.springify().damping(EXPRESSIVE.entrance.damping)
  * a tonal icon disc, supporting text, and actions on a trailing row.
  * Raw error text hides behind "Details" so the banner stays readable.
  */
-export function StatusBanner({ tone, icon, title, body, detail, primary, secondary }: StatusBannerProps) {
+export function StatusBanner({ tone, icon, title, body, detail, primary, secondary, onDismiss }: StatusBannerProps) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const color = toneColor(colors, tone);
@@ -64,6 +64,20 @@ export function StatusBanner({ tone, icon, title, body, detail, primary, seconda
                 </Animated.View>
               ) : null}
             </View>
+            {onDismiss ? (
+              <Pressable
+                onPress={() => {
+                  haptics.tap();
+                  onDismiss();
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+                android_ripple={{ color: withAlpha(colors.text, 0.12), borderless: true, radius: 20 }}
+                style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginTop: -4, marginRight: -6 }}>
+                <MaterialCommunityIcons name="close" size={20} color={colors.text2} />
+              </Pressable>
+            ) : null}
           </Animated.View>
 
           <View className="flex-row items-center justify-end" style={{ gap: 8 }}>

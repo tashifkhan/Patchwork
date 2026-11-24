@@ -319,8 +319,8 @@ function Section({ title, detail, children }: { title: string; detail?: string; 
   return (
     <Animated.View layout={expandLayout()} style={{ gap: 8 }}>
       <View className="flex-row items-center" style={{ paddingHorizontal: 4 }}>
-        <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', letterSpacing: 0.4, color: colors.text2 }}>
-          {title.toUpperCase()}
+        <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: colors.text2 }}>
+          {title}
         </Text>
         {detail ? <Text style={{ fontSize: 13, color: colors.text3 }}>{detail}</Text> : null}
       </View>

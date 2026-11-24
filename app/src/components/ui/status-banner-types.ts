@@ -23,6 +23,8 @@ export interface StatusBannerProps {
   detail?: string | null;
   primary?: StatusAction;
   secondary?: StatusAction;
+  /** Shows a close button. */
+  onDismiss?: () => void;
 }
 
 export function toneColor(colors: ThemeColors, tone: StatusTone) {

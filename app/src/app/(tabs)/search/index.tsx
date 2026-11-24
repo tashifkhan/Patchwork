@@ -435,7 +435,7 @@ export default function SearchScreen() {
             ) : null}
 
             {hasQuery && totalResults > 0 ? (
-              <Text className="text-sf-text-3 px-1 text-xs font-semibold uppercase tracking-wide">
+              <Text className="text-sf-text-3 px-1 text-xs font-semibold">
                 {totalResults} {totalResults === 1 ? 'match' : 'matches'}
               </Text>
             ) : null}
@@ -795,7 +795,7 @@ function ResultRowView({
           />
 
           <View className="flex-row items-center gap-1">
-            <Text className="text-xs font-semibold uppercase" style={{ color: tint, letterSpacing: 0.4 }}>
+            <Text className="text-xs font-semibold" style={{ color: tint }}>
               {meta.label}
             </Text>
             <Text className="text-sf-text-3 text-xs">·</Text>

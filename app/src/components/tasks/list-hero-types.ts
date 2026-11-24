@@ -21,4 +21,6 @@ export interface ListHeroProps {
   onPress: () => void;
   /** iOS: the lists for the native pull-down menu. Without it, a tap opens My lists. */
   menu?: ListHeroMenu;
+  /** Shows the Offline chip after the subtitle; tapping it calls this. */
+  onOfflinePress?: () => void;
 }

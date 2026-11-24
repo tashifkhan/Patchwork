@@ -65,7 +65,7 @@ export function ListPicker({
               {(grouped ? accounts : [undefined]).map((account) => (
                 <View key={account ?? 'all'}>
                   {grouped ? (
-                    <Text className="text-sf-text-2 px-6 pb-1 pt-3 text-xs font-semibold uppercase">
+                    <Text className="text-sf-text-2 px-6 pb-1 pt-3 text-xs font-semibold">
                       {account}
                     </Text>
                   ) : null}

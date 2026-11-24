@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 
+import { useOfflineBannerStore } from '@/hooks/use-offline';
 import { StatusBanner } from '@/components/ui/status-banner';
 import type { StatusBannerProps } from '@/components/ui/status-banner-types';
 import { useConnectivityStore } from '@/lib/connectivity';
@@ -17,6 +18,7 @@ const OFFLINE_PREFIX = "You're offline";
  * sources that failed, and to-dos waiting in the outbox. The most pressing
  * one wins, so the list never stacks two cards that say the same thing.
  * Order: rejected items, offline, a failed load, partial sync, pending.
+ * The offline one can be closed; it syncs in the background either way.
  */
 export function SyncBanner({
   warnings,
@@ -33,6 +35,8 @@ export function SyncBanner({
   const entries = useOutboxStore((s) => s.entries);
   const probeOffline = useConnectivityStore((s) => s.quality === 'offline');
   const [busy, setBusy] = useState(false);
+  const dismissed = useOfflineBannerStore((s) => s.dismissed);
+  const setDismissed = useOfflineBannerStore((s) => s.setDismissed);
 
   const retry = () => {
     if (busy) return;
@@ -66,6 +70,8 @@ export function SyncBanner({
       secondary: { ...outbox, label: 'Review' },
     };
   } else if (offline) {
+    // Closed: the Offline chip by the title says it instead, and taps reopen this.
+    if (dismissed) return null;
     props = {
       tone: 'warning',
       icon: 'cloud-off-outline',
@@ -77,6 +83,7 @@ export function SyncBanner({
           : 'Showing your last sync. Anything new stays on this device until you reconnect.',
       primary: { label: 'Try again', onPress: retry, busy },
       secondary: pending > 0 ? outbox : undefined,
+      onDismiss: () => setDismissed(true),
     };
   } else if (error) {
     const copy = describeSyncError(error, 'Your to-dos');

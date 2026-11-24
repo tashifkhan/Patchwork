@@ -14,6 +14,7 @@ import { ThemeProvider } from '@/components/theme/provider';
 import { KeyboardProvider } from '@/components/ui/keyboard';
 import { AppLockGate } from '@/components/app-lock';
 import { ConfettiHost } from '@/components/ui/confetti';
+import { useReconnectSync } from '@/hooks/use-offline';
 import { useTasks } from '@/hooks/use-tasks';
 import { loadCustomFonts } from '@/lib/fonts';
 import { DURATION } from '@/lib/motion';
@@ -205,6 +206,9 @@ function NativeRuntimeCoordinator() {
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') initializeGitHub();
   }, [initializeGitHub]);
+
+  // Offline: keep showing the cache, and resync on our own once it's back.
+  useReconnectSync();
 
   // Send anything saved offline: at launch, on return to the app, and every
   // 30 seconds while something is still waiting.

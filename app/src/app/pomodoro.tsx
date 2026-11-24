@@ -191,7 +191,7 @@ export default function PomodoroScreen() {
                 <TimerFace
                   size={faceSize}
                   text={formatClock(display)}
-                  caption={paused ? 'PAUSED' : state.phase === 'work' ? 'FOCUS' : state.phase === 'break' ? 'BREAK' : 'READY'}
+                  caption={paused ? 'Paused' : state.phase === 'work' ? 'Focus' : state.phase === 'break' ? 'Break' : 'Ready'}
                   progress={state.phase === 'idle' ? 1 : 1 - progress}
                   running={(state.phase === 'work' || state.phase === 'break') && !paused}
                   color={tint}
@@ -240,7 +240,7 @@ export default function PomodoroScreen() {
           <>
         <View className="items-center gap-2" style={{ paddingTop: running ? 16 : 0 }}>
           <Swap swapKey={`${label}${paused}`}>
-            <Text className="text-sm font-semibold uppercase" style={{ letterSpacing: 1.2, color: tint }}>
+            <Text className="text-sm font-semibold" style={{ color: tint }}>
               {label}
               {paused ? ' · Paused' : ''}
             </Text>

@@ -1,5 +1,4 @@
 import {
-  ContainedLoadingIndicator,
   Host,
   LinearWavyProgressIndicator,
   LoadingIndicator,
@@ -18,10 +17,8 @@ import type { LoadingBarProps, LoadingStateProps } from './loading';
 /**
  * Material 3 Expressive loading state.
  *
- * `ContainedLoadingIndicator` already paints its own circular container, so it
- * is rendered bare at the size we want. The old version wrapped it in a second
- * `primaryContainer` circle and pinned the Compose view to 64px inside a 96px
- * bubble, which read as a shape floating inside a ring.
+ * The bare morphing `LoadingIndicator`: just the shapes, in the accent
+ * colour, with no circle behind them.
  *
  * Every Compose `Host` here has an explicit RN size and a matching Compose
  * `size`/`fillMaxWidth` modifier. With `matchContents` the host shrinks to
@@ -38,7 +35,7 @@ export function LoadingState({
   // One loader at a time: the spinner already says "working", so the
   // linear track is opt-in rather than stacked under every full-screen state.
   const bar = showBar ?? false;
-  const indicator = fullScreen ? 96 : 80;
+  const indicator = fullScreen ? 72 : 60;
 
   // Small spring "pop" on mount so the indicator arrives instead of blinking in.
   const scale = useSharedValue(0.6);
@@ -66,11 +63,7 @@ export function LoadingState({
       ]}>
       <Animated.View style={popStyle}>
         <Host style={{ width: indicator, height: indicator }}>
-          <ContainedLoadingIndicator
-            color={colors.onPrimaryContainer}
-            containerColor={colors.primaryContainer}
-            modifiers={[size(indicator, indicator)]}
-          />
+          <LoadingIndicator color={colors.accent} modifiers={[size(indicator, indicator)]} />
         </Host>
       </Animated.View>
 

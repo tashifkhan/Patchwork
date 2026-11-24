@@ -1066,9 +1066,9 @@ function AiIconButton({
 function Heading({ title }: { title: string }) {
   const { colors } = useTheme();
   if (IOS) {
-    // iOS grouped-list section header: small, uppercase, secondary.
+    // iOS grouped-list section header: small, secondary.
     return (
-      <Text style={{ marginTop: 28, paddingBottom: 8, paddingHorizontal: 4, fontSize: 13, color: colors.text2, textTransform: 'uppercase' }}>
+      <Text style={{ marginTop: 28, paddingBottom: 8, paddingHorizontal: 4, fontSize: 13, color: colors.text2 }}>
         {title}
       </Text>
     );

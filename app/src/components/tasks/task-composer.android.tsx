@@ -672,7 +672,7 @@ function CategoryChip({
             <MaterialCommunityIcons name="check" size={18} color={ink} />
           </Animated.View>
           {icon ? <MaterialCommunityIcons name={icon} size={18} color={colors.text2} style={{ marginRight: 4 }} /> : null}
-          <Text style={{ fontSize: 14, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase', color: ink }}>{label}</Text>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: ink }}>{label}</Text>
         </Animated.View>
       </Pressable>
     </Animated.View>

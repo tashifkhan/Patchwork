@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, type ScrollView as RNScrollView, View as RNView } from 'react-native';
+import { Pressable, ScrollView, type ScrollView as RNScrollView } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Extrapolation,
@@ -25,7 +25,6 @@ import { M3MonthCard, type DayMark } from '@/components/calendar/m3-month';
 import { useTheme } from '@/components/theme/context';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
-import { Frost, FrostTarget } from '@/components/ui/frost';
 import { RiseIn } from '@/components/ui/motion';
 import { haptics } from '@/lib/haptics';
 import { expandLayout, PAISA } from '@/lib/motion';
@@ -40,6 +39,8 @@ import { type DayItem, keyToDate, useCalendarModel, weekOf } from './use-calenda
 const HOUR = 64;
 const LABEL_WIDTH = 56;
 const BAR_HEIGHT = 64;
+/** Room above midnight so the first hour line isn't flush with the edge. */
+const TIMELINE_PAD = 12;
 const REDUCE = { reduceMotion: ReduceMotion.System } as const;
 
 const monthTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
@@ -54,19 +55,21 @@ const hourLabel = new Intl.DateTimeFormat(undefined, { hour: 'numeric' });
  * each time block as a soft pastel card in its list's colour, a red now line,
  * and a play button that starts the focus timer for the block. Tapping an
  * empty hour starts a new block there. The month picker opens from the month
- * name. The top bar is frosted glass over the page.
+ * name. The header stays put; only the hours scroll, opening on the now line.
  */
 export function CalendarScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const model = useCalendarModel();
   const { now, todayKey, selected, setSelected, selectedDate, mondayFirst, byDay, dayItems } = model;
-  const target = useRef<RNView | null>(null);
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const [showMonth, setShowMonth] = useState(false);
   const [month, setMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
   const [direction, setDirection] = useState<1 | -1>(1);
-  const [timelineY, setTimelineY] = useState<number | null>(null);
+  /** Height of the scrolling timeline, to place the now line a third of the way down. */
+  const [viewport, setViewport] = useState(0);
+  /** Bumped on every day tap, so tapping the current day still recenters. */
+  const [recenter, setRecenter] = useState(0);
 
   const timed = dayItems.filter((it) => it.block);
   const untimed = dayItems.filter((it) => !it.block);
@@ -75,42 +78,30 @@ export function CalendarScreen() {
     0
   );
   const open = dayItems.filter((it) => !it.projected && !it.task.completed).length;
-  // The day starts at 8, or earlier when something on it (or now) is earlier.
-  const startHour = Math.min(
-    8,
-    ...timed.map((it) => it.block!.start.getHours()),
-    ...(selected === todayKey ? [now.getHours()] : [])
-  );
-
-  // When the day changes, bring its first block (or now, on today) into view.
-  // Not on opening: the title and week strip come first.
-  const opened = useRef(true);
+  // Only the timeline scrolls, and it holds the whole day so earlier events
+  // are a scroll up. On today, the now line sits a third of the way down;
+  // other days open at their first block, or 8 am.
+  const firstMinute = timed.length ? Math.min(...timed.map((it) => minuteOfDay(it.block!.start))) : 8 * 60;
+  const focusMinute = selected === todayKey ? minuteOfDay(now) : firstMinute;
+  const placed = useRef(false);
   useEffect(() => {
-    if (timelineY == null) return;
-    if (opened.current) {
-      opened.current = false;
-      return;
-    }
-    const firstHour = timed.length ? Math.min(...timed.map((it) => it.block!.start.getHours())) : 8;
-    const hour = selected === todayKey ? Math.max(0, now.getHours() - 1) : Math.max(0, firstHour - 1);
+    if (!viewport) return;
+    const y = Math.max(0, (focusMinute / 60) * HOUR + TIMELINE_PAD - (selected === todayKey ? viewport / 3 : 24));
+    const animated = placed.current;
+    placed.current = true;
     const frame = requestAnimationFrame(() =>
-      (scrollRef.current as unknown as RNScrollView | null)?.scrollTo({
-        y: Math.max(0, timelineY + (hour - startHour) * HOUR - 140),
-        animated: true,
-      })
+      (scrollRef.current as unknown as RNScrollView | null)?.scrollTo({ y, animated })
     );
     return () => cancelAnimationFrame(frame);
+    // Recenter on a new day, a tap on a day, or once the size is known; not every minute.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, timelineY]);
+  }, [selected, recenter, viewport]);
 
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.set(event.contentOffset.y);
   });
-  const smallTitle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [50, 90], [0, 1], Extrapolation.CLAMP),
-    transform: [{ translateY: interpolate(scrollY.value, [50, 90], [8, 0], Extrapolation.CLAMP) }],
-  }));
+  // A hairline over the timeline once it scrolls under the header.
   const hairline = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.value, [0, 24], [0, 1], Extrapolation.CLAMP),
   }));
@@ -127,6 +118,7 @@ export function CalendarScreen() {
   const select = (key: string) => {
     haptics.selection();
     setSelected(key);
+    setRecenter((n) => n + 1);
     const date = keyToDate(key);
     setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
   };
@@ -134,124 +126,125 @@ export function CalendarScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <FrostTarget target={target} style={{ flex: 1, backgroundColor: colors.bg }}>
+      {/* Top bar */}
+      <View style={{ marginTop: insets.top, height: BAR_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, gap: 4 }}>
+        <RoundIcon icon="arrow-left" label="Back" onPress={() => router.back()} />
+        <View style={{ flex: 1 }} />
+        {selected !== todayKey ? (
+          <Animated.View entering={FadeIn.duration(180)}>
+            <RoundIcon icon="calendar-today" label="Go to today" onPress={() => select(todayKey)} />
+          </Animated.View>
+        ) : null}
+      </View>
+
+      {/* Fixed header: the day, the month, the week and anytime to-dos. */}
+      <View>
+        {/* Title and Add task */}
+        <RiseIn style={{ paddingHorizontal: 20, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Animated.Text
+              key={title}
+              entering={FadeIn.duration(220)}
+              style={{ fontSize: 40, lineHeight: 46, fontWeight: '800', letterSpacing: -1, color: colors.text }}>
+              {title}
+            </Animated.Text>
+            <Text style={{ fontSize: 16, color: colors.text2, marginTop: 4 }}>
+              {selected === todayKey ? dateLine.format(selectedDate) : `${open} open`}
+              {selected === todayKey ? ` · ${open} open` : ''}{planned > 0 ? ` · ${formatLength(Math.round(planned))} planned` : ''}
+            </Text>
+          </View>
+          {model.canCreate ? <AddTaskPill onPress={() => model.create()} /> : null}
+        </RiseIn>
+
+        {/* Month name opens the month picker */}
+        <Pressable
+          onPress={() => {
+            haptics.tap();
+            setShowMonth((v) => !v);
+          }}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showMonth }}
+          accessibilityLabel={`${monthTitle.format(selectedDate)}. ${showMonth ? 'Hide' : 'Show'} month`}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 20, marginTop: 22, alignSelf: 'flex-start' }}>
+          <Text style={{ fontSize: 20, fontWeight: '500', color: colors.text }}>{monthTitle.format(selectedDate)}</Text>
+          <Chevron open={showMonth} />
+        </Pressable>
+        {showMonth ? (
+          <Animated.View entering={FadeIn.duration(200)} layout={expandLayout()} style={{ paddingHorizontal: 16, marginTop: 12 }}>
+            <M3MonthCard
+              month={month}
+              direction={direction}
+              mondayFirst={mondayFirst}
+              selected={selected}
+              todayKey={todayKey}
+              marks={marks}
+              onSelect={(key) => {
+                select(key);
+                setShowMonth(false);
+              }}
+              onShift={(months) => {
+                haptics.selection();
+                setDirection(months > 0 ? 1 : -1);
+                setMonth((m) => new Date(m.getFullYear(), m.getMonth() + months, 1));
+              }}
+              onJump={(next, selectKey) => {
+                setDirection(next.getTime() >= month.getTime() ? 1 : -1);
+                setMonth(next);
+                if (selectKey) select(selectKey);
+              }}
+            />
+          </Animated.View>
+        ) : null}
+
+        <WeekStrip
+          selected={selected}
+          todayKey={todayKey}
+          mondayFirst={mondayFirst}
+          busy={(key) => (byDay.get(key)?.length ?? 0) > 0}
+          onSelect={select}
+        />
+
+        {/* To-dos with no time of day */}
+        {untimed.length ? (
+          <Animated.View layout={expandLayout()} style={{ paddingHorizontal: 16, marginTop: 8, gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text2, paddingHorizontal: 4 }}>Anytime</Text>
+            {/* One row that scrolls sideways, so the timeline keeps its room. */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ marginHorizontal: -16 }}>
+              <View style={{ width: 8 }} />
+              {untimed.map((item, i) => (
+                <RiseIn key={`${item.task.id}-${item.projected}`} index={i} rise={6}>
+                  <AnytimeChip item={item} index={model.colorIndex.get(item.task.list_id) ?? 0} onOpen={model.open} onToggle={model.toggle} />
+                </RiseIn>
+              ))}
+              <View style={{ width: 8 }} />
+            </ScrollView>
+          </Animated.View>
+        ) : null}
+      </View>
+
+      {/* Only the hours scroll. */}
+      <View style={{ flex: 1, marginTop: 8 }} onLayout={(e) => setViewport(e.nativeEvent.layout.height)}>
         <Animated.ScrollView
           ref={scrollRef}
           onScroll={onScroll}
           scrollEventThrottle={16}
-          contentContainerStyle={{ paddingTop: insets.top + BAR_HEIGHT, paddingBottom: insets.bottom + 48 }}>
-          {/* Title and Add task */}
-          <RiseIn style={{ paddingHorizontal: 20, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Animated.Text
-                key={title}
-                entering={FadeIn.duration(220)}
-                style={{ fontSize: 40, lineHeight: 46, fontWeight: '800', letterSpacing: -1, color: colors.text }}>
-                {title}
-              </Animated.Text>
-              <Text style={{ fontSize: 16, color: colors.text2, marginTop: 4 }}>
-                {selected === todayKey ? dateLine.format(selectedDate) : `${open} open`}
-                {selected === todayKey ? ` · ${open} open` : ''}{planned > 0 ? ` · ${formatLength(Math.round(planned))} planned` : ''}
-              </Text>
-            </View>
-            {model.canCreate ? <AddTaskPill onPress={() => model.create()} /> : null}
-          </RiseIn>
-
-          {/* Month name opens the month picker */}
-          <Pressable
-            onPress={() => {
-              haptics.tap();
-              setShowMonth((v) => !v);
-            }}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: showMonth }}
-            accessibilityLabel={`${monthTitle.format(selectedDate)}. ${showMonth ? 'Hide' : 'Show'} month`}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 20, marginTop: 22, alignSelf: 'flex-start' }}>
-            <Text style={{ fontSize: 20, fontWeight: '500', color: colors.text }}>{monthTitle.format(selectedDate)}</Text>
-            <Chevron open={showMonth} />
-          </Pressable>
-          {showMonth ? (
-            <Animated.View entering={FadeIn.duration(200)} layout={expandLayout()} style={{ paddingHorizontal: 16, marginTop: 12 }}>
-              <M3MonthCard
-                month={month}
-                direction={direction}
-                mondayFirst={mondayFirst}
-                selected={selected}
-                todayKey={todayKey}
-                marks={marks}
-                onSelect={(key) => {
-                  select(key);
-                  setShowMonth(false);
-                }}
-                onShift={(months) => {
-                  haptics.selection();
-                  setDirection(months > 0 ? 1 : -1);
-                  setMonth((m) => new Date(m.getFullYear(), m.getMonth() + months, 1));
-                }}
-                onJump={(next, selectKey) => {
-                  setDirection(next.getTime() >= month.getTime() ? 1 : -1);
-                  setMonth(next);
-                  if (selectKey) select(selectKey);
-                }}
-              />
-            </Animated.View>
-          ) : null}
-
-          <WeekStrip
-            selected={selected}
-            todayKey={todayKey}
-            mondayFirst={mondayFirst}
-            busy={(key) => (byDay.get(key)?.length ?? 0) > 0}
-            onSelect={select}
+          contentContainerStyle={{ paddingTop: TIMELINE_PAD, paddingBottom: insets.bottom + 48 }}>
+          <Timeline
+            startHour={0}
+            items={timed}
+            isToday={selected === todayKey}
+            now={now}
+            colorIndex={model.colorIndex}
+            runningUid={model.runningUid}
+            onOpen={model.open}
+            onToggle={model.toggle}
+            onFocus={model.focus}
+            onCreateAt={model.canCreate ? (hour) => model.create(hour) : undefined}
           />
-
-          {/* To-dos with no time of day */}
-          {untimed.length ? (
-            <Animated.View layout={expandLayout()} style={{ paddingHorizontal: 16, marginTop: 8, gap: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text2, paddingHorizontal: 4 }}>Anytime</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {untimed.map((item, i) => (
-                  <RiseIn key={`${item.task.id}-${item.projected}`} index={i} rise={6}>
-                    <AnytimeChip item={item} index={model.colorIndex.get(item.task.list_id) ?? 0} onOpen={model.open} onToggle={model.toggle} />
-                  </RiseIn>
-                ))}
-              </View>
-            </Animated.View>
-          ) : null}
-
-          <View onLayout={(e) => setTimelineY(e.nativeEvent.layout.y)} style={{ marginTop: 16 }}>
-            <Timeline
-              startHour={startHour}
-              items={timed}
-              isToday={selected === todayKey}
-              now={now}
-              colorIndex={model.colorIndex}
-              runningUid={model.runningUid}
-              onOpen={model.open}
-              onToggle={model.toggle}
-              onFocus={model.focus}
-              onCreateAt={model.canCreate ? (hour) => model.create(hour) : undefined}
-            />
-          </View>
         </Animated.ScrollView>
-      </FrostTarget>
-
-      {/* Frosted top bar */}
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + BAR_HEIGHT, overflow: 'hidden' }}>
-        <Frost target={target} />
-        <View style={{ marginTop: insets.top, height: BAR_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, gap: 4 }}>
-          <RoundIcon icon="arrow-left" label="Back" onPress={() => router.back()} />
-          <Animated.Text numberOfLines={1} style={[{ flex: 1, fontSize: 20, fontWeight: '600', color: colors.text }, smallTitle]}>
-            {title}
-          </Animated.Text>
-          {selected !== todayKey ? (
-            <Animated.View entering={FadeIn.duration(180)}>
-              <RoundIcon icon="calendar-today" label="Go to today" onPress={() => select(todayKey)} />
-            </Animated.View>
-          ) : null}
-        </View>
         <Animated.View
-          style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 1, backgroundColor: colors.separator }, hairline]}
+          pointerEvents="none"
+          style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: 1, backgroundColor: colors.separator }, hairline]}
         />
       </View>
     </View>

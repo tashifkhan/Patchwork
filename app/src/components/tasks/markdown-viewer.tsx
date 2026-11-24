@@ -129,8 +129,6 @@ export const MarkdownViewer = memo(function MarkdownViewer({
           fontSize: base - 1,
           fontWeight: '600',
           lineHeight: lh,
-          textTransform: 'uppercase',
-          letterSpacing: 0.3,
         },
         link: { color: blue, textDecorationLine: 'none', fontWeight: '500' },
         blockquote: {
@@ -181,8 +179,6 @@ export const MarkdownViewer = memo(function MarkdownViewer({
           color: textTertiary,
           fontSize: 10,
           fontFamily: MONO,
-          textTransform: 'uppercase',
-          letterSpacing: 0.6,
           marginBottom: 6,
         },
         headingRule: {

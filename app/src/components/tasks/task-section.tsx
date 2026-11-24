@@ -73,7 +73,7 @@ export function Section({
         <View className="flex-row items-center justify-between py-2">
           <View className="flex-row items-center gap-1.5">
             {icon ? <MaterialCommunityIcons name={icon} size={16} color={colors.text2} /> : null}
-            <Text className="text-sf-text-2 text-sm font-semibold uppercase">{title} ·</Text>
+            <Text className="text-sf-text-2 text-sm font-semibold">{title} ·</Text>
             <RollingNumber
               value={count}
               style={{ fontSize: 14, lineHeight: 20, fontWeight: '600', color: colors.text2 }}

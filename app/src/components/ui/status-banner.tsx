@@ -22,7 +22,7 @@ const LAYOUT = LinearTransition.springify().damping(EXPRESSIVE.entrance.damping)
  * links for the rest. Before iOS 26 (and on web) the glass falls back to
  * the grouped surface.
  */
-export function StatusBanner({ tone, icon, sf, title, body, detail, primary, secondary }: StatusBannerProps) {
+export function StatusBanner({ tone, icon, sf, title, body, detail, primary, secondary, onDismiss }: StatusBannerProps) {
   const { colors, scheme } = useTheme();
   const glass = useLiquidGlass();
   const [open, setOpen] = useState(false);
@@ -90,6 +90,24 @@ export function StatusBanner({ tone, icon, sf, title, body, detail, primary, sec
               ) : (
                 <View style={{ borderRadius: 17, borderCurve: 'continuous', backgroundColor: color }}>{capsule}</View>
               )}
+            </Pressable>
+          ) : null}
+          {onDismiss ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              hitSlop={10}
+              onPress={() => {
+                haptics.selection();
+                onDismiss();
+              }}
+              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, alignSelf: 'flex-start', marginTop: -2 })}>
+              <SymbolView
+                name="xmark.circle.fill"
+                size={22}
+                tintColor={colors.text3}
+                fallback={<MaterialCommunityIcons name="close-circle" size={22} color={colors.text3} />}
+              />
             </Pressable>
           ) : null}
         </View>

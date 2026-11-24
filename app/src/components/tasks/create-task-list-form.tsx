@@ -60,7 +60,7 @@ export function CreateTaskListForm({
 
   return (
     <View className="bg-sf-bg-2 gap-3 rounded-2xl p-3" style={{ borderCurve: 'continuous' }}>
-      <Text className="text-sf-text-2 text-xs font-semibold uppercase">New list</Text>
+      <Text className="text-sf-text-2 text-xs font-semibold">New list</Text>
       <TextInput
         value={name}
         onChangeText={setName}
