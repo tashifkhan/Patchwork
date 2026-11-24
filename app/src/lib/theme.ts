@@ -9,7 +9,7 @@
  * `useCSSVariable('--sf-*')` read gets a guaranteed-visible value.
  */
 
-import { paletteById, type ColorPalette } from '@/lib/palettes';
+import { PAPER_PALETTE, paletteById, type ColorPalette } from '@/lib/palettes';
 
 export type SchemeName = 'light' | 'dark';
 
@@ -128,8 +128,10 @@ export function appleColors(
   if (palette) {
     return colorsFromPalette(palette, scheme);
   }
-  const base = scheme === 'dark' ? APPLE_DARK : APPLE_LIGHT;
-  return withAccent(base, accent);
+  // A custom accent keeps the system grays; with nothing picked, the app's
+  // default look is Paper.
+  if (accent) return withAccent(scheme === 'dark' ? APPLE_DARK : APPLE_LIGHT, accent);
+  return colorsFromPalette(PAPER_PALETTE, scheme);
 }
 
 /** Build ThemeColors from a fixed curated palette (Paisa-style). */
@@ -139,12 +141,14 @@ export function colorsFromPalette(palette: ColorPalette, scheme: SchemeName): Th
   const bg = dark ? palette.backgroundDark : palette.backgroundLight;
   const bg2 = dark ? palette.surfaceDark : palette.surfaceLight;
   const bg3 = dark ? palette.elevatedDark : palette.elevatedLight;
-  const text = dark ? '#E6E1E5' : '#1C1B1F';
-  const text2 = dark ? '#CAC4D0' : '#49454F';
+  const n = palette.neutrals?.[dark ? 'dark' : 'light'];
+  const text = n?.text ?? (dark ? '#E6E1E5' : '#1C1B1F');
+  const text2 = n?.text2 ?? (dark ? '#CAC4D0' : '#49454F');
   // Containers stay mostly surface-colored with a light accent wash so
   // picking Forest/Ocean/etc. tints chrome instead of flooding it solid green/blue.
   const primaryContainer = mixHex(bg, accent, dark ? 0.22 : 0.14);
   const selectionBg = mixHex(bg2, accent, dark ? 0.26 : 0.14);
+  const onAccent = (dark ? palette.onPrimaryDark : palette.onPrimaryLight) ?? (isLightColor(accent) ? '#1C1B1F' : '#FFFFFF');
   return {
     accent,
     green: dark ? '#7FD98C' : '#2E7D32',
@@ -152,17 +156,17 @@ export function colorsFromPalette(palette: ColorPalette, scheme: SchemeName): Th
     orange: dark ? '#FFB95C' : '#E8730C',
     yellow: dark ? '#FFE066' : '#C9A200',
     purple: dark ? '#D0BCFF' : '#6750A4',
-    gray: dark ? '#938F99' : '#79747E',
-    gray2: dark ? '#49454F' : '#CAC4D0',
-    gray3: dark ? '#2B2930' : '#E7E0EC',
+    gray: n?.gray ?? (dark ? '#938F99' : '#79747E'),
+    gray2: n?.gray2 ?? (dark ? '#49454F' : '#CAC4D0'),
+    gray3: n?.gray3 ?? (dark ? '#2B2930' : '#E7E0EC'),
     text,
     text2,
-    text3: dark ? '#938F99' : '#79747E',
+    text3: n?.text3 ?? (dark ? '#938F99' : '#79747E'),
     bg,
     bg2,
     bg3,
-    separator: dark ? 'rgba(147,143,153,0.4)' : 'rgba(121,116,126,0.35)',
-    onAccent: isLightColor(accent) ? '#1C1B1F' : '#FFFFFF',
+    separator: n?.separator ?? (dark ? 'rgba(147,143,153,0.4)' : 'rgba(121,116,126,0.35)'),
+    onAccent,
     selectionBg,
     onSelectionBg: accent,
     danger: dark ? '#FFB4AB' : '#BA1A1A',

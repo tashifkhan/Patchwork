@@ -18,7 +18,7 @@ import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { BUILT_IN_FONTS, importFontFile } from '@/lib/fonts';
-import { COLOR_PALETTES } from '@/lib/palettes';
+import { COLOR_PALETTES, PAPER_PALETTE } from '@/lib/palettes';
 import { useSettingsStore, type ThemeMode } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -35,7 +35,9 @@ const THEME_MODES: {
 const FEATURED_COUNT = 4;
 
 /** Fixed swatch for the System / Wallpaper option so it never mirrors the active palette. */
-const SYSTEM_SEED = Platform.OS === 'android' ? '#6750A4' : '#007AFF';
+const SYSTEM_SEED = Platform.OS === 'android' ? '#6750A4' : PAPER_PALETTE.seed;
+/** iOS: Paper is the default row itself, so it isn't listed again below it. */
+const PICKABLE_PALETTES = Platform.OS === 'ios' ? COLOR_PALETTES.filter((p) => p.id !== PAPER_PALETTE.id) : COLOR_PALETTES;
 
 export default function AppearanceScreen() {
   const { scheme } = useTheme();
@@ -68,8 +70,8 @@ export default function AppearanceScreen() {
     return idx >= FEATURED_COUNT;
   });
 
-  const visiblePalettes = showAllPalettes ? COLOR_PALETTES : COLOR_PALETTES.slice(0, FEATURED_COUNT);
-  const hiddenCount = COLOR_PALETTES.length - FEATURED_COUNT;
+  const visiblePalettes = showAllPalettes ? PICKABLE_PALETTES : PICKABLE_PALETTES.slice(0, FEATURED_COUNT);
+  const hiddenCount = PICKABLE_PALETTES.length - FEATURED_COUNT;
 
   return (
     <SettingsScreen>
@@ -86,8 +88,9 @@ export default function AppearanceScreen() {
             footer="Tints buttons, switches, icons and selections across the app.">
             <SettingsRow
               leading={<Swatch color={SYSTEM_SEED} />}
-              title="System Blue"
-              selected={!colorPalette && !accentColor}
+              title="Paper"
+              subtitle="Default · cream and teal, from taf.sh"
+              selected={(!colorPalette || colorPalette === PAPER_PALETTE.id) && !accentColor}
               onPress={() => {
                 setColorPalette(null);
                 setAccentColor(null);
@@ -108,7 +111,7 @@ export default function AppearanceScreen() {
               <>
                 <RowSeparator />
                 <SettingsActionRow
-                  title={showAllPalettes ? 'Show Fewer Colors' : `Show All Colors (${COLOR_PALETTES.length})`}
+                  title={showAllPalettes ? 'Show Fewer Colors' : `Show All Colors (${PICKABLE_PALETTES.length})`}
                   onPress={() => setShowAllPalettes((v) => !v)}
                 />
               </>
@@ -134,8 +137,8 @@ export default function AppearanceScreen() {
           <SettingsSectionHeader title="Color palette" />
           <View className="flex-row flex-wrap gap-2">
             <PaletteCard
-              label={isAndroid ? 'Wallpaper' : 'System'}
-              subtitle={isAndroid ? 'Material You' : 'Default blue'}
+              label={isAndroid ? 'Wallpaper' : 'Paper'}
+              subtitle={isAndroid ? 'Material You' : 'Default'}
               seed={SYSTEM_SEED}
               selected={!colorPalette && (isAndroid ? dynamicColor : !accentColor)}
               onPress={() => {
