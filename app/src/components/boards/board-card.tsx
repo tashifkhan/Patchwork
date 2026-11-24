@@ -40,6 +40,9 @@ export const BoardCard = memo(function BoardCard({
   const [expanded, setExpanded] = useState(false);
   const subtasks = card.subtasks ?? [];
   const subtasksDone = subtasks.filter((sub) => sub.done).length;
+  const hasFooter = Boolean(
+    subtasks.length || due.label || card.attachments || card.comments || (!card.note && card.hasDescription)
+  );
 
   return (
     <View
@@ -62,14 +65,14 @@ export const BoardCard = memo(function BoardCard({
         accessibilityHint={onLongPress ? 'Long press to move to another column' : 'Long press and drag to move'}
         android_ripple={{ color: colors.separator }}
         style={({ pressed }) => ({
-          paddingHorizontal: 16,
-          paddingTop: 14,
-          paddingBottom: 14,
-          gap: 10,
+          paddingHorizontal: 14,
+          paddingTop: 12,
+          paddingBottom: 12,
+          gap: 8,
           opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
         })}>
         {/* Priority and labels as chips, the issue key on the right. */}
-        {priority || card.labels.length > 0 || card.key ? (
+        {priority || card.labels.length > 0 || card.key || card.assignee ? (
           <View className="flex-row items-center" style={{ gap: 6 }}>
             <View className="flex-row flex-wrap" style={{ gap: 6, flex: 1 }}>
               {priority && card.priorityName ? (
@@ -96,11 +99,20 @@ export const BoardCard = memo(function BoardCard({
                 <Text style={{ fontSize: 12, fontWeight: '500', color: colors.text3, letterSpacing: 0.3 }}>{card.key}</Text>
               </View>
             ) : null}
+            {/* Who has it sits up here, so a card with nothing else needs no footer. */}
+            {card.assignee ? (
+              <View className="flex-row items-center" style={{ gap: 2 }}>
+                <Avatar name={card.assignee.name} url={card.assignee.avatarUrl} headers={imageHeaders} />
+                {(card.assigneeCount ?? 0) > 1 ? (
+                  <Text style={{ fontSize: 11, color: colors.text2 }}>+{(card.assigneeCount ?? 1) - 1}</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
         <View style={{ gap: 4 }}>
-          <Text style={{ fontSize: 16, lineHeight: 21, fontWeight: '600', color: colors.text }}>{card.title}</Text>
+          <Text style={{ fontSize: 15, lineHeight: 20, fontWeight: '600', color: colors.text }}>{card.title}</Text>
           {card.note ? (
             <Text numberOfLines={2} style={{ fontSize: 14, lineHeight: 19, color: colors.text2 }}>
               {card.note}
@@ -110,32 +122,25 @@ export const BoardCard = memo(function BoardCard({
 
         {expanded && subtasks.length ? <SubtaskList subtasks={subtasks} /> : null}
 
-        <View className="flex-row items-center" style={{ gap: 6, minHeight: 28 }}>
-          {card.assignee ? (
-            <Avatar name={card.assignee.name} url={card.assignee.avatarUrl} headers={imageHeaders} />
-          ) : null}
-          {(card.assigneeCount ?? 0) > 1 ? (
-            <Text style={{ fontSize: 12, color: colors.text2 }}>+{(card.assigneeCount ?? 1) - 1}</Text>
-          ) : null}
-          <View style={{ flex: 1 }} />
-          {subtasks.length ? (
-            <SubtaskPill
-              done={subtasksDone}
-              total={subtasks.length}
-              expanded={expanded}
-              onPress={() => {
-                haptics.selection();
-                setExpanded((v) => !v);
-              }}
-            />
-          ) : null}
-          {due.label ? (
-            <CountPill icon="clock-outline" label={due.label} alert={due.overdue} />
-          ) : null}
-          {card.attachments ? <CountPill icon="paperclip" label={String(card.attachments)} /> : null}
-          {card.comments ? <CountPill icon="comment-outline" label={String(card.comments)} /> : null}
-          {!card.note && card.hasDescription ? <CountPill icon="text" /> : null}
-        </View>
+        {hasFooter ? (
+          <View className="flex-row items-center justify-end" style={{ gap: 6, minHeight: 24 }}>
+            {subtasks.length ? (
+              <SubtaskPill
+                done={subtasksDone}
+                total={subtasks.length}
+                expanded={expanded}
+                onPress={() => {
+                  haptics.selection();
+                  setExpanded((v) => !v);
+                }}
+              />
+            ) : null}
+            {due.label ? <CountPill icon="clock-outline" label={due.label} alert={due.overdue} /> : null}
+            {card.attachments ? <CountPill icon="paperclip" label={String(card.attachments)} /> : null}
+            {card.comments ? <CountPill icon="comment-outline" label={String(card.comments)} /> : null}
+            {!card.note && card.hasDescription ? <CountPill icon="text" /> : null}
+          </View>
+        ) : null}
       </Pressable>
       </ElasticView>
     </View>
@@ -267,7 +272,7 @@ function CountPill({
 }
 
 function Avatar({ name, url, headers }: { name: string; url?: string; headers?: Record<string, string> }) {
-  const size = 26;
+  const size = 22;
   if (url) {
     return (
       <Image
@@ -289,7 +294,7 @@ function Avatar({ name, url, headers }: { name: string; url?: string; headers?: 
         justifyContent: 'center',
         backgroundColor: nameColor(name),
       }}>
-      <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>{initials(name)}</Text>
+      <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF' }}>{initials(name)}</Text>
     </View>
   );
 }

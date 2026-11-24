@@ -29,6 +29,23 @@ export function SprintBar({
       showsHorizontalScrollIndicator={false}
       style={{ flexGrow: 0 }}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 10, gap: 8 }}>
+      <SprintChips sprints={sprints} view={view} onSelect={onSelect} />
+    </ScrollView>
+  );
+}
+
+/** The sprint chips alone, for a row that also holds other controls. */
+export function SprintChips({
+  sprints,
+  view,
+  onSelect,
+}: {
+  sprints: JiraSprint[];
+  view: JiraBoardView;
+  onSelect: (view: JiraBoardView) => void;
+}) {
+  return (
+    <>
       <Chip
         label="All"
         icon="view-sequential-outline"
@@ -51,7 +68,7 @@ export function SprintBar({
         selected={view.kind === 'backlog'}
         onPress={() => onSelect({ kind: 'backlog' })}
       />
-    </ScrollView>
+    </>
   );
 }
 
