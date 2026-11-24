@@ -17,9 +17,10 @@ import { LoadingBar, LoadingSpinner } from '@/components/ui/loading';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
 import { READABLE_MAX_WIDTH } from '@/hooks/use-adaptive-layout';
 import { useGitHubIssues } from '@/hooks/use-github';
+import { useJiraSearch } from '@/hooks/use-jira-search';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
-import { buildSearchNodes, createSearchIndex, type SearchNode } from '@/lib/search';
+import { buildSearchNodes, createSearchIndex, jiraSearchNodes, type SearchNode } from '@/lib/search';
 import {
   useFloatingTabBar,
   useTabBarContentPadding,
@@ -64,9 +65,15 @@ const TYPE_META: Record<
     mdIcon: 'github',
     accentKey: 'orange',
   },
+  'jira-issue': {
+    label: 'Jira issue',
+    plural: 'Jira issues',
+    mdIcon: 'jira',
+    accentKey: 'accent',
+  },
 };
 
-const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'deck-card', 'github-issue'];
+const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'deck-card', 'github-issue', 'jira-issue'];
 
 interface ResultRow {
   node: SearchNode;
@@ -149,6 +156,11 @@ export default function SearchScreen() {
   );
   const fuse = useMemo(() => createSearchIndex(nodes), [nodes]);
 
+  // Jira is searched on the server as you type; issues open in the Boards tab, so
+  // like Deck cards they stay out of search while that tab is off.
+  const jiraSearch = useJiraSearch(deferredQuery, boardsTab);
+  const jiraNodes = useMemo(() => jiraSearchNodes(jiraSearch.hits), [jiraSearch.hits]);
+
   useEffect(() => {
     AsyncStorage.getItem(RECENTS_KEY)
       .then((raw) => {
@@ -185,11 +197,12 @@ export default function SearchScreen() {
     const trimmed = deferredQuery.trim();
     if (!trimmed) return [];
     // Cap results so fuse + render stays snappy on large indexes.
-    return fuse.search(trimmed, { limit: 48 }).map((r) => ({ node: r.item, matches: r.matches }));
-  }, [fuse, deferredQuery]);
+    const local = fuse.search(trimmed, { limit: 48 }).map((r) => ({ node: r.item, matches: r.matches }));
+    return [...local, ...jiraNodes.map((node) => ({ node }))];
+  }, [fuse, deferredQuery, jiraNodes]);
 
   const counts = useMemo(() => {
-    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0 };
+    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0, 'jira-issue': 0 };
     for (const r of allResults) c[r.node.type] += 1;
     return c;
   }, [allResults]);
@@ -201,6 +214,7 @@ export default function SearchScreen() {
       subtask: [],
       'deck-card': [],
       'github-issue': [],
+      'jira-issue': [],
     };
     for (const r of filtered) grouped[r.node.type].push(r);
     return SECTION_ORDER.filter((t) => grouped[t].length > 0).map((t) => ({
@@ -252,6 +266,13 @@ export default function SearchScreen() {
               repo: node.githubRepo,
               number: String(node.githubIssueNumber),
             },
+          });
+        }
+      } else if (node.type === 'jira-issue') {
+        if (node.jiraKey) {
+          router.push({
+            pathname: '/deck/issue/[key]',
+            params: { key: node.jiraKey, ...(node.jiraAccountId ? { account: node.jiraAccountId } : {}) },
           });
         }
       } else if (node.taskUid) {
@@ -376,6 +397,13 @@ export default function SearchScreen() {
               </View>
             ) : null}
 
+            {hasQuery && jiraSearch.isSearching ? (
+              <View className="flex-row items-center gap-2 px-1">
+                <LoadingSpinner size={14} />
+                <Text className="text-sf-text-2 text-xs">Searching Jira…</Text>
+              </View>
+            ) : null}
+
             {hasQuery ? (
               <FilterBar
                 filter={filter}
@@ -459,7 +487,8 @@ function FilterBar({
     { value: 'task', label: 'Tasks', count: counts.task, icon: 'checkbox-blank-outline' },
     { value: 'subtask', label: 'Subtasks', count: counts.subtask, icon: 'subdirectory-arrow-right' },
     { value: 'deck-card', label: 'Cards', count: counts['deck-card'], icon: 'card-text-outline' },
-    { value: 'github-issue', label: 'Issues', count: counts['github-issue'], icon: 'github' },
+    { value: 'github-issue', label: 'GitHub', count: counts['github-issue'], icon: 'github' },
+    { value: 'jira-issue', label: 'Jira', count: counts['jira-issue'], icon: 'jira' },
   ];
   return (
     <ScrollView

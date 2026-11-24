@@ -49,6 +49,40 @@ export interface Task {
   account_name?: string;
   /** Saved offline and still waiting to reach its account (see `@/lib/outbox`). */
   pending_sync?: boolean;
+  /** iCalendar ATTACH links. Only CalDAV tasks have them. */
+  attachments?: TaskAttachment[];
+}
+
+/** One iCalendar `ATTACH` link, in the shape Nextcloud Calendar writes. */
+export interface TaskAttachment {
+  /** The property value: a share link such as `https://cloud/f/4821`. */
+  url: string;
+  /** File name for display. */
+  name: string;
+  /** `FMTTYPE`, e.g. `image/jpeg`. */
+  mime: string | null;
+  /** `FILENAME` when it is a path in the user's Nextcloud Files, e.g. `/Tasks/<uid>/a.jpg`. */
+  path: string | null;
+  /** `X-NC-FILE-ID`, used for server-side thumbnails. */
+  file_id: string | null;
+  has_preview: boolean;
+}
+
+/** An image picked on the device, ready to upload. */
+export interface AttachmentUpload {
+  uri: string;
+  name: string;
+  mime: string;
+}
+
+/** What the UI needs to load attachment images from one Nextcloud account. */
+export interface AttachmentAccess {
+  /** `https://cloud.example.com/` or a subpath install root, with a trailing slash. */
+  serverRoot: string;
+  /** WebDAV root of the user's Files, with a trailing slash. */
+  filesRoot: string;
+  origin: string;
+  headers: Record<string, string>;
 }
 
 export interface TaskCreate {

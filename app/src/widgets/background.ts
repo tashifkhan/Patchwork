@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 
 import { fetchTasks } from '@/api/tasks';
 
+import { refreshBoardsWidget } from './boards-snapshot';
 import { pushAllWidgets } from './snapshot';
 
 export const WIDGET_REFRESH_TASK = 'patchwork.widget-refresh';
@@ -17,7 +18,11 @@ if (Platform.OS === 'ios' || Platform.OS === 'android') {
   TaskManager.defineTask(WIDGET_REFRESH_TASK, async () => {
     try {
       const BackgroundTask = await backgroundTask();
-      const tasks = await fetchTasks();
+      const [tasks] = await Promise.all([
+        fetchTasks(),
+        // A failed board refresh keeps the last snapshot; it should not fail the task widgets.
+        refreshBoardsWidget().catch(() => {}),
+      ]);
       await pushAllWidgets(tasks);
       return BackgroundTask.BackgroundTaskResult.Success;
     } catch {

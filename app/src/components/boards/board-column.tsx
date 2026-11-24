@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { memo, useMemo, useState } from 'react';
-import { ActivityIndicator, Keyboard, Pressable, RefreshControl } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, Pressable, RefreshControl, type ScrollView } from 'react-native';
 import { GestureDetector, LegacyScrollView } from 'react-native-gesture-handler';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 
 import type { BoardCardItem, BoardColumnItem, CardSprint } from '@/features/boards/model';
 import { BoardCard } from '@/components/boards/board-card';
@@ -65,6 +66,27 @@ export function BoardColumn({
   const [cardFrames, setCardFrames] = useState<Record<string, { y: number; height: number }>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The new-card field is the column's last item, so in a full column the
+  // keyboard covers it. The column keeps its gesture-handler scroll view (drag
+  // to reorder needs it), so it gets room for the keyboard at the end and
+  // scrolls there once the keyboard is up.
+  const keyboardHeight = useKeyboardState((state) => (state.isVisible ? state.height : 0));
+  const scrollRef = useRef<ScrollView | null>(null);
+  const setScrollRef = useCallback(
+    (scroll: ScrollView | null) => {
+      scrollRef.current = scroll;
+      handle?.setScrollRef(scroll);
+    },
+    [handle]
+  );
+  const typing = draft != null && keyboardHeight > 0;
+  useEffect(() => {
+    if (!typing) return;
+    // After the keyboard room below has laid out.
+    const frame = requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [typing]);
 
   async function submit() {
     const title = draft?.trim();
@@ -135,7 +157,7 @@ export function BoardColumn({
       </View>
 
       <LegacyScrollView
-        ref={handle?.setScrollRef}
+        ref={setScrollRef}
         style={{ flex: 1 }}
         scrollEnabled={!isDragging}
         keyboardShouldPersistTaps="handled"
@@ -262,6 +284,7 @@ export function BoardColumn({
             </View>
           </View>
         ) : null}
+        {typing ? <View style={{ height: keyboardHeight }} /> : null}
       </LegacyScrollView>
 
       {canCreate && draft == null ? (

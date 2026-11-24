@@ -13,12 +13,14 @@ import {
   SettingsGroup,
   SettingsRow,
   SettingsScreen,
+  SettingsToggleRow,
 } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner } from '@/components/ui/loading';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useAiCatalog, useAiKeys } from '@/hooks/use-ai';
+import { useOnDeviceAi } from '@/hooks/use-on-device-ai';
 import { useTaskLists } from '@/hooks/use-tasks';
 import {
   effortLabel,
@@ -27,6 +29,7 @@ import {
   reasoningChoices,
   type ReasoningEffort,
 } from '@/lib/ai-models';
+import { isOnDevice, onDeviceEngineName, onDeviceSubtitle } from '@/lib/on-device-ai';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 
@@ -126,6 +129,8 @@ export default function AiScreen() {
         />
       </SettingsGroup>
 
+      <OnDeviceGroup />
+
       {/* Fallback chain */}
       <SettingsGroup
         title="Fallback chain"
@@ -142,6 +147,9 @@ export default function AiScreen() {
         ) : (
           aiModelSelections.map((selection, index) => {
             const provider = providers.find((item) => item.id === selection.providerId);
+            const providerName = isOnDevice(selection)
+              ? 'On this device'
+              : (provider?.name ?? selection.providerId);
             const model = modelById(selection, providers);
             const badges = modelBadges(model ?? selection);
             const name = model?.name ?? selection.modelName ?? selection.modelId;
@@ -166,7 +174,7 @@ export default function AiScreen() {
                     leading={<RankTile n={index + 1} />}
                     title={name}
                     subtitle={[
-                      provider?.name ?? selection.providerId,
+                      providerName,
                       reasoning ? `Thinking: ${effortLabel(effort)}` : null,
                       modes.length > 1 ? `Route: ${ROUTE_LABELS[mode]}` : null,
                     ]
@@ -206,7 +214,7 @@ export default function AiScreen() {
                       {name}
                     </Text>
                     <Text className="text-sf-text-2 text-sm" numberOfLines={1}>
-                      {provider?.name ?? selection.providerId}
+                      {providerName}
                       {badges.length > 0 ? ` · ${badges.join(' · ')}` : ''}
                     </Text>
                   </View>
@@ -383,6 +391,49 @@ export default function AiScreen() {
         )
       ) : null}
     </SettingsScreen>
+  );
+}
+
+/**
+ * Gemini Nano on Android, Apple Intelligence on iOS. Hidden on devices that
+ * can never run either, and on web.
+ */
+function OnDeviceGroup() {
+  const local = useOnDeviceAi();
+  if (!local.offered) return null;
+  const { status } = local;
+  const name = onDeviceEngineName(status);
+  // Something is off but fixable (Apple Intelligence off, AICore behind).
+  // The switch waits until the model can at least start downloading.
+  const canTurnOn = status.state === 'available' || status.state === 'downloadable' || status.state === 'downloading';
+  const reads = status.supportsImages ? 'typed requests and photos' : 'typed requests';
+
+  return (
+    <SettingsGroup
+      title="On-device AI"
+      footer={`${name} runs on this ${Platform.OS === 'ios' ? 'device' : 'phone'}. Nothing leaves it and no API key is needed. It reads ${reads}, not voice notes. It's a small model, so it goes first and the next model in the chain takes over when it can't answer.`}>
+      <SettingsToggleRow
+        icon="star-four-points-outline"
+        sf={Platform.OS === 'ios' ? 'apple.intelligence' : undefined}
+        title={`Use ${name}`}
+        subtitle={onDeviceSubtitle(status)}
+        value={local.enabled}
+        disabled={!local.enabled && !canTurnOn}
+        onValueChange={local.setEnabled}
+      />
+      {status.state === 'downloadable' && local.enabled ? (
+        <>
+          <RowSeparator />
+          <SettingsRow icon="download" title={`Download ${name}`} onPress={local.download} />
+        </>
+      ) : null}
+      {status.state === 'error' || status.state === 'unavailable' ? (
+        <>
+          <RowSeparator />
+          <SettingsRow icon="refresh" title="Check again" onPress={local.refresh} />
+        </>
+      ) : null}
+    </SettingsGroup>
   );
 }
 

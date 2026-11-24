@@ -1,18 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
-import { useCallback, useRef } from 'react';
-import { Platform, Pressable, useWindowDimensions, type View as RNView } from 'react-native';
-import Animated, {
-  FadeOut,
-  SlideInDown,
-  useAnimatedKeyboard,
-  useAnimatedStyle,
-  useSharedValue,
-} from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform, Pressable } from 'react-native';
+import Animated, { FadeOut, SlideInDown } from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
+import { useKeyboardLift } from '@/components/ui/keyboard';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING, SPRING } from '@/lib/motion';
 import { Text, View } from '@/tw';
@@ -47,11 +40,15 @@ export function TaskActionBar({
   return (
     <>
       {lift.marker}
+      {/* Two layers so the transforms don't fight: the outer one rides on the
+          keyboard, the inner one springs in from below. */}
       <Animated.View
-        entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
-        exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
         pointerEvents="box-none"
-        style={[{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }, lift.style]}>
+        style={[{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }, lift.style]}>
+        <Animated.View
+          entering={SlideInDown.springify().damping(SPRING.spatial.damping).stiffness(SPRING.spatial.stiffness)}
+          exiting={FadeOut.duration(DURATION.short3).easing(EASING.emphasizedAccelerate)}
+          pointerEvents="box-none">
         <BarSurface>
           <Pressable
             onPress={() => {
@@ -99,6 +96,7 @@ export function TaskActionBar({
             />
           ) : null}
         </BarSurface>
+        </Animated.View>
       </Animated.View>
     </>
   );
@@ -179,56 +177,4 @@ function IconAction({
       )}
     </Pressable>
   );
-}
-
-/** Gap kept between the bar and the top of the keyboard. */
-const KEYBOARD_GAP = 10;
-
-/**
- * Bottom offset that rides above the keyboard, frame by frame with it.
- *
- * Neither platform shrinks the screen for the keyboard any more: iOS overlays
- * it, and Android draws edge-to-edge (API 35+), so `adjustResize` no longer
- * resizes the window. A bar pinned to the bottom would sit behind the keys.
- *
- * The keyboard height counts from the bottom of the window, but the screen
- * this bar sits in can end higher up, above Android's bottom navigation bar.
- * `belowScreen` is that distance, measured, so the bar lands right on top of
- * the keyboard either way.
- */
-function useKeyboardLift(bottom: number) {
-  const keyboard = useAnimatedKeyboard();
-  const insets = useSafeAreaInsets();
-  const anchor = useRef<RNView>(null);
-  const { height: windowHeight } = useWindowDimensions();
-  const belowScreen = useSharedValue(0);
-  // Reanimated's Android height starts above the gesture/nav bar; add it back
-  // so both platforms count from the window's bottom edge.
-  const navBar = Platform.OS === 'android' ? insets.bottom : 0;
-
-  const measure = useCallback(() => {
-    anchor.current?.measureInWindow((_x, y) => {
-      belowScreen.set(Math.max(0, windowHeight - y));
-    });
-  }, [belowScreen, windowHeight]);
-
-  const style = useAnimatedStyle(() => ({
-    bottom:
-      keyboard.height.value > 0
-        ? Math.max(bottom, keyboard.height.value + navBar - belowScreen.value + KEYBOARD_GAP)
-        : bottom,
-  }));
-
-  // A zero-height marker on the screen's bottom edge, for the measurement.
-  const marker = (
-    <View
-      ref={anchor}
-      collapsable={false}
-      pointerEvents="none"
-      onLayout={measure}
-      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 0 }}
-    />
-  );
-
-  return { style, marker };
 }

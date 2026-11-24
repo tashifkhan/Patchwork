@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Platform, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { ApiError } from '@/api/client';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 
@@ -21,7 +22,7 @@ import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-ba
 import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -225,11 +226,10 @@ export default function BoardsScreen() {
   return (
     <>
       {iosHeader}
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: IOS ? grouped.screen : colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
         scrollEventThrottle={16}
         onScroll={onTabBarScroll}
         contentContainerStyle={{
@@ -352,7 +352,7 @@ export default function BoardsScreen() {
             ) : null}
           </>
         )}
-      </ScrollView>
+      </KeyboardScrollView>
       {IOS && noBoards ? (
         // Like SwiftUI's `.overlay { ContentUnavailableView }`: centred on
         // the screen, above the (empty) list.

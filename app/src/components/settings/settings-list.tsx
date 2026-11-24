@@ -7,31 +7,23 @@ import {
   type ComponentProps,
   type ReactElement,
   type ReactNode,
-  type RefObject,
-  useEffect,
-  useRef,
-  useState,
 } from 'react';
 import {
   ActivityIndicator,
-  Keyboard,
   PlatformColor,
   Platform,
   Pressable,
   StyleSheet,
-  TextInput as RNTextInput,
-  useWindowDimensions,
-  type ScrollView as RNScrollView,
   type TextInputProps,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { Switch } from '@/components/ui/switch';
 import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import type { SchemeName, ThemeColors } from '@/lib/theme';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -159,6 +151,7 @@ const SF_ICONS: Partial<Record<IconName, SFSymbol>> = {
   'cube-outline': 'cube.fill',
   'shape-outline': 'square.on.circle.fill',
   'router-network': 'point.3.connected.trianglepath.dotted',
+  download: 'arrow.down.circle.fill',
 };
 
 /**
@@ -180,6 +173,7 @@ const IOS_TILE_COLORS: Partial<Record<IconName, Parameters<typeof PlatformColor>
   'star-four-points-outline': 'systemPurple',
   brain: 'systemPurple',
   'router-network': 'systemTeal',
+  download: 'systemBlue',
   'cloud-check-outline': 'systemBlue',
   'cloud-alert-outline': 'systemOrange',
   refresh: 'systemGreen',
@@ -262,87 +256,30 @@ export function SettingsItemIcon({
 /* Screen + groups                                                           */
 /* ------------------------------------------------------------------------ */
 
-/** Room kept between a focused field and the top of the keyboard. */
-const FIELD_CLEARANCE = 24;
-
 /**
- * Android only: keep the focused field above the keyboard.
- *
- * The app draws edge-to-edge, so `adjustResize` no longer shrinks the window
- * and the keyboard simply covers the lower part of the screen. Shrinking the
- * ScrollView (KeyboardAvoidingView) is not enough either: the ScrollView
- * keeps its offset, so a field near the end stays under the keys. Instead the
- * content gets extra room at the bottom, and once the keyboard is up the
- * focused field is scrolled to sit just above it.
+ * Scroll container shared by every settings screen. The focused field scrolls
+ * above the keyboard as it rises, on both platforms (see `KeyboardScrollView`).
  */
-function useAndroidKeyboardReveal(
-  scrollRef: RefObject<RNScrollView | null>,
-  scrollY: RefObject<number>
-): number {
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', (event) => {
-      // React Native's Android height leaves out the navigation bar below it.
-      const height = event.endCoordinates.height + insets.bottom;
-      setKeyboardHeight(height);
-      // After the extra padding has laid out, so there is room to scroll into.
-      requestAnimationFrame(() => {
-        const input = RNTextInput.State.currentlyFocusedInput();
-        const scroll = scrollRef.current;
-        if (!input || !scroll) return;
-        input.measureInWindow((_x, y, _w, h) => {
-          const keyboardTop = windowHeight - height;
-          const overlap = y + h + FIELD_CLEARANCE - keyboardTop;
-          if (overlap > 0) scroll.scrollTo({ y: scrollY.current + overlap, animated: true });
-        });
-      });
-    });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [insets.bottom, scrollRef, scrollY, windowHeight]);
-
-  return keyboardHeight;
-}
-
-/** Scroll container shared by every settings screen. */
 export function SettingsScreen({ children }: { children: ReactNode }) {
   const { screen } = useSettingsColors();
   const paddingBottom = useTabBarContentPadding(48);
   const onTabBarScroll = useTabBarMinimizeOnScroll();
-  const scrollRef = useRef<RNScrollView>(null);
-  const scrollY = useRef(0);
-  const keyboardHeight = useAndroidKeyboardReveal(scrollRef, scrollY);
   return (
-    <ScrollView
-      ref={scrollRef}
+    <KeyboardScrollView
       className="flex-1"
       style={{ backgroundColor: screen }}
       contentInsetAdjustmentBehavior="automatic"
-      // iOS: inset the content by the keyboard and keep the focused field
-      // visible. Android does the same in useAndroidKeyboardReveal.
-      automaticallyAdjustKeyboardInsets
-      keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       scrollEventThrottle={16}
-      onScroll={(event) => {
-        scrollY.current = event.nativeEvent.contentOffset.y;
-        onTabBarScroll?.(event);
-      }}
+      onScroll={onTabBarScroll}
       contentContainerStyle={{
         paddingHorizontal: 16,
         paddingTop: IOS ? 8 : 12,
-        paddingBottom: Math.max(paddingBottom, keyboardHeight + FIELD_CLEARANCE),
+        paddingBottom,
         gap: IOS ? 28 : 24,
       }}>
       {children}
-    </ScrollView>
+    </KeyboardScrollView>
   );
 }
 

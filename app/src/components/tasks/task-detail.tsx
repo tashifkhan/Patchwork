@@ -1,23 +1,31 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { Stack, router } from 'expo-router';
 import { createContext, use, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Keyboard, Platform, Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiError } from '@/api/client';
-import type { Task, TaskList, TaskUpdate } from '@/api/types';
+import type { AttachmentUpload, Task, TaskAttachment, TaskList, TaskUpdate } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { MoveToDeck } from '@/components/tasks/move-to-deck';
+import { TaskAttachments } from '@/components/tasks/task-attachments';
 import { TaskActionBar } from '@/components/tasks/task-action-bar';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
+import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
+import {
+  useAddAttachment,
+  useAttachmentAccess,
+  useRemoveAttachment,
+} from '@/hooks/use-task-attachments';
 import {
   useCreateTask,
   useDeleteTask,
@@ -35,7 +43,7 @@ import { collectAllTags, normalizeTags } from '@/lib/tags';
 import { useFocusStore } from '@/stores/focus-store';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 import { endFocus, pauseFocus, resumeFocus, startFocus } from '@/widgets/focus';
 
 const PRIORITIES: { label: string; value: number | null }[] = [
@@ -225,7 +233,12 @@ function TaskDocument({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [uploading, setUploading] = useState<string[]>([]);
+  const attachmentAccess = useAttachmentAccess(
+    task.pending_sync || !task.account_id ? undefined : task.account_id,
+  ).data;
+  const addAttachment = useAddAttachment();
+  const removeAttachment = useRemoveAttachment();
 
   // What the server has. Each save diffs against this and then advances it.
   const saved = useRef<Draft>(draftFromTask(task));
@@ -235,17 +248,6 @@ function TaskDocument({
   const taskId = useRef(task.id);
   const etag = useRef(task.etag);
   const queue = useRef<Promise<void>>(Promise.resolve());
-
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', (e) =>
-      setKeyboardHeight(e.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   function flush() {
     const patch = diffDraft(saved.current, latest.current);
@@ -284,6 +286,81 @@ function TaskDocument({
   // Leaving the screen saves whatever is still pending (typed text).
   const onLeave = useEffectEvent(() => flush());
   useEffect(() => () => onLeave(), []);
+
+  /** Runs a task write after any pending text edit, carrying the new href and etag forward. */
+  function enqueueWrite(write: () => Promise<Task>, failure: string) {
+    flush();
+    const run = queue.current.then(async () => {
+      try {
+        const updated = await write();
+        taskId.current = updated.id;
+        etag.current = updated.etag;
+      } catch (error) {
+        setAlert({
+          title: failure,
+          message: error instanceof ApiError ? error.message : 'Check your connection and try again.',
+        });
+      }
+    });
+    queue.current = run;
+    return run;
+  }
+
+  async function pickImages(source: 'library' | 'camera') {
+    haptics.tap();
+    const permission =
+      source === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setAlert({
+        title: source === 'camera' ? 'Camera access' : 'Photo access',
+        message:
+          source === 'camera'
+            ? 'Allow camera access in Settings to attach a photo.'
+            : 'Allow photo library access in Settings to attach images.',
+      });
+      return;
+    }
+    const options: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsMultipleSelection: source === 'library',
+      selectionLimit: 10,
+    };
+    const result =
+      source === 'camera'
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+    if (result.canceled) return;
+    for (const asset of result.assets) {
+      const file = uploadFromAsset(asset);
+      setUploading((current) => [...current, file.uri]);
+      void enqueueWrite(
+        () =>
+          addAttachment.mutateAsync({
+            taskId: taskId.current,
+            accountId: task.account_id,
+            etag: etag.current,
+            file,
+          }),
+        'Could not attach image',
+      ).finally(() => setUploading((current) => current.filter((uri) => uri !== file.uri)));
+    }
+  }
+
+  function detachImage(attachment: TaskAttachment) {
+    void enqueueWrite(
+      () =>
+        removeAttachment.mutateAsync({
+          taskId: taskId.current,
+          accountId: task.account_id,
+          etag: etag.current,
+          attachment,
+        }),
+      'Could not remove image',
+    );
+  }
 
   function pickTags() {
     haptics.tap();
@@ -415,16 +492,15 @@ function TaskDocument({
           }}
         />
       )}
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
+        bottomOffset={ACTION_BAR_CLEARANCE}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 12,
-          paddingBottom: 140 + keyboardHeight,
+          paddingBottom: 140,
         }}>
         {/* Hero: checkbox + title */}
         <View className="flex-row items-start">
@@ -519,6 +595,23 @@ function TaskDocument({
             </Text>
           </Pressable>
         </Animated.View>
+
+        {/* Attachments: Nextcloud accounts only, since the files live in Nextcloud Files. */}
+        {attachmentAccess ? (
+          <>
+            <Heading
+              title="Attachments"
+              detail={task.attachments?.length ? String(task.attachments.length) : undefined}
+            />
+            <TaskAttachments
+              access={attachmentAccess}
+              attachments={task.attachments ?? []}
+              uploading={uploading}
+              onPick={pickImages}
+              onRemove={detachImage}
+            />
+          </>
+        ) : null}
 
         {/* Checklist */}
         <Heading
@@ -660,7 +753,7 @@ function TaskDocument({
             Modified {formatDateTime(task.updated_at)}
           </Text>
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       <TaskActionBar
         bottom={fabBottom}
@@ -712,6 +805,27 @@ function TaskDocument({
       />
     </>
   );
+}
+
+const EXTENSION_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+};
+
+/**
+ * The picker may re-encode (HEIC to JPEG when it compresses), so the file
+ * extension and type follow the file it hands back, not the original name.
+ */
+function uploadFromAsset(asset: ImagePicker.ImagePickerAsset): AttachmentUpload {
+  const extension = asset.uri.split(/[?#]/)[0]?.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const mime = EXTENSION_MIME[extension] ?? asset.mimeType ?? 'image/jpeg';
+  const stem = asset.fileName?.replace(/\.[^.]+$/, '') || `IMG_${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`;
+  return { uri: asset.uri, name: `${stem}.${extension}`, mime };
 }
 
 /** Things-style section heading: accent label over a hairline. */

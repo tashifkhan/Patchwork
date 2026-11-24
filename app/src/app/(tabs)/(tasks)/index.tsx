@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  type ScrollView as RNScrollView,
   StyleSheet,
 } from 'react-native';
 
@@ -33,6 +32,13 @@ import { TaskItem } from '@/components/tasks/task-item';
 import { ListHero, ListSwitcherSheet } from '@/components/tasks/list-switcher';
 import { TaskListSkeleton } from '@/components/tasks/task-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import {
+  ACTION_BAR_CLEARANCE,
+  FIELD_CLEARANCE,
+  isKeyboardVisible,
+  KeyboardScrollView,
+  type KeyboardAwareScrollViewRef,
+} from '@/components/ui/keyboard';
 import { Fab } from '@/components/ui/fab';
 import { DictateFab } from '@/components/tasks/dictate-fab';
 import { DictationSheet } from '@/components/tasks/dictation-sheet';
@@ -73,7 +79,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useSyncStatusStore } from '@/stores/sync-status-store';
-import { ScrollView, Text, View } from '@/tw';
+import { Text, View } from '@/tw';
 
 function collectTags(tasks: Task[]): string[] {
   const set = new Set<string>();
@@ -145,7 +151,7 @@ export default function TasksScreen() {
     }
   }, [twoPane, paneUid]);
   const cardRef = useRef<TaskCardHandle>(null);
-  const scrollRef = useRef<RNScrollView>(null);
+  const scrollRef = useRef<KeyboardAwareScrollViewRef>(null);
   const scrollY = useRef(0);
 
   const lists = useMemo(
@@ -345,6 +351,9 @@ export default function TasksScreen() {
   /** Scroll just enough that an opened card clears the header and the action bar. */
   const revealCard = useCallback(
     (top: number, bottom: number) => {
+      // While typing, the keyboard-aware list already keeps the focused field
+      // above the keyboard and the action bar. A second scroll here would fight it.
+      if (isKeyboardVisible()) return;
       // Measure the list itself: the tab bar sits below it, and the action bar
       // floats `fabBottom` above the list's bottom edge.
       scrollRef.current?.measureInWindow((_x, listTop, _w, listHeight) => {
@@ -514,12 +523,14 @@ export default function TasksScreen() {
     <>
       {/* Things-style: the list name is the page title, so no nav header. */}
       <Stack.Screen options={{ headerShown: false }} />
-      <ScrollView
+      <KeyboardScrollView
         ref={scrollRef}
+        // With a card open the action bar rides on the keyboard, so the field
+        // being typed in has to clear the bar as well.
+        bottomOffset={expandedId ? ACTION_BAR_CLEARANCE : FIELD_CLEARANCE}
         className="flex-1"
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
         scrollEventThrottle={16}
         onScroll={(event) => {
           scrollY.current = event.nativeEvent.contentOffset.y;
@@ -769,7 +780,7 @@ export default function TasksScreen() {
           </>
         )}
         </Pressable>
-      </ScrollView>
+      </KeyboardScrollView>
       {process.env.EXPO_OS !== 'web' && expandedId == null ? (
         <>
           <DictateFab onPress={() => setDictating(true)} />

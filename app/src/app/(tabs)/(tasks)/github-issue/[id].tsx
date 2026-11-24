@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Linking, Platform, Pressable, RefreshControl } from 'react-native';
 import Animated, { SlideInDown } from 'react-native-reanimated';
 
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import type { GitHubIssue } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
@@ -18,7 +19,7 @@ import { formatDateTime } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
 import { SPRING } from '@/lib/motion';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 /** Left edge shared by title, body and labels (checkbox slot). */
 const TEXT_INSET = 34;
@@ -144,12 +145,10 @@ function IssueDocument({
           ),
         }}
       />
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 140 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {/* Title */}
@@ -295,7 +294,7 @@ function IssueDocument({
             Your token can only read this repository, so the issue can&apos;t be edited here.
           </Text>
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Floating actions, matching the to-do toolbar */}
       <Animated.View

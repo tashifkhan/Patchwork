@@ -1,5 +1,15 @@
 import { api, ApiError } from './client';
-import type { Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate } from './types';
+import type {
+  AttachmentAccess,
+  AttachmentUpload,
+  Task,
+  TaskAttachment,
+  TaskCreate,
+  TaskList,
+  TaskListCreate,
+  TaskListUpdate,
+  TaskUpdate,
+} from './types';
 import type { CalDavAccount } from '@/lib/credentials';
 
 export function fetchTaskLists() {
@@ -55,4 +65,27 @@ export async function validateCalDavAccount(_account: CalDavAccount): Promise<vo
     501,
     'CalDAV accounts are configured on the proxy server, not in the browser. Set them in the proxy environment, or use the iOS/Android app to connect an account on-device.'
   );
+}
+
+/** The web proxy has no Files endpoint, so attachments are native-only. */
+export async function getAttachmentAccess(_accountId: string | undefined): Promise<AttachmentAccess | null> {
+  return null;
+}
+
+export async function addTaskAttachment(
+  _taskId: string,
+  _file: AttachmentUpload,
+  _accountId?: string,
+  _etag?: string | null
+): Promise<Task> {
+  throw new ApiError(501, 'Attaching images needs the iOS or Android app.');
+}
+
+export async function removeTaskAttachment(
+  _taskId: string,
+  _attachment: TaskAttachment,
+  _accountId?: string,
+  _etag?: string | null
+): Promise<Task> {
+  throw new ApiError(501, 'Removing attachments needs the iOS or Android app.');
 }

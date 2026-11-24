@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
+import { KeyboardProvider } from '@/components/ui/keyboard';
 import { useTasks } from '@/hooks/use-tasks';
 import { DURATION } from '@/lib/motion';
 import { loadOutbox, useOutboxStore } from '@/lib/outbox';
@@ -88,6 +89,9 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* Tracks the keyboard app-wide, frame by frame, for every keyboard-aware
+          scroll view and for bars that ride on top of the keyboard. */}
+      <KeyboardProvider>
       <QueryClientProvider client={queryClient}>
         <NativeRuntimeCoordinator />
         <ThemeProvider>
@@ -139,6 +143,7 @@ export default function RootLayout() {
           <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
         </ThemeProvider>
       </QueryClientProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

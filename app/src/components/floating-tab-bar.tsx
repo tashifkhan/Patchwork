@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { type ComponentProps, type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
-  Keyboard,
   Pressable,
   StyleSheet,
   TextInput as RNTextInput,
@@ -15,13 +14,13 @@ import Animated, {
   LinearTransition,
   ReduceMotion,
   interpolate,
-  useAnimatedKeyboard,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSettingsStore } from '@/stores/settings-store';
@@ -164,25 +163,20 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
   // On Search the bar holds the query field, so it rides on top of the
   // keyboard. Everywhere else it gets out of the way while the user types,
   // like Google Photos, instead of covering the field they're typing into.
-  const keyboard = useAnimatedKeyboard();
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+  // Both come from the app-wide KeyboardProvider. `height` is negative while
+  // the keyboard is up and counts from the window's bottom edge.
+  const keyboard = useReanimatedKeyboardAnimation();
+  const keyboardOpen = useKeyboardState((state) => state.isVisible);
   const hideForKeyboard = keyboardOpen && !searchFocused;
   const keyboardStyle = useAnimatedStyle(() => {
+    const height = -keyboard.height.value;
     if (searchFocused) {
-      const lift = Math.max(0, keyboard.height.value - insets.bottom);
+      const lift = Math.max(0, height - insets.bottom);
       return { opacity: 1, transform: [{ translateY: -lift }] };
     }
     // Slide down and fade as the keyboard rises; this tracks the keyboard
     // frame by frame, so there is no gap or jump.
-    const shown = keyboard.height.value > 1 ? 0 : 1;
+    const shown = height > 1 ? 0 : 1;
     return {
       opacity: withTiming(shown, { duration: 160 }),
       transform: [{ translateY: withTiming(shown ? 0 : 24, { duration: 160 }) }],

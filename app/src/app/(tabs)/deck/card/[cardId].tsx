@@ -2,6 +2,7 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Platform } from 'react-native';
 
+import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import type { DeckCard, DeckStack } from '@/api/types';
 import {
   DetailRow,
@@ -22,7 +23,7 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeleteDeckCard, useUpdateDeckCard } from '@/hooks/use-deck';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
-import { ScrollView, Text, View } from '@/tw';
+import { Text, View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -141,12 +142,10 @@ function CardEditor({
             : {}),
         }}
       />
-      <ScrollView
+      <KeyboardScrollView
+        bottomOffset={ACTION_BAR_CLEARANCE}
         className="bg-sf-bg flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={IOS}
         contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }}>
         <EditorTitle value={title} onChangeText={setTitle} placeholder="Card title" />
         <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
@@ -181,7 +180,7 @@ function CardEditor({
             onPress={save}
           />
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       <TaskActionBar
         bottom={barBottom}
