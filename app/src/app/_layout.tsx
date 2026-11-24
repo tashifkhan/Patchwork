@@ -13,6 +13,7 @@ import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
 import { KeyboardProvider } from '@/components/ui/keyboard';
 import { AppLockGate } from '@/components/app-lock';
+import { OnboardingGate } from '@/components/onboarding/onboarding';
 import { ConfettiHost } from '@/components/ui/confetti';
 import { useReconnectSync } from '@/hooks/use-offline';
 import { useTasks } from '@/hooks/use-tasks';
@@ -162,6 +163,7 @@ export default function RootLayout() {
               <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
             </Stack>
             <ConfettiHost />
+            <OnboardingGate />
             {process.env.EXPO_OS !== 'web' ? <AppLockGate /> : null}
             <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
           </ThemeProvider>
