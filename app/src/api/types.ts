@@ -39,6 +39,10 @@ export interface Task {
   tags: string[];
   /** Manual ordering within a list (CalDAV X-APPLE-SORT-ORDER). Lower sorts first. */
   sort_order: number | null;
+  /** Kept above the date sections (VTODO X-PATCHWORK-PINNED). */
+  pinned?: boolean;
+  /** iCalendar RRULE value without the `RRULE:` prefix, e.g. `FREQ=WEEKLY;BYDAY=MO`. */
+  rrule?: string | null;
   parent_uid: string | null;
   children: Task[];
   etag: string | null;
@@ -68,6 +72,8 @@ export interface TaskCreate {
   parent_uid?: string | null;
   priority?: number | null;
   sort_order?: number | null;
+  pinned?: boolean;
+  rrule?: string | null;
 }
 
 export interface TaskUpdate {
@@ -82,6 +88,8 @@ export interface TaskUpdate {
   parent_uid?: string | null;
   priority?: number | null;
   sort_order?: number | null;
+  pinned?: boolean;
+  rrule?: string | null;
   etag?: string | null;
 }
 

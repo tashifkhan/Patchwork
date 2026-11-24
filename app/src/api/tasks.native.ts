@@ -377,6 +377,8 @@ function taskToCreate(task: Task): TaskCreate {
     parent_uid: task.parent_uid,
     priority: task.priority,
     sort_order: task.sort_order,
+    pinned: task.pinned,
+    rrule: task.rrule,
   };
 }
 
@@ -736,6 +738,8 @@ export function parseVtodo(calendarData: string, href: string, etag: string | nu
     reminder_at: reminderAt,
     tags: icsTextList(fields, 'CATEGORIES'),
     sort_order: parseOptionalInt(icsRaw(fields, 'X-APPLE-SORT-ORDER')),
+    pinned: /^(TRUE|1)$/i.test(icsRaw(fields, 'X-PATCHWORK-PINNED') ?? ''),
+    rrule: icsRaw(fields, 'RRULE')?.trim() || null,
     parent_uid: icsText(fields, 'RELATED-TO') ?? null,
     children: [],
     etag,
@@ -760,6 +764,11 @@ export function serializeVtodo(task: TaskCreate) {
   if (task.priority != null) lines.push(`PRIORITY:${task.priority}`);
   if (task.sort_order != null) lines.push(`X-APPLE-SORT-ORDER:${task.sort_order}`);
   if (task.due_at) lines.push(`DUE:${formatIcsDate(task.due_at)}`);
+  if (task.pinned) lines.push('X-PATCHWORK-PINNED:TRUE');
+  if (task.rrule) {
+    lines.push(`RRULE:${sanitizeRrule(task.rrule)}`);
+    if (task.due_at) lines.push(`DTSTART:${formatIcsDate(task.due_at)}`);
+  }
   const tags = normalizeTags(task.tags ?? []);
   if (tags.length) lines.push(`CATEGORIES:${serializeIcsList(tags)}`);
   if (task.parent_uid) lines.push(`RELATED-TO:${escapeIcs(task.parent_uid)}`);
@@ -798,6 +807,16 @@ export function updateVtodo(calendarData: string, patch: TaskUpdate) {
       draft = setIcsField(draft, 'CATEGORIES', tags.length ? serializeIcsList(tags) : null, false);
     }
     if (patch.parent_uid !== undefined) draft = setIcsField(draft, 'RELATED-TO', patch.parent_uid);
+    if (patch.pinned !== undefined) draft = setIcsField(draft, 'X-PATCHWORK-PINNED', patch.pinned ? 'TRUE' : null, false);
+    if (patch.rrule !== undefined) {
+      draft = setIcsField(draft, 'RRULE', patch.rrule ? sanitizeRrule(patch.rrule) : null, false);
+    }
+    // RFC 5545 counts a repeat from DTSTART. Keep it on the due date so other
+    // clients agree on which day the series falls after we move it forward.
+    if (/^RRULE[:;]/im.test(draft) && (patch.due_at !== undefined || patch.rrule !== undefined)) {
+      const due = patch.due_at !== undefined ? patch.due_at : parseIcsDate(icsField(parseIcs(draft), 'DUE'));
+      draft = setIcsField(draft, 'DTSTART', due ? formatIcsDate(due) : null, false);
+    }
     return setIcsField(draft, 'LAST-MODIFIED', formatIcsDate(new Date().toISOString()), false);
   });
   if (patch.reminder_at !== undefined) next = setVAlarm(next, patch.reminder_at, patch.title);
@@ -1091,6 +1110,11 @@ function localTimeInZoneToIso(parts: LocalDateParts, timeZone: string) {
 
 function formatIcsDate(value: string) {
   return new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** RRULE values are written raw, so strip anything that could break the line. */
+function sanitizeRrule(value: string) {
+  return value.replace(/^RRULE:/i, '').replace(/[^A-Za-z0-9=;,+\-]/g, '').toUpperCase();
 }
 
 function escapeIcs(value: string) {

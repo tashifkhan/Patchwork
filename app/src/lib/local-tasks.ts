@@ -158,6 +158,8 @@ export async function createLocalTask(payload: TaskCreate): Promise<Task> {
     reminder_at: payload.reminder_at ?? null,
     tags: normalizeTags(payload.tags ?? []),
     sort_order: payload.sort_order ?? null,
+    pinned: payload.pinned ?? false,
+    rrule: payload.rrule ?? null,
     parent_uid: payload.parent_uid ?? null,
     children: [],
     etag: null,
