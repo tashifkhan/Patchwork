@@ -151,18 +151,20 @@ export interface DeleteInput {
 export function useDeleteTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({ taskId, accountId, etag, skipBin }: DeleteInput) => {
-      const snapshot = findInCache(client.getQueryData<Task[]>(queryKeys.tasks), taskId);
-      await deleteTask(taskId, accountId, etag);
-      if (snapshot && !skipBin) await addToRecycleBin([snapshot]).catch(() => {});
-    },
+    mutationFn: ({ taskId, accountId, etag }: DeleteInput) => deleteTask(taskId, accountId, etag),
     onMutate: async ({ taskId }) => {
       await client.cancelQueries({ queryKey: queryKeys.tasks });
       const previous = client.getQueryData<Task[]>(queryKeys.tasks);
+      // Taken here: onMutate runs before mutationFn, and the optimistic
+      // removal below would otherwise hide the to-do from the recycle bin.
+      const snapshot = findInCache(previous, taskId);
       if (previous) {
         client.setQueryData<Task[]>(queryKeys.tasks, removeFromTree(previous, taskId));
       }
-      return { previous };
+      return { previous, snapshot };
+    },
+    onSuccess: async (_data, { skipBin }, context) => {
+      if (context?.snapshot && !skipBin) await addToRecycleBin([context.snapshot]).catch(() => {});
     },
     onError: (_error, _input, context) => {
       if (context?.previous) {

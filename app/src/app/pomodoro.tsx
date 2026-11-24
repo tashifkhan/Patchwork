@@ -1,13 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { AppState, Pressable } from 'react-native';
+import { AppState, Platform, Pressable } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { SheetSurface } from '@/components/ui/sheet-surface';
+import { TimerProgress } from '@/components/ui/timer-progress';
 import { haptics } from '@/lib/haptics';
 import {
   formatClock,
@@ -119,10 +120,10 @@ export default function PomodoroScreen() {
             {formatClock(display)}
           </Text>
           {mode === 'pomodoro' ? (
-            <View
-              style={{ alignSelf: 'stretch', height: 8, borderRadius: 4, backgroundColor: colors.bg3, overflow: 'hidden' }}>
-              <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: tint, borderRadius: 4 }} />
-            </View>
+            <TimerProgress progress={progress} color={tint} trackColor={colors.primaryContainer} />
+          ) : state.phase === 'stopwatch' && !paused && Platform.OS === 'android' ? (
+            // The indeterminate wave says "running" without a fixed end.
+            <TimerProgress progress={null} color={tint} trackColor={colors.primaryContainer} />
           ) : null}
         </View>
 
@@ -175,7 +176,7 @@ export default function PomodoroScreen() {
           )}
         </View>
 
-        <View className="gap-3 rounded-3xl p-4" style={{ backgroundColor: colors.bg3, borderCurve: 'continuous' }}>
+        <View className="gap-3 p-4" style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous' }}>
           <View className="flex-row justify-between">
             <Stat label="Today" value={formatMinutes(today.minutes)} detail={`${today.sessions} pomodoros`} />
             <Stat

@@ -1,5 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -680,10 +682,14 @@ export default function TasksScreen() {
               />
             </View>
             {process.env.EXPO_OS !== 'web' ? (
-              <View className="flex-row" style={{ marginTop: Platform.OS === 'ios' ? 4 : 2 }}>
-                <HeaderIcon icon="calendar-month-outline" label="Calendar" href="/calendar" />
-                <HeaderIcon icon="head-lightbulb-outline" label="Brain dump" href="/brain-dump" />
-                <HeaderIcon icon="timer-outline" label="Focus timer" href="/pomodoro" />
+              <View style={{ marginTop: Platform.OS === 'ios' ? 4 : 2 }}>
+                <HeaderIcons
+                  items={[
+                    { icon: 'calendar-month-outline', label: 'Calendar', href: '/calendar' },
+                    { icon: 'head-lightbulb-outline', label: 'Brain dump', href: '/brain-dump' },
+                    { icon: 'timer-outline', label: 'Focus timer', href: '/pomodoro' },
+                  ]}
+                />
               </View>
             ) : null}
           </View>
@@ -1169,39 +1175,57 @@ export default function TasksScreen() {
   );
 }
 
-/** Quiet icon button in the title row: an M3 standard icon button / a Things toolbar glyph. */
-function HeaderIcon({
-  icon,
-  label,
-  href,
-}: {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  label: string;
-  href: '/brain-dump' | '/pomodoro' | '/calendar';
-}) {
-  const { colors } = useTheme();
-  const running = usePomodoroStore((s) => href === '/pomodoro' && s.phase !== 'idle');
-  return (
-    <Pressable
-      onPress={() => {
-        haptics.tap();
-        router.push(href);
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={running ? `${label}, running` : label}
-      android_ripple={{ color: colors.separator, borderless: true, radius: 22 }}
-      style={({ pressed }) => ({
-        width: 44,
-        height: 44,
-        borderRadius: pressed ? 12 : 22,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: running ? colors.selectionBg : 'transparent',
-        opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
-      })}>
-      <MaterialCommunityIcons name={icon} size={24} color={running ? colors.onSelectionBg : colors.text2} />
-    </Pressable>
-  );
+const HEADER_SF = {
+  '/calendar': 'calendar',
+  '/brain-dump': 'brain.head.profile',
+  '/pomodoro': 'timer',
+} as const;
+
+/**
+ * Shortcuts in the title row. Android: M3 standard icon buttons that morph
+ * their shape while pressed, tonal when the timer runs. iOS 26: one Liquid
+ * Glass capsule holding SF Symbols, like a system toolbar group.
+ */
+function HeaderIcons({ items }: { items: { icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; label: string; href: keyof typeof HEADER_SF }[] }) {
+  const { colors, scheme } = useTheme();
+  const running = usePomodoroStore((s) => s.phase !== 'idle');
+  const buttons = items.map((item) => {
+    const active = item.href === '/pomodoro' && running;
+    return (
+      <Pressable
+        key={item.href}
+        onPress={() => {
+          haptics.tap();
+          router.push(item.href);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={active ? `${item.label}, running` : item.label}
+        android_ripple={{ color: colors.separator, borderless: true, radius: 22 }}
+        style={({ pressed }) => ({
+          width: 44,
+          height: 44,
+          borderRadius: pressed ? 12 : 22,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: active && Platform.OS !== 'ios' ? colors.selectionBg : 'transparent',
+          opacity: pressed && Platform.OS === 'ios' ? 0.5 : 1,
+        })}>
+        {Platform.OS === 'ios' ? (
+          <SymbolView name={HEADER_SF[item.href]} size={20} weight="medium" tintColor={active ? colors.accent : colors.text} />
+        ) : (
+          <MaterialCommunityIcons name={item.icon} size={24} color={active ? colors.onSelectionBg : colors.text2} />
+        )}
+      </Pressable>
+    );
+  });
+  if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
+    return (
+      <GlassView glassEffectStyle="regular" isInteractive colorScheme={scheme} style={{ flexDirection: 'row', borderRadius: 22, paddingHorizontal: 2 }}>
+        {buttons}
+      </GlassView>
+    );
+  }
+  return <View className="flex-row">{buttons}</View>;
 }
 
 function TasksEmptyState({
