@@ -35,10 +35,20 @@ export interface Task {
   completed: boolean;
   priority: number | null;
   due_at: string | null;
+  /**
+   * When the to-do's time block starts (VTODO `DTSTART`). With it, `due_at` is
+   * where the block ends. Null for a plain due date; a repeating to-do whose
+   * DTSTART only anchors the series (equal to DUE) also reads as null.
+   */
+  start_at?: string | null;
   reminder_at: string | null;
   tags: string[];
   /** Manual ordering within a list (CalDAV X-APPLE-SORT-ORDER). Lower sorts first. */
   sort_order: number | null;
+  /** Kept above the date sections (VTODO X-PATCHWORK-PINNED). */
+  pinned?: boolean;
+  /** iCalendar RRULE value without the `RRULE:` prefix, e.g. `FREQ=WEEKLY;BYDAY=MO`. */
+  rrule?: string | null;
   parent_uid: string | null;
   children: Task[];
   etag: string | null;
@@ -49,6 +59,48 @@ export interface Task {
   account_name?: string;
   /** Saved offline and still waiting to reach its account (see `@/lib/outbox`). */
   pending_sync?: boolean;
+  /** iCalendar ATTACH links. Only CalDAV tasks have them. */
+  attachments?: TaskAttachment[];
+}
+
+/** One iCalendar `ATTACH` link, in the shape Nextcloud Calendar writes. */
+export interface TaskAttachment {
+  /** The property value: a share link such as `https://cloud/f/4821`. */
+  url: string;
+  /** File name for display. */
+  name: string;
+  /** `FMTTYPE`, e.g. `image/jpeg`. */
+  mime: string | null;
+  /** `FILENAME` when it is a path in the user's Nextcloud Files, e.g. `/Tasks/<uid>/a.jpg`. */
+  path: string | null;
+  /** `X-NC-FILE-ID`, used for server-side thumbnails. */
+  file_id: string | null;
+  has_preview: boolean;
+}
+
+/** Who a new attachment belongs to. Enough to queue it without a connection. */
+export interface AttachmentTarget {
+  uid: string;
+  title: string;
+  account_id?: string;
+  account_name?: string;
+}
+
+/** A file picked on the device, ready to upload. */
+export interface AttachmentUpload {
+  uri: string;
+  name: string;
+  mime: string;
+}
+
+/** What the UI needs to load attachment images from one Nextcloud account. */
+export interface AttachmentAccess {
+  /** `https://cloud.example.com/` or a subpath install root, with a trailing slash. */
+  serverRoot: string;
+  /** WebDAV root of the user's Files, with a trailing slash. */
+  filesRoot: string;
+  origin: string;
+  headers: Record<string, string>;
 }
 
 export interface TaskCreate {
@@ -64,10 +116,15 @@ export interface TaskCreate {
   markdown?: string;
   tags?: string[];
   due_at?: string | null;
+  start_at?: string | null;
   reminder_at?: string | null;
   parent_uid?: string | null;
   priority?: number | null;
   sort_order?: number | null;
+  pinned?: boolean;
+  rrule?: string | null;
+  /** Read-only links kept when moving a task out of a Nextcloud account. */
+  attachments?: TaskAttachment[];
 }
 
 export interface TaskUpdate {
@@ -78,10 +135,13 @@ export interface TaskUpdate {
   completed?: boolean;
   tags?: string[];
   due_at?: string | null;
+  start_at?: string | null;
   reminder_at?: string | null;
   parent_uid?: string | null;
   priority?: number | null;
   sort_order?: number | null;
+  pinned?: boolean;
+  rrule?: string | null;
   etag?: string | null;
 }
 

@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Keyboard, Platform, Pressable } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 
@@ -10,6 +10,8 @@ import { ApiError } from '@/api/client';
 import type { AiGeneratedTask } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { DateField } from '@/components/tasks/date-field';
+import { TimeBlockField } from '@/components/tasks/time-block-field';
+import { TaskComposer } from '@/components/tasks/task-composer';
 import { ListPicker } from '@/components/tasks/list-picker';
 import { LiveMarkdownInput } from '@/components/tasks/live-markdown-input';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -34,11 +36,11 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { Switch } from '@/components/ui/switch';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
 import { useUiStore } from '@/stores/ui-store';
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { ScrollView, Text, TextInput, View } from '@/tw';
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-const ADJUSTS_KEYBOARD_INSETS = process.env.EXPO_OS === 'ios';
 
 const PRIORITIES: { label: string; value: number | null }[] = [
   { label: 'None', value: null },
@@ -63,6 +65,8 @@ type AiBusy = 'text' | 'photo' | null;
  * replaces the old AI tab.
  */
 const IOS = Platform.OS === 'ios';
+/** Android creates on a full page (`TaskComposer`), not in a sheet. */
+const ANDROID_PAGE = Platform.OS === 'android';
 
 export default function NewTaskScreen() {
   const { colors } = useTheme();
@@ -132,6 +136,7 @@ export default function NewTaskScreen() {
     normalizeTags(handoff?.task?.tags ?? (selectedTag ? [selectedTag] : [])),
   );
   const [dueAt, setDueAt] = useState<string | null>(handoff?.task?.due_at ?? null);
+  const [startAt, setStartAt] = useState<string | null>(handoff?.task?.start_at ?? null);
   const [reminderAt, setReminderAt] = useState<string | null>(handoff?.task?.reminder_at ?? null);
   const [priority, setPriority] = useState<number | null>(handoff?.task?.priority ?? null);
   const [calendarId, setCalendarId] = useState<string | null>(handoff?.task?.calendar_id ?? null);
@@ -148,23 +153,8 @@ export default function NewTaskScreen() {
   const [dictating, setDictating] = useState(false);
   const [createdWithWarnings, setCreatedWithWarnings] = useState(false);
   const [warningTaskUid, setWarningTaskUid] = useState<string | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
-
-  // iOS gets exact insets from the ScrollView's own frame inside a form sheet;
-  // Android pads by the keyboard height.
-  useEffect(() => {
-    if (ADJUSTS_KEYBOARD_INSETS) return;
-    const show = Keyboard.addListener('keyboardDidShow', (e) =>
-      setKeyboardHeight(e.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   const listName = repo
     ? repo.fullName
@@ -309,6 +299,7 @@ export default function NewTaskScreen() {
         markdown: notes.trim(),
         tags: normalizeTags(tags),
         due_at: dueAt,
+        start_at: startAt,
         reminder_at: reminderAt,
         priority,
       });
@@ -320,6 +311,7 @@ export default function NewTaskScreen() {
             calendarId,
             title: created.title,
             notes: created.markdown,
+            startAt: created.start_at,
             dueAt: created.due_at,
             reminderAt: created.reminder_at,
           });
@@ -375,6 +367,13 @@ export default function NewTaskScreen() {
   // ── Empty / loading states ─────────────────────────────────────────────
 
   if (listsQuery.isLoading && lists.length === 0) {
+    if (ANDROID_PAGE) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.bg }}>
+          <LoadingState message="Loading lists…" fullScreen={false} />
+        </View>
+      );
+    }
     return (
       <SheetSurface title="New To-Do" skipPartiallyExpanded={false}>
         <View style={{ flex: 1 }}>
@@ -424,6 +423,148 @@ export default function NewTaskScreen() {
     );
   }
 
+  const aiInputs: { icon: IconName; label: string; onPress: () => void }[] = [
+    {
+      icon: 'microphone-outline',
+      label: 'Dictate',
+      onPress: () => {
+        Keyboard.dismiss();
+        setDictating(true);
+      },
+    },
+    { icon: 'camera-outline', label: 'Camera', onPress: () => generateFromPhoto('camera') },
+    { icon: 'image-outline', label: 'Photo', onPress: () => generateFromPhoto('library') },
+  ];
+  // Dialogs and pickers shared by both layouts.
+  const overlays = (
+    <>
+      <ListPicker
+        visible={listPickerOpen}
+        lists={lists}
+        selectedId={listId}
+        title="Add to"
+        onSelect={(list) => {
+          setListId(list.id);
+          setListPickerOpen(false);
+        }}
+        repos={writableRepos}
+        selectedRepo={repo?.fullName ?? null}
+        onSelectRepo={(fullName) => {
+          setRepoName(fullName);
+          setListPickerOpen(false);
+        }}
+        onClose={() => setListPickerOpen(false)}
+      />
+      <NativeAlert
+        visible={aiError != null}
+        title="AI"
+        message={aiError ?? ''}
+        confirmLabel={aiError?.includes('Settings') ? 'Open Settings' : 'OK'}
+        dismissLabel={aiError?.includes('Settings') ? 'Not now' : undefined}
+        onDismiss={() => setAiError(null)}
+        onConfirm={() => {
+          const goSettings = aiError?.includes('Settings');
+          setAiError(null);
+          if (goSettings) {
+            router.back();
+            router.push('/settings/ai');
+          }
+        }}
+      />
+      <NativeAlert
+        visible={errorMessage != null}
+        title={createdWithWarnings ? 'To-do created' : 'Could not add'}
+        message={errorMessage ?? ''}
+        onDismiss={() => {
+          setErrorMessage(null);
+          if (createdWithWarnings) {
+            const uid = warningTaskUid;
+            setCreatedWithWarnings(false);
+            setWarningTaskUid(null);
+            router.back();
+            if (uid) router.push({ pathname: '/task/[uid]', params: { uid } });
+          }
+        }}
+      />
+      <DictationSheet
+        visible={dictating}
+        lists={lists}
+        availableTags={availableTags}
+        defaultListId={listId}
+        onClose={() => setDictating(false)}
+        // Close this dialog under the preview, like the other AI actions.
+        beforeReview={() => router.back()}
+      />
+      <ProgressOverlay
+        visible={aiBusy != null || aiDone != null}
+        state={aiDone ? 'done' : 'working'}
+        label={aiDone ?? (aiBusy === 'photo' ? 'Reading your photo…' : 'Turning that into to-dos…')}
+      />
+    </>
+  );
+
+  const calendarChoice = hasSchedule ? (
+    <CalendarChoice
+      open={calendarOpen}
+      selectedId={calendarId}
+      onToggle={() => setCalendarOpen((v) => !v)}
+      onPick={(id) => {
+        setCalendarId(id);
+        setCalendarOpen(false);
+      }}
+    />
+  ) : null;
+
+  // Android: the full-page composer. A GitHub issue keeps the form below.
+  if (ANDROID_PAGE && !isIssue) {
+    return (
+      <>
+        <TaskComposer
+          title={title}
+          onTitle={setTitle}
+          notes={notes}
+          onNotes={setNotes}
+          lists={lists}
+          listId={listId}
+          onList={setListId}
+          onMoreDestinations={() => {
+            haptics.tap();
+            setListPickerOpen(true);
+          }}
+          tags={tags}
+          onPickTags={pickTags}
+          dueAt={dueAt}
+          startAt={startAt}
+          onSchedule={(next) => {
+            setDueAt(next.due_at);
+            setStartAt(next.start_at);
+          }}
+          reminderAt={reminderAt}
+          onReminder={setReminderAt}
+          priority={priority}
+          priorities={PRIORITIES}
+          onPriority={setPriority}
+          checklist={checklist}
+          onRemoveChecklist={(index) => setChecklist((items) => items.filter((_, i) => i !== index))}
+          checklistDraft={checklistDraft}
+          onChecklistDraft={setChecklistDraft}
+          onAddChecklist={addChecklistItem}
+          ai={{
+            write: generateFromText,
+            dictate: aiInputs[0].onPress,
+            camera: aiInputs[1].onPress,
+            photo: aiInputs[2].onPress,
+          }}
+          canSubmit={canSubmit}
+          submitting={isSubmitting}
+          onSubmit={handleSubmit}
+          calendarChoice={calendarChoice}
+        />
+        {overlays}
+      </>
+    );
+  }
+
   return (
     <SheetSurface title={isIssue ? 'New Issue' : 'New To-Do'}>
       {Platform.OS === 'ios' ? (
@@ -443,17 +584,14 @@ export default function NewTaskScreen() {
           }}
         />
       ) : null}
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={ADJUSTS_KEYBOARD_INSETS}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 8,
-          paddingBottom: keyboardHeight + 32,
+          paddingBottom: IOS ? 32 : 24,
         }}>
         {/* Title */}
         <View className="flex-row items-start">
@@ -480,7 +618,7 @@ export default function NewTaskScreen() {
             autoFocus
             multiline
             submitBehavior="blurAndSubmit"
-            placeholder="New To-Do"
+            placeholder={IOS ? 'New To-Do' : 'Title'}
             placeholderTextColor={colors.text3}
             accessibilityLabel="Title"
             className="text-sf-text flex-1"
@@ -510,38 +648,47 @@ export default function NewTaskScreen() {
         {isIssue ? null : (
           <>
             {/* AI: plain language or a photo becomes reviewable to-dos */}
-            <View style={{ marginLeft: TEXT_INSET, marginTop: 14 }}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ gap: 8 }}>
+            {IOS ? (
+              <View style={{ marginLeft: TEXT_INSET, marginRight: -20, marginTop: 14 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ gap: 8, paddingRight: 20 }}>
+                  <AiChip
+                    icon="creation"
+                    label="Write with AI"
+                    emphasized
+                    onPress={generateFromText}
+                  />
+                  {aiInputs.map((input) => (
+                    <AiChip key={input.label} {...input} />
+                  ))}
+                </ScrollView>
+              </View>
+            ) : (
+              // Android: one row that fits without scrolling. The main action is
+              // a filled tonal button; the inputs are M3 icon buttons.
+              <View
+                style={{
+                  marginLeft: TEXT_INSET,
+                  marginTop: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}>
                 <AiChip
                   icon="creation"
                   label="Write with AI"
                   emphasized
                   onPress={generateFromText}
                 />
-                <AiChip
-                  icon="microphone-outline"
-                  label="Dictate"
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setDictating(true);
-                  }}
-                />
-                <AiChip
-                  icon="camera-outline"
-                  label="Camera"
-                  onPress={() => generateFromPhoto('camera')}
-                />
-                <AiChip
-                  icon="image-outline"
-                  label="Photo"
-                  onPress={() => generateFromPhoto('library')}
-                />
-              </ScrollView>
-            </View>
+                {aiInputs.map((input) => (
+                  <AiIconButton key={input.label} {...input} />
+                ))}
+              </View>
+            )}
           </>
         )}
 
@@ -559,13 +706,18 @@ export default function NewTaskScreen() {
             <Pressable key={tag} onPress={pickTags} accessibilityLabel={`Tag ${tag}, edit tags`}>
               <View
                 style={{
-                  backgroundColor: colors.selectionBg,
-                  paddingHorizontal: 14,
+                  backgroundColor: IOS ? colors.selectionBg : colors.primaryContainer,
+                  paddingHorizontal: IOS ? 14 : 12,
                   height: 32,
                   justifyContent: 'center',
-                  borderRadius: 16,
+                  borderRadius: IOS ? 16 : 8,
                 }}>
-                <Text style={{ color: colors.onSelectionBg, fontSize: 14, fontWeight: '600' }}>
+                <Text
+                  style={{
+                    color: IOS ? colors.onSelectionBg : colors.onPrimaryContainer,
+                    fontSize: 14,
+                    fontWeight: IOS ? '600' : '500',
+                  }}>
                   {tag}
                 </Text>
               </View>
@@ -589,18 +741,30 @@ export default function NewTaskScreen() {
                     opacity: pressed ? 0.6 : 1,
                   }
                 : {
+                    // M3 assist chip: 32dp, 8dp corners, outline, 18dp leading icon.
                     flexDirection: 'row',
                     alignItems: 'center',
-                    gap: 4,
+                    gap: 8,
                     height: 32,
-                    paddingHorizontal: 12,
+                    paddingLeft: 8,
+                    paddingRight: 16,
                     borderRadius: pressed ? 16 : 8,
+                    borderCurve: 'continuous',
                     borderWidth: 1,
                     borderColor: colors.gray2,
                   }
             }>
-            <MaterialCommunityIcons name="tag-plus-outline" size={16} color={colors.text2} />
-            <Text style={{ color: colors.text2, fontSize: 14 }}>
+            <MaterialCommunityIcons
+              name="tag-plus-outline"
+              size={IOS ? 16 : 18}
+              color={IOS ? colors.text2 : colors.accent}
+            />
+            <Text
+              style={
+                IOS
+                  ? { color: colors.text2, fontSize: 14 }
+                  : { color: colors.text, fontSize: 14, fontWeight: '500', letterSpacing: 0.1 }
+              }>
               {tags.length ? 'Edit' : isIssue ? 'Add labels' : 'Add tags'}
             </Text>
           </Pressable>
@@ -710,7 +874,21 @@ export default function NewTaskScreen() {
                   label="Deadline"
                   iconName="flag-outline"
                   value={dueAt}
-                  onChange={setDueAt}
+                  onChange={(next) => {
+                    // The block moves with its end and keeps its length.
+                    const length = startAt && dueAt ? new Date(dueAt).getTime() - new Date(startAt).getTime() : 0;
+                    setDueAt(next);
+                    setStartAt(next && length > 0 ? new Date(new Date(next).getTime() - length).toISOString() : null);
+                  }}
+                />
+              </View>
+              <View style={{ paddingVertical: 12 }}>
+                <TimeBlockField
+                  value={{ start_at: startAt, due_at: dueAt }}
+                  onChange={(block) => {
+                    setStartAt(block.start_at);
+                    setDueAt(block.due_at);
+                  }}
                 />
               </View>
               <View style={{ paddingVertical: 12 }}>
@@ -732,131 +910,61 @@ export default function NewTaskScreen() {
                 </View>
                 <SegmentedChoice options={PRIORITIES} value={priority} onChange={setPriority} />
               </View>
-              {hasSchedule ? (
-                <CalendarChoice
-                  open={calendarOpen}
-                  selectedId={calendarId}
-                  onToggle={() => setCalendarOpen((v) => !v)}
-                  onPick={(id) => {
-                    setCalendarId(id);
-                    setCalendarOpen(false);
-                  }}
-                />
-              ) : null}
+              {calendarChoice}
             </>
           )}
         </View>
+      </KeyboardScrollView>
+      {/* Create, pinned under the form so it never scrolls off. iOS uses the
+          Add button in the sheet's navigation bar instead. */}
+      {Platform.OS !== 'ios' ? (
+        <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+            <Pressable
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+              accessibilityRole="button"
+              accessibilityLabel={isIssue ? 'Create issue' : 'Add to-do'}
+              android_ripple={{ color: colors.separator }}
+              style={({ pressed }) => ({
+                height: 56,
+                borderRadius: pressed ? 16 : 28,
+                borderCurve: 'continuous',
+                overflow: 'hidden',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 8,
+                backgroundColor: colors.accent,
+                opacity: canSubmit ? 1 : 0.4,
+              })}>
+              {isSubmitting ? (
+                <LoadingSpinner size={24} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={isIssue ? 'github' : 'plus'}
+                  size={22}
+                  color={colors.onAccent}
+                />
+              )}
+              <Text style={{ color: colors.onAccent, fontSize: 17, fontWeight: '600' }}>
+                {isSubmitting
+                  ? isIssue
+                    ? 'Creating issue…'
+                    : 'Adding…'
+                  : isIssue
+                    ? 'Create issue'
+                    : 'Add to-do'}
+              </Text>
+            </Pressable>
+        </View>
+      ) : null}
 
-        {/* Create (iOS uses the Add button in the sheet's navigation bar) */}
-        {Platform.OS !== 'ios' ? (
-        <Pressable
-          onPress={handleSubmit}
-          disabled={!canSubmit}
-          accessibilityRole="button"
-          accessibilityLabel={isIssue ? 'Create issue' : 'Add to-do'}
-          android_ripple={{ color: colors.separator }}
-          style={({ pressed }) => ({
-            marginTop: 24,
-            height: 56,
-            borderRadius: pressed ? 16 : 28,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'row',
-            gap: 8,
-            backgroundColor: colors.accent,
-            opacity: canSubmit ? 1 : 0.4,
-          })}>
-          {isSubmitting ? (
-            <LoadingSpinner size={24} />
-          ) : (
-            <MaterialCommunityIcons
-              name={isIssue ? 'github' : 'plus'}
-              size={22}
-              color={colors.onAccent}
-            />
-          )}
-          <Text style={{ color: colors.onAccent, fontSize: 17, fontWeight: '600' }}>
-            {isSubmitting
-              ? isIssue
-                ? 'Creating issue…'
-                : 'Adding…'
-              : isIssue
-                ? 'Create issue'
-                : 'Add to-do'}
-          </Text>
-        </Pressable>
-        ) : null}
-
-        <ListPicker
-          visible={listPickerOpen}
-          lists={lists}
-          selectedId={listId}
-          title="Add to"
-          onSelect={(list) => {
-            setListId(list.id);
-            setListPickerOpen(false);
-          }}
-          repos={writableRepos}
-          selectedRepo={repo?.fullName ?? null}
-          onSelectRepo={(fullName) => {
-            setRepoName(fullName);
-            setListPickerOpen(false);
-          }}
-          onClose={() => setListPickerOpen(false)}
-        />
-        <NativeAlert
-          visible={aiError != null}
-          title="AI"
-          message={aiError ?? ''}
-          confirmLabel={aiError?.includes('Settings') ? 'Open Settings' : 'OK'}
-          dismissLabel={aiError?.includes('Settings') ? 'Not now' : undefined}
-          onDismiss={() => setAiError(null)}
-          onConfirm={() => {
-            const goSettings = aiError?.includes('Settings');
-            setAiError(null);
-            if (goSettings) {
-              router.back();
-              router.push('/settings/ai');
-            }
-          }}
-        />
-        <NativeAlert
-          visible={errorMessage != null}
-          title={createdWithWarnings ? 'To-do created' : 'Could not add'}
-          message={errorMessage ?? ''}
-          onDismiss={() => {
-            setErrorMessage(null);
-            if (createdWithWarnings) {
-              const uid = warningTaskUid;
-              setCreatedWithWarnings(false);
-              setWarningTaskUid(null);
-              router.back();
-              if (uid) router.push({ pathname: '/task/[uid]', params: { uid } });
-            }
-          }}
-        />
-      </ScrollView>
-      <DictationSheet
-        visible={dictating}
-        lists={lists}
-        availableTags={availableTags}
-        defaultListId={listId}
-        onClose={() => setDictating(false)}
-        // Close this dialog under the preview, like the other AI actions.
-        beforeReview={() => router.back()}
-      />
-      <ProgressOverlay
-        visible={aiBusy != null || aiDone != null}
-        state={aiDone ? 'done' : 'working'}
-        label={aiDone ?? (aiBusy === 'photo' ? 'Reading your photo…' : 'Turning that into to-dos…')}
-      />
+      {overlays}
     </SheetSurface>
   );
 }
 
-/** M3 assist chip for the AI actions; the main one is tonal, the rest outlined. */
+/** The AI actions. iOS: capsules. Android: the M3 filled tonal button. */
 function AiChip({
   icon,
   label,
@@ -890,19 +998,17 @@ function AiChip({
         backgroundColor: emphasized ? colors.accent : colors.bg3,
         opacity: pressed ? 0.7 : 1,
       }) : ({
+        // M3 Expressive filled tonal button: 40dp, round, squares up when pressed.
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        height: 36,
-        paddingLeft: 10,
-        paddingRight: 14,
-        borderRadius: pressed ? 18 : 10,
+        gap: 8,
+        height: 40,
+        paddingLeft: 16,
+        paddingRight: 20,
+        borderRadius: pressed ? 12 : 20,
         borderCurve: 'continuous',
         overflow: 'hidden',
-        backgroundColor: emphasized ? colors.primaryContainer : 'transparent',
-        borderWidth: emphasized ? 0 : 1,
-        borderColor: colors.gray2,
-        opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
+        backgroundColor: emphasized ? colors.primaryContainer : colors.bg3,
       })}>
       <MaterialCommunityIcons
         name={icon}
@@ -912,11 +1018,47 @@ function AiChip({
       <Text
         style={{
           fontSize: IOS ? 15 : 14,
-          fontWeight: '600',
+          fontWeight: IOS ? '600' : '500',
+          letterSpacing: IOS ? 0 : 0.1,
           color: IOS ? (emphasized ? colors.onAccent : colors.accent) : emphasized ? colors.onPrimaryContainer : colors.text,
         }}>
         {label}
       </Text>
+    </Pressable>
+  );
+}
+
+/** M3 Expressive standard icon button, tonal, for the Android AI inputs. */
+function AiIconButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.tap();
+        onPress();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      android_ripple={{ color: colors.separator }}
+      style={({ pressed }) => ({
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: pressed ? 12 : 20,
+        borderCurve: 'continuous',
+        overflow: 'hidden',
+        backgroundColor: colors.bg3,
+      })}>
+      <MaterialCommunityIcons name={icon} size={22} color={colors.accent} />
     </Pressable>
   );
 }

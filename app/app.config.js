@@ -23,11 +23,26 @@ module.exports = ({ config }) => {
     android: {
       ...config.android,
       package: iosBundleId,
+      // Lets the focus timer notification become a Live Update (status bar chip) on Android 16+.
+      permissions: [...((config.android && config.android.permissions) || []), 'android.permission.POST_PROMOTED_NOTIFICATIONS'],
     },
     plugins: [
       ...(config.plugins ?? []),
       'expo-background-task',
-      'expo-font',
+      [
+        'expo-font',
+        {
+          // Google Sans Flex cuts for the focus timer (see assets/fonts/OFL.txt).
+          fonts: [
+            './assets/fonts/PatchworkClock-Stopwatch.ttf',
+            './assets/fonts/PatchworkClock-TimerRun.ttf',
+            './assets/fonts/PatchworkClock-TimerIdle.ttf',
+            './assets/fonts/PatchworkClock-Title.ttf',
+            './assets/fonts/PatchworkClock-Label.ttf',
+            './assets/fonts/PatchworkClock-Body.ttf',
+          ],
+        },
+      ],
       'expo-image',
       'expo-secure-store',
       [
@@ -78,6 +93,19 @@ module.exports = ({ config }) => {
               },
             },
             {
+              name: 'BoardsWidget',
+              displayName: 'Board',
+              description: 'Columns and cards from your last opened board.',
+              ios: { supportedFamilies: ['systemSmall', 'systemMedium', 'systemLarge'] },
+              android: {
+                minWidth: 250,
+                minHeight: 180,
+                targetCellWidth: 4,
+                targetCellHeight: 3,
+                initialLayout: './src/widgets/BoardsWidget.android.tsx',
+              },
+            },
+            {
               name: 'LockWidget',
               displayName: 'Quick View',
               description: 'Lock Screen glance for your tasks.',
@@ -89,6 +117,7 @@ module.exports = ({ config }) => {
       ],
       './plugins/with-android-workmanager-dedupe',
       './plugins/with-android-wallpaper-recreate',
+      './plugins/with-android-local-ai',
     ],
   };
 };

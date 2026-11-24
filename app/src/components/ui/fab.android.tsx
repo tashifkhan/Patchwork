@@ -33,13 +33,17 @@ export function Fab({
   onPress,
   icon = 'plus',
   accessibilityLabel,
+  bottom: bottomOverride,
 }: {
   onPress: () => void;
   icon?: IconName;
   accessibilityLabel?: string;
+  /** Distance from the bottom edge; defaults to clearing the tab bar. Screens outside the tabs pass their own. */
+  bottom?: number;
 }) {
   const { colors } = useTheme();
-  const bottom = useTabBarFabOffset();
+  const tabBarBottom = useTabBarFabOffset();
+  const bottom = bottomOverride ?? tabBarBottom;
   const symbol = SYMBOLS[icon];
 
   function handlePress() {

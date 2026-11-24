@@ -7,31 +7,29 @@ import {
   type ComponentProps,
   type ReactElement,
   type ReactNode,
-  type RefObject,
-  useEffect,
-  useRef,
-  useState,
 } from 'react';
 import {
   ActivityIndicator,
-  Keyboard,
   PlatformColor,
   Platform,
   Pressable,
   StyleSheet,
-  TextInput as RNTextInput,
-  useWindowDimensions,
-  type ScrollView as RNScrollView,
   type TextInputProps,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import Animated from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
+import { PressGlow, useElasticPress } from '@/components/ui/elastic';
+import { RiseIn } from '@/components/ui/motion';
+import { withAlpha } from '@/lib/theme';
+import { haptics } from '@/lib/haptics';
 import { Button } from '@/components/ui/button';
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { Switch } from '@/components/ui/switch';
 import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import type { SchemeName, ThemeColors } from '@/lib/theme';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -87,6 +85,11 @@ export function settingsColors(colors: ThemeColors, scheme: SchemeName): Setting
     // systemGroupedBackground / secondarySystemGroupedBackground. Light mode
     // puts white cells on gray; dark mode puts gray cells on black.
     const dark = scheme === 'dark';
+    if (!dark && lightness(colors.bg) < lightness(colors.bg2)) {
+      // Palettes like Paper tint the page and lift surfaces above it (cream
+      // page, near-white cards), the reverse of Apple's white-on-gray.
+      return { screen: colors.bg, cell: colors.bg3, pressed: colors.gray3, field: colors.bg2 };
+    }
     return {
       screen: dark ? colors.bg : colors.bg2,
       cell: dark ? colors.bg2 : colors.bg,
@@ -95,6 +98,13 @@ export function settingsColors(colors: ThemeColors, scheme: SchemeName): Setting
     };
   }
   return { screen: colors.bg, cell: colors.bg2, pressed: colors.bg3, field: colors.bg3 };
+}
+
+/** Rough lightness of a #RRGGBB color, 0..255. */
+function lightness(hex: string): number {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex);
+  if (!m) return 255;
+  return 0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16);
 }
 
 export function useSettingsColors(): SettingsColors {
@@ -159,6 +169,23 @@ const SF_ICONS: Partial<Record<IconName, SFSymbol>> = {
   'cube-outline': 'cube.fill',
   'shape-outline': 'square.on.circle.fill',
   'router-network': 'point.3.connected.trianglepath.dotted',
+  download: 'arrow.down.circle.fill',
+  'timer-outline': 'timer',
+  'head-lightbulb-outline': 'brain.head.profile.fill',
+  'calendar-month-outline': 'calendar',
+  'party-popper': 'party.popper.fill',
+  'volume-high': 'speaker.wave.2.fill',
+  'code-json': 'curlybraces',
+  'language-markdown-outline': 'doc.plaintext.fill',
+  'file-import-outline': 'doc.badge.plus',
+  'qrcode-scan': 'qrcode.viewfinder',
+  'clipboard-arrow-down-outline': 'doc.on.clipboard.fill',
+  'cloud-sync-outline': 'arrow.triangle.2.circlepath.icloud.fill',
+  cellphone: 'iphone',
+  'arrow-down': 'arrow.down',
+  'arrow-up': 'arrow.up',
+  close: 'xmark',
+  restore: 'arrow.uturn.backward',
 };
 
 /**
@@ -180,6 +207,7 @@ const IOS_TILE_COLORS: Partial<Record<IconName, Parameters<typeof PlatformColor>
   'star-four-points-outline': 'systemPurple',
   brain: 'systemPurple',
   'router-network': 'systemTeal',
+  download: 'systemBlue',
   'cloud-check-outline': 'systemBlue',
   'cloud-alert-outline': 'systemOrange',
   refresh: 'systemGreen',
@@ -262,87 +290,30 @@ export function SettingsItemIcon({
 /* Screen + groups                                                           */
 /* ------------------------------------------------------------------------ */
 
-/** Room kept between a focused field and the top of the keyboard. */
-const FIELD_CLEARANCE = 24;
-
 /**
- * Android only: keep the focused field above the keyboard.
- *
- * The app draws edge-to-edge, so `adjustResize` no longer shrinks the window
- * and the keyboard simply covers the lower part of the screen. Shrinking the
- * ScrollView (KeyboardAvoidingView) is not enough either: the ScrollView
- * keeps its offset, so a field near the end stays under the keys. Instead the
- * content gets extra room at the bottom, and once the keyboard is up the
- * focused field is scrolled to sit just above it.
+ * Scroll container shared by every settings screen. The focused field scrolls
+ * above the keyboard as it rises, on both platforms (see `KeyboardScrollView`).
  */
-function useAndroidKeyboardReveal(
-  scrollRef: RefObject<RNScrollView | null>,
-  scrollY: RefObject<number>
-): number {
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', (event) => {
-      // React Native's Android height leaves out the navigation bar below it.
-      const height = event.endCoordinates.height + insets.bottom;
-      setKeyboardHeight(height);
-      // After the extra padding has laid out, so there is room to scroll into.
-      requestAnimationFrame(() => {
-        const input = RNTextInput.State.currentlyFocusedInput();
-        const scroll = scrollRef.current;
-        if (!input || !scroll) return;
-        input.measureInWindow((_x, y, _w, h) => {
-          const keyboardTop = windowHeight - height;
-          const overlap = y + h + FIELD_CLEARANCE - keyboardTop;
-          if (overlap > 0) scroll.scrollTo({ y: scrollY.current + overlap, animated: true });
-        });
-      });
-    });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [insets.bottom, scrollRef, scrollY, windowHeight]);
-
-  return keyboardHeight;
-}
-
-/** Scroll container shared by every settings screen. */
 export function SettingsScreen({ children }: { children: ReactNode }) {
   const { screen } = useSettingsColors();
   const paddingBottom = useTabBarContentPadding(48);
   const onTabBarScroll = useTabBarMinimizeOnScroll();
-  const scrollRef = useRef<RNScrollView>(null);
-  const scrollY = useRef(0);
-  const keyboardHeight = useAndroidKeyboardReveal(scrollRef, scrollY);
   return (
-    <ScrollView
-      ref={scrollRef}
+    <KeyboardScrollView
       className="flex-1"
       style={{ backgroundColor: screen }}
       contentInsetAdjustmentBehavior="automatic"
-      // iOS: inset the content by the keyboard and keep the focused field
-      // visible. Android does the same in useAndroidKeyboardReveal.
-      automaticallyAdjustKeyboardInsets
-      keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       scrollEventThrottle={16}
-      onScroll={(event) => {
-        scrollY.current = event.nativeEvent.contentOffset.y;
-        onTabBarScroll?.(event);
-      }}
+      onScroll={onTabBarScroll}
       contentContainerStyle={{
         paddingHorizontal: 16,
         paddingTop: IOS ? 8 : 12,
-        paddingBottom: Math.max(paddingBottom, keyboardHeight + FIELD_CLEARANCE),
+        paddingBottom,
         gap: IOS ? 28 : 24,
       }}>
       {children}
-    </ScrollView>
+    </KeyboardScrollView>
   );
 }
 
@@ -422,6 +393,23 @@ function flattenRows(children: ReactNode): ReactElement[] {
 }
 
 /**
+ * The iOS inset-grouped card, shared by Settings and Boards. It stays an
+ * opaque cell on purpose, as in iOS 26 Settings: Liquid Glass belongs to the
+ * controls floating above content (bars, back buttons, tab bar, segmented
+ * controls, buttons). Tried as a glass panel, it had nothing to refract over
+ * the flat grouped background and rendered almost clear, so the rows lost
+ * their grouping even with a strong tint.
+ */
+export function GroupedCard({ children, radius = IOS_GROUP_RADIUS }: { children: ReactNode; radius?: number }) {
+  const { cell } = useSettingsColors();
+  return (
+    <View style={{ borderRadius: radius, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: cell }}>
+      {children}
+    </View>
+  );
+}
+
+/**
  * A cluster of rows. iOS: one rounded inset-grouped card with hairline
  * dividers. Android: each row becomes its own segment, so dividers inside the
  * group are dropped there.
@@ -450,33 +438,29 @@ export function SettingsGroup({
           const top = first ? ANDROID_OUTER_RADIUS : ANDROID_INNER_RADIUS;
           const bottom = last ? ANDROID_OUTER_RADIUS : ANDROID_INNER_RADIUS;
           return (
-            <View
-              key={row.key ?? index}
-              style={{
-                backgroundColor: cell,
-                overflow: 'hidden',
-                borderTopLeftRadius: top,
-                borderTopRightRadius: top,
-                borderBottomLeftRadius: bottom,
-                borderBottomRightRadius: bottom,
-              }}>
-              {row}
-            </View>
+            // Paisa's riseIn, staggered down the group, once per mount.
+            <RiseIn key={row.key ?? index} index={index} fromScale={0.98} rise={8}>
+              <View
+                style={{
+                  backgroundColor: cell,
+                  overflow: 'hidden',
+                  borderTopLeftRadius: top,
+                  borderTopRightRadius: top,
+                  borderBottomLeftRadius: bottom,
+                  borderBottomRightRadius: bottom,
+                }}>
+                {row}
+              </View>
+            </RiseIn>
           );
         })}
       </View>
     );
   } else {
     body = (
-      <View
-        style={{
-          backgroundColor: cell,
-          borderRadius: IOS_GROUP_RADIUS,
-          borderCurve: 'continuous',
-          overflow: 'hidden',
-        }}>
-        {children}
-      </View>
+      <RiseIn fromScale={0.99} rise={6}>
+        <GroupedCard>{children}</GroupedCard>
+      </RiseIn>
     );
   }
 
@@ -643,8 +627,15 @@ function RowPressable({
   const { colors } = useTheme();
   const { pressed: pressedColor } = useSettingsColors();
   const interactive = Boolean(onPress) && !disabled;
+  // Paisa's elasticCard on Android: the row dips under the finger and springs
+  // back. iOS keeps the Settings-style cell highlight.
+  const press = useElasticPress({ maxStretch: 0.012, maxTranslate: 1, pressedScale: 0.98, releaseOnDrag: true });
+  const elastic = ANDROID && interactive;
   return (
+    <Animated.View {...(elastic ? press.handlers : null)} style={elastic ? press.style : undefined}>
+    {elastic ? <PressGlow press={press} color={withAlpha(colors.accent, 0.1)} radius={20} size={60} /> : null}
     <Pressable
+      onPressOut={press.release}
       onPress={onPress}
       disabled={!interactive}
       // A row with nothing to do must not swallow its children's focus, or
@@ -671,6 +662,7 @@ function RowPressable({
         </>
       )}
     </Pressable>
+    </Animated.View>
   );
 }
 
@@ -718,13 +710,18 @@ export function SettingsRow({ onPress, disabled, selected, ...layout }: Settings
  */
 export function SettingsToggleRow({
   value,
-  onValueChange,
+  onValueChange: setValue,
   disabled,
   ...layout
 }: Omit<SettingsRowProps, 'onPress' | 'trailing' | 'showChevron' | 'selected' | 'value'> & {
   value: boolean;
   onValueChange: (value: boolean) => void;
 }) {
+  // Paisa's haptics.toggle: on and off feel different.
+  const onValueChange = (next: boolean) => {
+    haptics.toggle(next);
+    setValue(next);
+  };
   const control = ANDROID ? (
     <View pointerEvents="none" importantForAccessibility="no-hide-descendants">
       <Switch value={value} onValueChange={onValueChange} disabled={disabled} />

@@ -33,6 +33,7 @@ import {
   EditorPrimaryButton,
   EditorTitle,
 } from '@/components/boards/item-editor';
+import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { HeaderTextButton } from '@/components/settings/settings-list';
 import { DateField } from '@/components/tasks/date-field';
@@ -44,7 +45,7 @@ import type { JiraCredentials } from '@/lib/credentials-types';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { handleJiraError, useJiraAccounts, useJiraSessionStore } from '@/stores/jira-session-store';
-import { ScrollView, View } from '@/tw';
+import { View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -270,12 +271,10 @@ function IssueEditor({
             : {}),
         }}
       />
-      <ScrollView
+      <KeyboardScrollView
+        bottomOffset={ACTION_BAR_CLEARANCE}
         className="bg-sf-bg flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={IOS}
         contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }}>
         <EditorTitle
           value={summary}
@@ -382,7 +381,7 @@ function IssueEditor({
           label="Open in Jira"
           onPress={() => void WebBrowser.openBrowserAsync(jiraIssueUrl(credentials, issue.key))}
         />
-      </ScrollView>
+      </KeyboardScrollView>
 
       <TaskActionBar
         bottom={barBottom}

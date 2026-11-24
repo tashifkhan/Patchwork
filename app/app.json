@@ -2,7 +2,7 @@
   "expo": {
     "name": "Patchwork",
     "slug": "todo",
-    "version": "1.8.3",
+    "version": "1.9.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "patchwork",
@@ -69,6 +69,27 @@
         {
           "microphonePermission": "Patchwork uses the microphone only while you dictate a task.",
           "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera to scan QR codes of shared lists.",
+          "recordAudioAndroid": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow $(PRODUCT_NAME) to use Face ID to unlock the app."
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-document-picker",
+        {
+          "iCloudContainerEnvironment": "Production"
         }
       ]
     ],

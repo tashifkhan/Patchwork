@@ -53,6 +53,7 @@ same app, ios clothes. the tasks here are demo data, my real list is too embarra
 
 - ai import. take a photo of your handwritten notes, or describe what you need, and it drafts tasks. you review them before anything gets saved, because ai should not be touching your todo list unsupervised
 - bring your own model: openai, anthropic, google, deepseek, openrouter, nvidia, opencode zen, relayroom, or any openai compatible endpoint
+- on-device ai. gemini nano on android phones that have it, apple intelligence on iphones running ios 26 or newer. no key, nothing leaves the phone. it goes first in the chain and a cloud model picks up whatever it can't do. the switch only shows up on devices that can actually run it. notes are in [`app/docs/on-device-ai.md`](app/docs/on-device-ai.md)
 - voice dictation
 - home screen widgets on android
 - material you colours on android, a custom accent on ios, high contrast, and a pure black oled mode

@@ -5,9 +5,11 @@ import type { JiraCredentials } from '@/lib/credentials-types';
 import {
   createJiraIssue,
   fetchJiraBoardDetail,
+  jiraSearchJql,
   jiraViewKey,
   parseJiraViewKey,
   resolveJiraView,
+  searchJiraIssues,
   sprintTiming,
   type JiraBoard,
   type JiraSprint,
@@ -164,5 +166,31 @@ describe('sprint views', () => {
     expect(detail.columns[0].issues.map((issue) => issue.key)).toEqual(['SCRUM-5']);
     const backlog = calls.find((call) => call.path.includes('/backlog'));
     expect(decodeURIComponent(backlog!.path)).toContain('jql=assignee = currentUser()');
+  });
+});
+
+describe('jira search', () => {
+  test('builds a prefix text search and drops Lucene characters', () => {
+    expect(jiraSearchJql('login cra')).toBe('text ~ "login cra*" ORDER BY updated DESC');
+    expect(jiraSearchJql('fix "auth" (v2)')).toBe('text ~ "fix auth v2*" ORDER BY updated DESC');
+    expect(jiraSearchJql('  ***  ')).toBeNull();
+  });
+
+  test('matches an issue key exactly as well as by text', () => {
+    expect(jiraSearchJql('scrum-266')).toBe('(key = "SCRUM-266" OR text ~ "scrum 266*") ORDER BY updated DESC');
+  });
+
+  test('retries without the key clause when Jira rejects it', async () => {
+    const calls = mockJira((_method, path) => {
+      const jql = decodeURIComponent(path);
+      if (jql.includes('key =')) return { status: 400, json: { errorMessages: ['The value NOPE-1 does not exist'] } };
+      return {
+        json: { issues: [{ id: '1', key: 'SCRUM-9', fields: { summary: 'Nope handling', status: { id: '1', name: 'To Do' } } }] },
+      };
+    });
+    const issues = await searchJiraIssues(creds, 'nope-1');
+    expect(issues.map((issue) => issue.key)).toEqual(['SCRUM-9']);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toContain('/rest/api/3/search/jql');
   });
 });

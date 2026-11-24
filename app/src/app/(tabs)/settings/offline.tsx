@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 
+import { discardQueued } from '@/api/tasks';
+
 import {
   RowSeparator,
   SettingsActionRow,
@@ -11,7 +13,7 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { useTaskLists } from '@/hooks/use-tasks';
 import { useConnectivityStore } from '@/lib/connectivity';
 import { LOCAL_ACCOUNT_ID } from '@/lib/local-tasks';
-import { describeEntry, loadOutbox, removeEntry, useOutboxStore, type OutboxEntry } from '@/lib/outbox';
+import { describeEntry, loadOutbox, useOutboxStore, type OutboxEntry } from '@/lib/outbox';
 import { flushOutbox, type FlushResult } from '@/lib/outbox-sync';
 import { queryClient, queryKeys } from '@/lib/query-client';
 
@@ -27,6 +29,7 @@ export default function OfflineSettingsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<FlushResult | null>(null);
   const [discard, setDiscard] = useState<OutboxEntry | null>(null);
+  const [discardError, setDiscardError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadOutbox();
@@ -83,9 +86,11 @@ export default function OfflineSettingsScreen() {
                       ? 'github'
                       : entry.kind === 'jira-issue'
                         ? 'jira'
-                        : entry.lastError
-                          ? 'cloud-alert-outline'
-                          : 'cloud-upload-outline'
+                        : entry.kind === 'attachment' && !entry.lastError
+                          ? 'paperclip'
+                          : entry.lastError
+                            ? 'cloud-alert-outline'
+                            : 'cloud-upload-outline'
                   }
                   title={title}
                   subtitle={entry.lastError ? `${destination} · ${entry.lastError}` : destination}
@@ -124,10 +129,18 @@ export default function OfflineSettingsScreen() {
           const entry = discard;
           setDiscard(null);
           if (!entry) return;
-          void removeEntry(entry.id).then(() => {
-            if (entry.kind === 'task') void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
-          });
+          void discardQueued(entry.id)
+            .then(() => {
+              if (entry.kind === 'task') void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+            })
+            .catch((error: unknown) => setDiscardError(error instanceof Error ? error.message : 'Try again.'));
         }}
+      />
+      <NativeAlert
+        visible={discardError != null}
+        title="Could not discard item"
+        message={discardError ?? ''}
+        onDismiss={() => setDiscardError(null)}
       />
     </SettingsScreen>
   );

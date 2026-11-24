@@ -1,6 +1,18 @@
 import { api, ApiError } from './client';
-import type { Task, TaskCreate, TaskList, TaskListCreate, TaskListUpdate, TaskUpdate } from './types';
+import type {
+  AttachmentAccess,
+  AttachmentTarget,
+  AttachmentUpload,
+  Task,
+  TaskAttachment,
+  TaskCreate,
+  TaskList,
+  TaskListCreate,
+  TaskListUpdate,
+  TaskUpdate,
+} from './types';
 import type { CalDavAccount } from '@/lib/credentials';
+import { removeEntry, type OutboxAttachmentEntry } from '@/lib/outbox';
 
 export function fetchTaskLists() {
   return api.get<TaskList[]>('/api/task-lists');
@@ -35,7 +47,11 @@ export function updateTask(taskId: string, payload: TaskUpdate, _accountId?: str
   return api.patch<Task>(`/api/tasks/${encodeURIComponent(taskId)}`, payload);
 }
 
-export function deleteTask(taskId: string, _accountId?: string, _etag?: string | null) {
+export function restoreTask(payload: TaskCreate, _source?: Pick<Task, 'account_id' | 'attachments'>) {
+  return createTask(payload);
+}
+
+export function deleteTask(taskId: string, _accountId?: string, _etag?: string | null, _options?: { keepAttachments?: boolean }) {
   return api.delete<void>(`/api/tasks/${encodeURIComponent(taskId)}`);
 }
 
@@ -55,4 +71,39 @@ export async function validateCalDavAccount(_account: CalDavAccount): Promise<vo
     501,
     'CalDAV accounts are configured on the proxy server, not in the browser. Set them in the proxy environment, or use the iOS/Android app to connect an account on-device.'
   );
+}
+
+/** The web proxy has no Files endpoint, so attachments are native-only. */
+export async function getAttachmentAccess(_accountId: string | undefined): Promise<AttachmentAccess | null> {
+  return null;
+}
+
+export async function addTaskAttachment(
+  _taskId: string,
+  _target: AttachmentTarget,
+  _file: AttachmentUpload,
+  _etag?: string | null
+): Promise<Task | null> {
+  throw new ApiError(501, 'Attaching files needs the iOS or Android app.');
+}
+
+export async function sendQueuedAttachment(_entry: OutboxAttachmentEntry): Promise<void> {
+  throw new ApiError(501, 'Attaching files needs the iOS or Android app.');
+}
+
+export async function discardQueued(entryId: string) {
+  await removeEntry(entryId);
+}
+
+export async function downloadTaskAttachment(_accountId: string, _attachment: TaskAttachment): Promise<string> {
+  throw new ApiError(501, 'Opening attachments needs the iOS or Android app.');
+}
+
+export async function removeTaskAttachment(
+  _taskId: string,
+  _attachment: TaskAttachment,
+  _accountId?: string,
+  _etag?: string | null
+): Promise<Task> {
+  throw new ApiError(501, 'Removing attachments needs the iOS or Android app.');
 }

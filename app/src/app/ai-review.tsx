@@ -1,14 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Stack, router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable, type TextInput as RNTextInput } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Pressable, type TextInput as RNTextInput } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { refineTasks } from '@/api/ai';
 import { ApiError } from '@/api/client';
 import { createTask } from '@/api/tasks';
 import { StagedTaskCard } from '@/components/ai/staged-task-card';
+import { FIELD_CLEARANCE, KeyboardScrollView, useKeyboardLift } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
@@ -19,7 +21,7 @@ import { queryKeys } from '@/lib/query-client';
 import { themedStackScreenOptions } from '@/lib/screen-options';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 export default function AiReviewScreen() {
   const { colors } = useTheme();
@@ -35,18 +37,6 @@ export default function AiReviewScreen() {
       }
     >(),
   );
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
-    });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
   const staged = useAiStagingStore((s) => s.staged);
   const updateTask = useAiStagingStore((s) => s.updateTask);
   const removeTask = useAiStagingStore((s) => s.removeTask);
@@ -57,6 +47,7 @@ export default function AiReviewScreen() {
   const tasksQuery = useTasks();
   const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
   const insets = useSafeAreaInsets();
+  const lift = useKeyboardLift(insets.bottom + 16);
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const aiDefaultListId = useSettingsStore((s) => s.aiDefaultListId);
   const fallbackListId = lists.some((list) => list.id === aiDefaultListId)
@@ -230,16 +221,16 @@ export default function AiReviewScreen() {
           title: `${count} to-do${count === 1 ? '' : 's'} to review`,
         }}
       />
-      <ScrollView
+      <KeyboardScrollView
+        // The pinned Add button (56) rides 10 above the keyboard; fields clear it.
+        bottomOffset={56 + 10 + FIELD_CLEARANCE}
         className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           gap: 14,
           paddingHorizontal: 16,
           paddingTop: 8,
-          paddingBottom: 120 + keyboardHeight,
+          paddingBottom: 120,
         }}>
         <Text style={{ fontSize: 15, color: colors.text2, lineHeight: 21, paddingHorizontal: 4 }}>
           Drafted by AI. Edit anything, remove what you don&apos;t want, then add them. Nothing is
@@ -315,17 +306,22 @@ export default function AiReviewScreen() {
             />
           </Pressable>
         </View>
-      </ScrollView>
+      </KeyboardScrollView>
 
-      {/* Primary action stays in reach however long the list gets. */}
-      <View
+      {/* Primary action stays in reach however long the list gets, and rides
+          on top of the keyboard while a draft is being edited. */}
+      {lift.marker}
+      <Animated.View
         pointerEvents="box-none"
-        style={{
-          position: 'absolute',
-          left: 16,
-          right: 16,
-          bottom: insets.bottom + 16,
-        }}>
+        style={[
+          {
+            position: 'absolute',
+            left: 16,
+            right: 16,
+            bottom: insets.bottom + 16,
+          },
+          lift.style,
+        ]}>
         <Pressable
           onPress={handleCreateAll}
           disabled={creating || refining || count === 0}
@@ -349,7 +345,7 @@ export default function AiReviewScreen() {
             Add {count} to-do{count === 1 ? '' : 's'}
           </Text>
         </Pressable>
-      </View>
+      </Animated.View>
 
       <ProgressOverlay
         visible={creating || refining || doneLabel != null}

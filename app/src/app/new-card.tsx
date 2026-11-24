@@ -11,6 +11,7 @@ import {
   EditorPrimaryButton,
   EditorTitle,
 } from '@/components/boards/item-editor';
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { NewBoardChip } from '@/components/deck/new-board-chip';
 import { HeaderTextButton } from '@/components/settings/settings-list';
@@ -20,7 +21,7 @@ import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
 import { haptics } from '@/lib/haptics';
-import { ScrollView, Text, View } from '@/tw';
+import { Text, View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -110,13 +111,10 @@ export default function NewCardScreen() {
           }}
         />
       ) : null}
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={IOS}
         contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: 32 }}>
         <EditorTitle value={title} onChangeText={setTitle} placeholder="New Card" autoFocus />
         <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
@@ -150,7 +148,7 @@ export default function NewCardScreen() {
             onPress={create}
           />
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       <PickerSheet
         visible={picker === 'board'}

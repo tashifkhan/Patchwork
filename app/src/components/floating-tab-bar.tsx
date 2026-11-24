@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { type ComponentProps, type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
-  Keyboard,
   Pressable,
   StyleSheet,
   TextInput as RNTextInput,
@@ -15,20 +14,22 @@ import Animated, {
   LinearTransition,
   ReduceMotion,
   interpolate,
-  useAnimatedKeyboard,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSettingsStore } from '@/stores/settings-store';
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
+import { CAN_FROST, Frost, useFrostTarget } from '@/components/ui/frost';
 import { haptics } from '@/lib/haptics';
 import { EXPRESSIVE } from '@/lib/motion';
+import { mixHex } from '@/lib/theme';
 import {
   FLOATING_TAB_BAR_HEIGHT,
   FLOATING_TAB_BAR_MARGIN,
@@ -70,8 +71,8 @@ const MAIN_TABS: {
 
 const SEARCH_ROUTE = 'search';
 const TIMING = { duration: 280, easing: Easing.out(Easing.cubic) };
-/** Pill resize + label reveal when the selection moves between tabs. */
-const SELECT_DURATION = 240;
+/** Paisa's settle spring (dampingRatio 0.8, StiffnessMediumLow) for the label opening and the tabs making room. */
+const SETTLE = LinearTransition.springify().damping(32).stiffness(400).mass(1);
 
 export type FloatingTabBarProps = {
   state: TabBarState;
@@ -80,9 +81,10 @@ export type FloatingTabBarProps = {
 };
 
 /**
- * Google Photos–style floating tab chrome for Android:
- * - Expanded: tonal capsule with labeled tabs + separate search circle.
- *   The selected tab gets a pill with icon + label, the others are text only.
+ * Floating tab chrome for Android, after Paisa's floating navbar:
+ * - Expanded: a capsule that hugs its tabs, centered, with search as its own
+ *   circle beside it. Every tab is an icon; the selected one sits on a pill
+ *   and opens its label beside the icon.
  * - Search focused: mini home circle + search field pill
  * - Scroll minimized: mini active-tab circle + search circle
  *
@@ -164,36 +166,35 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
   // On Search the bar holds the query field, so it rides on top of the
   // keyboard. Everywhere else it gets out of the way while the user types,
   // like Google Photos, instead of covering the field they're typing into.
-  const keyboard = useAnimatedKeyboard();
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+  // Both come from the app-wide KeyboardProvider. `height` is negative while
+  // the keyboard is up and counts from the window's bottom edge.
+  const keyboard = useReanimatedKeyboardAnimation();
+  const keyboardOpen = useKeyboardState((state) => state.isVisible);
   const hideForKeyboard = keyboardOpen && !searchFocused;
   const keyboardStyle = useAnimatedStyle(() => {
+    const height = -keyboard.height.value;
     if (searchFocused) {
-      const lift = Math.max(0, keyboard.height.value - insets.bottom);
+      const lift = Math.max(0, height - insets.bottom);
       return { opacity: 1, transform: [{ translateY: -lift }] };
     }
     // Slide down and fade as the keyboard rises; this tracks the keyboard
     // frame by frame, so there is no gap or jump.
-    const shown = keyboard.height.value > 1 ? 0 : 1;
+    const shown = height > 1 ? 0 : 1;
     return {
       opacity: withTiming(shown, { duration: 160 }),
-      transform: [{ translateY: withTiming(shown ? 0 : 24, { duration: 160 }) }],
+      transform: [
+        { translateY: withTiming(shown ? 0 : 32, { duration: 180 }) },
+        { scale: withTiming(shown ? 1 : 0.92, { duration: 180 }) },
+      ],
     };
   }, [searchFocused]);
-  // Google Photos style: a tonal (accent-tinted) container, a stronger tonal
-  // pill behind the selected tab, and plain on-surface text for the rest.
-  const surface = colors.primaryContainer;
+  // Paisa: a little of the accent over a raised surface, so the bar belongs
+  // to the palette without turning into a tinted slab. The selected tab's
+  // pill is the stronger tonal fill; the other icons are muted.
+  const surface = mixHex(colors.bg3, colors.accent, isDark ? 0.1 : 0.08);
   const selectionFill = colors.selectionBg;
   const onSelection = colors.onSelectionBg;
-  const inactive = colors.text;
+  const inactive = colors.text2;
 
   const activeMain = useMemo(() => {
     const match = MAIN_TABS.find((t) => t.route === activeRoute);
@@ -246,12 +247,23 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
     if (routeName !== SEARCH_ROUTE) expand();
   };
 
-  // A coloured shadow can't be seen on a dark screen, so only light themes
-  // tint it with the accent.
-  const shell = {
-    backgroundColor: surface,
-    boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.45)' : `0 8px 24px ${alpha(colors.accent, 0.24)}`,
-  } as const;
+  // Frosted like Paisa's bar: the screen blurs through a wash of the bar's
+  // colour, and a bright edge marks the glass where a shadow would show through.
+  // Without blur it is a solid bar with a shadow, coloured by the accent on
+  // light themes (a coloured shadow can't be seen on a dark screen).
+  const frostTarget = useFrostTarget();
+  const frosted = CAN_FROST && frostTarget != null;
+  const shell = frosted
+    ? ({
+        overflow: 'hidden',
+        borderWidth: 1.25,
+        borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.7)',
+      } as const)
+    : ({
+        backgroundColor: surface,
+        boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.45)' : `0 8px 24px ${alpha(colors.accent, 0.24)}`,
+      } as const);
+  const frost = frosted ? <Frost tint={surface} strength={isDark ? 0.55 : 0.6} intensity={70} /> : null;
   // White light on dark themes, the accent on light ones, where white wouldn't show.
   const glowColor = isDark ? 'rgba(255,255,255,0.16)' : alpha(colors.accent, 0.16);
 
@@ -276,11 +288,12 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
         pointerEvents="box-none">
         {/* Expanded: capsule + search circle (image #1) */}
         <Animated.View
-          style={[styles.layer, expandedStyle]}
+          style={[styles.layer, styles.centered, expandedStyle]}
           pointerEvents={compact ? 'none' : 'box-none'}>
           <Animated.View
             {...capsulePress.handlers}
             style={[styles.capsule, shell, capsulePress.style]}>
+            {frost}
             <PressGlow press={capsulePress} color={glowColor} radius={FLOATING_TAB_BAR_HEIGHT / 2} />
             <Animated.View
               pointerEvents="none"
@@ -289,11 +302,11 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
             {MAIN_TABS.filter((tab) => boardsTab || tab.route !== 'deck').map((tab) => {
               const focused = activeRoute === tab.route;
               return (
-                // Every tab is labeled. The selected one gains its icon and
-                // sits on the pill; the siblings are bare labels.
+                // Every tab is an icon. The selected one sits on the pill and
+                // opens its label beside the icon; its neighbours make room.
                 <Animated.View
                   key={tab.route}
-                  layout={LinearTransition.duration(SELECT_DURATION)}
+                  layout={SETTLE}
                   onLayout={(event) => {
                     const { x, width } = event.nativeEvent.layout;
                     setSpans((prev) =>
@@ -311,43 +324,43 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
                       // The capsule gives and lights up under the finger, so
                       // a tab doesn't dim or shrink on top of that.
                       height: FLOATING_TAB_BAR_HEIGHT - 16,
-                      paddingHorizontal: focused ? 18 : 12,
+                      paddingHorizontal: focused ? 18 : 14,
                       borderRadius: 999,
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: 8,
                     }}>
+                    <TabGlyph motion={tab.motion} taps={focused ? taps : 0} selected={focused}>
+                      <MaterialCommunityIcons
+                        name={focused ? tab.iconFocused : tab.icon}
+                        size={24}
+                        color={focused ? onSelection : inactive}
+                      />
+                    </TabGlyph>
                     {focused ? (
                       <Animated.View
-                        entering={FadeIn.duration(SELECT_DURATION)}
-                        exiting={FadeOut.duration(120)}>
-                        <TabGlyph motion={tab.motion} taps={taps}>
-                          <MaterialCommunityIcons
-                            name={tab.iconFocused}
-                            size={22}
-                            color={onSelection}
-                          />
-                        </TabGlyph>
+                        entering={FadeIn.duration(220)}
+                        exiting={FadeOut.duration(100)}
+                        style={{ paddingLeft: 8 }}>
+                        <Text
+                          style={{
+                            fontSize: 15,
+                            fontWeight: '600',
+                            color: onSelection,
+                            includeFontPadding: false,
+                          }}
+                          numberOfLines={1}>
+                          {tab.label}
+                        </Text>
                       </Animated.View>
                     ) : null}
-                    <Text
-                      style={{
-                        fontSize: 15,
-                        fontWeight: '500',
-                        color: focused ? onSelection : inactive,
-                        includeFontPadding: false,
-                      }}
-                      numberOfLines={1}>
-                      {tab.label}
-                    </Text>
                   </Pressable>
                 </Animated.View>
               );
             })}
           </Animated.View>
 
-          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor}>
+          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
             <Pressable
               onPress={() => goTo(SEARCH_ROUTE)}
               accessibilityRole="tab"
@@ -368,7 +381,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
             !searchFocused ? { justifyContent: 'space-between' } : null,
           ]}
           pointerEvents={compact ? 'box-none' : 'none'}>
-          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor}>
+          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
             <Pressable
               onPress={() => {
                 if (searchFocused) goTo(returnRoute);
@@ -387,11 +400,12 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
 
           {searchFocused ? (
             <View style={[styles.searchPill, shell, { flex: 1 }]}>
+              {frost}
               <MaterialCommunityIcons name="magnify" size={20} color={colors.text3} />
               <RNTextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search tasks, cards, issues"
+                placeholder="Search everything"
                 placeholderTextColor={colors.text3}
                 returnKeyType="search"
                 autoFocus
@@ -413,7 +427,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
               ) : null}
             </View>
           ) : (
-            <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor}>
+            <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
               <Pressable
                 onPress={() => goTo(SEARCH_ROUTE)}
                 accessibilityRole="tab"
@@ -434,14 +448,18 @@ function ElasticCircle({
   children,
   style,
   glowColor,
+  frost,
 }: {
   children: ReactNode;
   style: StyleProp<ViewStyle>;
   glowColor: string;
+  /** Frosted backdrop, drawn under everything else. */
+  frost?: ReactNode;
 }) {
   const press = useElasticPress({ maxStretch: 0.08, maxTranslate: 2, pressedScale: 0.94 });
   return (
     <Animated.View {...press.handlers} style={[style, press.style]}>
+      {frost}
       <PressGlow press={press} color={glowColor} radius={FLOATING_TAB_CIRCLE / 2} size={28} />
       {children}
     </Animated.View>
@@ -452,12 +470,19 @@ function ElasticCircle({
 function TabGlyph({
   motion,
   taps,
+  selected,
   children,
 }: {
   motion: IconMotion;
   taps: number;
+  selected: boolean;
   children: ReactNode;
 }) {
+  // Icons you aren't on sit a touch smaller, as in Paisa.
+  const size = useSharedValue(selected ? 1 : 0.94);
+  useEffect(() => {
+    size.set(withTiming(selected ? 1 : 0.94, { duration: 180 }));
+  }, [selected, size]);
   const turn = useSharedValue(0);
   const hop = useSharedValue(0);
   useEffect(() => {
@@ -487,7 +512,11 @@ function TabGlyph({
     }
   }, [taps, motion, turn, hop]);
   const style = useAnimatedStyle(() => ({
-    transform: [{ translateY: -3 * hop.value }, { rotate: `${turn.value}deg` }],
+    transform: [
+      { translateY: -3 * hop.value },
+      { rotate: `${turn.value}deg` },
+      { scale: size.value },
+    ],
   }));
   return <Animated.View style={style}>{children}</Animated.View>;
 }
@@ -515,11 +544,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  // Paisa's bar hugs its tabs and sits centered; search rides beside it.
+  centered: {
+    justifyContent: 'center',
+  },
   capsule: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 4,
     height: FLOATING_TAB_BAR_HEIGHT,
     borderRadius: FLOATING_TAB_BAR_HEIGHT / 2,
     borderCurve: 'continuous',

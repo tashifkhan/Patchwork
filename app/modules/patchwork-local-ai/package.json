@@ -1,0 +1,10 @@
+{
+  "name": "patchwork-local-ai",
+  "version": "1.0.0",
+  "description": "On-device AI: Gemini Nano through AICore on Android, Apple Foundation Models on iOS",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "author": "Patchwork",
+  "homepage": "https://github.com/tashifkhan/patchwork",
+  "private": true
+}

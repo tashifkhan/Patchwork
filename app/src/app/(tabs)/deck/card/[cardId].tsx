@@ -1,7 +1,8 @@
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Platform } from 'react-native';
 
+import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import type { DeckCard, DeckStack } from '@/api/types';
 import {
   DetailRow,
@@ -12,6 +13,7 @@ import {
   EditorPrimaryButton,
   EditorTitle,
 } from '@/components/boards/item-editor';
+import { CardPage } from '@/components/boards/card-page';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { MoveToTasks } from '@/components/deck/move-to-tasks';
 import { HeaderTextButton } from '@/components/settings/settings-list';
@@ -20,9 +22,10 @@ import { TaskActionBar } from '@/components/tasks/task-action-bar';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeleteDeckCard, useUpdateDeckCard } from '@/hooks/use-deck';
+import { useStackBack } from '@/hooks/use-stack-back';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
-import { ScrollView, Text, View } from '@/tw';
+import { Text, View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -87,6 +90,8 @@ function CardEditor({
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const barBottom = useTabBarFabOffset();
+  // Back to this card's board, even when nothing is under it in the stack.
+  const goBack = useStackBack(`/deck/board/deck:${boardId}`);
 
   const columns = stacks.filter((stack): stack is DeckStack & { id: number } => typeof stack.id === 'number');
   const column = columns.find((stack) => stack.id === targetStackId);
@@ -110,7 +115,7 @@ function CardEditor({
         target_stack_id: targetStackId,
       });
       haptics.success();
-      router.back();
+      goBack();
     } catch (error) {
       haptics.error();
       setErrorMessage(error instanceof Error ? error.message : 'Could not update the card.');
@@ -121,10 +126,90 @@ function CardEditor({
     setDeleteVisible(false);
     try {
       await deleteCard.mutateAsync({ board_id: boardId, stack_id: stackId, card_id: cardId });
-      router.back();
+      goBack();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not delete the card.');
     }
+  }
+
+  const details = (
+    <>
+      <View style={{ paddingVertical: 12 }}>
+        <DateField label="Due date" iconName="flag-outline" value={duedate} onChange={setDuedate} />
+      </View>
+      <MoveToTasks
+        boardId={boardId}
+        stackId={stackId}
+        cardId={cardId}
+        title={title.trim() || (card.title ?? 'Untitled')}
+        description={description}
+        duedate={duedate}
+      />
+    </>
+  );
+
+  const sheets = (
+    <>
+      <PickerSheet
+        visible={columnOpen}
+        title="Column"
+        items={columns.map((stack) => ({
+          key: String(stack.id),
+          label: stack.title ?? 'Column',
+          subtitle: `${stack.cards?.length ?? 0} cards`,
+          icon: 'view-column-outline' as const,
+          selected: stack.id === targetStackId,
+          onPress: () => {
+            haptics.selection();
+            setTargetStackId(stack.id);
+            setColumnOpen(false);
+          },
+        }))}
+        onClose={() => setColumnOpen(false)}
+      />
+      <NativeAlert
+        visible={deleteVisible}
+        title="Delete card?"
+        message={`"${card.title ?? 'Untitled'}" is removed from Deck.`}
+        confirmLabel="Delete"
+        dismissLabel="Cancel"
+        onDismiss={() => setDeleteVisible(false)}
+        onConfirm={confirmDelete}
+      />
+      <NativeAlert
+        visible={errorMessage != null}
+        title="Deck"
+        message={errorMessage ?? ''}
+        onDismiss={() => setErrorMessage(null)}
+      />
+    </>
+  );
+
+  // Android: the full-page card in the composer's style.
+  if (!IOS) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <CardPage
+          card={card}
+          columnTitle={column?.title ?? 'Column'}
+          columnIndex={Math.max(0, columns.findIndex((stack) => stack.id === targetStackId))}
+          title={title}
+          onTitle={setTitle}
+          description={description}
+          onDescription={setDescription}
+          details={details}
+          dirty={dirty}
+          canSave={canSave}
+          saving={updateCard.isPending}
+          onSave={save}
+          onMove={() => setColumnOpen(true)}
+          onDelete={() => setDeleteVisible(true)}
+          onBack={goBack}
+        />
+        {sheets}
+      </>
+    );
   }
 
   return (
@@ -141,12 +226,10 @@ function CardEditor({
             : {}),
         }}
       />
-      <ScrollView
+      <KeyboardScrollView
+        bottomOffset={ACTION_BAR_CLEARANCE}
         className="bg-sf-bg flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={IOS}
         contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }}>
         <EditorTitle value={title} onChangeText={setTitle} placeholder="Card title" />
         <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
@@ -181,7 +264,7 @@ function CardEditor({
             onPress={save}
           />
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       <TaskActionBar
         bottom={barBottom}

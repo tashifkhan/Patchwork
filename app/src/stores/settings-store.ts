@@ -14,9 +14,51 @@ import type {
 } from '@/features/github/types';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+
+/** Preferences for the productivity, privacy and look extras. Set together with `setExtras`. */
+export interface ExtraPreferences {
+  /** Calendar grid and "next week" start on Monday instead of Sunday. */
+  weekStartsMonday: boolean;
+  pomodoroWorkMinutes: number;
+  pomodoroBreakMinutes: number;
+  /** Confetti when a list's last open to-do is done. */
+  celebrations: boolean;
+  /** Short sounds for completing, adding and deleting. */
+  uiSounds: boolean;
+  /** Ask for Face ID, fingerprint or the device passcode to open the app. */
+  appLock: boolean;
+  /** Seconds in the background before the lock comes back. 0 = immediately. */
+  appLockDelaySeconds: number;
+  /** A bundled or imported font id (see `@/lib/fonts`), or null for the system font. */
+  fontFamily: string | null;
+  /** Multiplies every text size. 0.85–1.3. */
+  fontScale: number;
+  /** Fonts imported from files (see `@/lib/fonts`). */
+  customFonts: { id: string; name: string; uri: string }[];
+  /** Daily nudges to empty your head into the brain dump. */
+  brainDumpReminders: boolean;
+  /** `HH:MM`, local time, one notification each. */
+  brainDumpTimes: string[];
+}
+
+export const DEFAULT_EXTRAS: ExtraPreferences = {
+  weekStartsMonday: false,
+  pomodoroWorkMinutes: 25,
+  pomodoroBreakMinutes: 5,
+  celebrations: true,
+  uiSounds: false,
+  appLock: false,
+  appLockDelaySeconds: 30,
+  fontFamily: null,
+  fontScale: 1,
+  customFonts: [],
+  brainDumpReminders: false,
+  brainDumpTimes: ['08:30', '21:30'],
+};
 export type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
 
-interface SettingsState {
+interface SettingsState extends ExtraPreferences {
+  setExtras: (partial: Partial<ExtraPreferences>) => void;
   proxyUrl: string;
   themeMode: ThemeMode;
   /** Android only: derive the palette from the device wallpaper (Material You). */
@@ -94,9 +136,19 @@ interface SettingsState {
   setGitHubIssueState: (state: GitHubIssueState) => void;
 }
 
+function pickExtras(state: Partial<ExtraPreferences>): ExtraPreferences {
+  const picked = { ...DEFAULT_EXTRAS };
+  for (const key of Object.keys(DEFAULT_EXTRAS) as (keyof ExtraPreferences)[]) {
+    if (state[key] !== undefined) (picked as Record<string, unknown>)[key] = state[key];
+  }
+  return picked;
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      ...DEFAULT_EXTRAS,
+      setExtras: (partial) => set(partial),
       proxyUrl: getApiBaseUrl(),
       themeMode: 'system',
       dynamicColor: true,
@@ -214,7 +266,9 @@ export const useSettingsStore = create<SettingsState>()(
         recentBoards,
         jiraIssueScope,
         jiraBoardViews,
+        ...rest
       }) => ({
+        ...pickExtras(rest),
         proxyUrl,
         themeMode,
         dynamicColor,

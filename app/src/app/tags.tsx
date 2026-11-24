@@ -2,11 +2,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable } from 'react-native';
 
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { matchTagIgnoringCase } from '@/lib/tags';
 import { useTagPickerStore } from '@/stores/tag-picker-store';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 export default function TagPickerScreen() {
   const { colors } = useTheme();
@@ -45,11 +46,10 @@ export default function TagPickerScreen() {
       subtitle={
         selected.length > 0 ? `${selected.length} selected` : 'Tap to select, or type to create'
       }>
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 24 }}>
         <View className="px-5 pb-2 pt-1">
           <View
@@ -136,7 +136,7 @@ export default function TagPickerScreen() {
             </Text>
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
     </SheetSurface>
   );
 }

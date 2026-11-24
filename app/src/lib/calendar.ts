@@ -53,13 +53,14 @@ export async function listDeviceCalendars(): Promise<DeviceCalendar[]> {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
-// Creates a calendar event for a task. Uses the due date as the event time
-// (falling back to the reminder), and adds an alarm at the reminder time.
+// A time block supplies both event bounds. A plain due date or reminder
+// becomes a one-hour event starting at that time.
 export async function addTaskToCalendar(params: {
   calendarId: string;
   title: string;
   notes?: string;
   dueAt: string | null;
+  startAt?: string | null;
   reminderAt: string | null;
 }): Promise<string | null> {
   const Calendar = await getCalendar();
@@ -67,10 +68,12 @@ export async function addTaskToCalendar(params: {
 
   const due = parseDate(params.dueAt);
   const reminder = parseDate(params.reminderAt);
-  const start = due ?? reminder;
+  const blockStart = parseDate(params.startAt);
+  const hasBlock = blockStart && due && blockStart < due;
+  const start = hasBlock ? blockStart : due ?? reminder;
   if (!start) return null;
 
-  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const end = hasBlock ? due : new Date(start.getTime() + 60 * 60 * 1000);
   const alarms = reminder
     ? [{ relativeOffset: Math.round((reminder.getTime() - start.getTime()) / 60000) }]
     : [];

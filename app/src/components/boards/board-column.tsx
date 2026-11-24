@@ -1,12 +1,15 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { memo, useMemo, useState } from 'react';
-import { ActivityIndicator, Keyboard, Pressable, RefreshControl } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, Pressable, RefreshControl, type ScrollView } from 'react-native';
 import { GestureDetector, LegacyScrollView } from 'react-native-gesture-handler';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 
 import type { BoardCardItem, BoardColumnItem, CardSprint } from '@/features/boards/model';
 import { BoardCard } from '@/components/boards/board-card';
 import type { BoardDrag } from '@/components/boards/board-drag';
+import { columnTone } from '@/components/boards/board-tone';
 import { useTheme } from '@/components/theme/context';
+import { withAlpha } from '@/lib/theme';
 import { haptics } from '@/lib/haptics';
 import { Text, TextInput, View } from '@/tw';
 
@@ -21,6 +24,7 @@ import { Text, TextInput, View } from '@/tw';
  */
 export function BoardColumn({
   column,
+  index = 0,
   sprintGroups = false,
   width,
   imageHeaders,
@@ -37,6 +41,8 @@ export function BoardColumn({
   drag,
 }: {
   column: BoardColumnItem;
+  /** Position on the board, which picks the column's tint. */
+  index?: number;
   /** Cards span several sprints: start each sprint with a dashed divider. */
   sprintGroups?: boolean;
   width: number;
@@ -54,7 +60,8 @@ export function BoardColumn({
   onMenu?: () => void;
   drag?: BoardDrag;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const tone = columnTone(colors, scheme === 'dark', index);
   const [draft, setDraft] = useState<string | null>(null);
   const columnHandle = drag?.columnHandle;
   const handle = useMemo(() => columnHandle?.(column.id), [columnHandle, column.id]);
@@ -65,6 +72,27 @@ export function BoardColumn({
   const [cardFrames, setCardFrames] = useState<Record<string, { y: number; height: number }>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The new-card field is the column's last item, so in a full column the
+  // keyboard covers it. The column keeps its gesture-handler scroll view (drag
+  // to reorder needs it), so it gets room for the keyboard at the end and
+  // scrolls there once the keyboard is up.
+  const keyboardHeight = useKeyboardState((state) => (state.isVisible ? state.height : 0));
+  const scrollRef = useRef<ScrollView | null>(null);
+  const setScrollRef = useCallback(
+    (scroll: ScrollView | null) => {
+      scrollRef.current = scroll;
+      handle?.setScrollRef(scroll);
+    },
+    [handle]
+  );
+  const typing = draft != null && keyboardHeight > 0;
+  useEffect(() => {
+    if (!typing) return;
+    // After the keyboard room below has laid out.
+    const frame = requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [typing]);
 
   async function submit() {
     const title = draft?.trim();
@@ -95,25 +123,28 @@ export function BoardColumn({
         marginBottom: bottomInset,
         borderRadius: 28,
         borderCurve: 'continuous',
-        backgroundColor: colors.bg2,
+        backgroundColor: tone.bg,
         overflow: 'hidden',
       }}>
-      <View className="flex-row items-center" style={{ paddingLeft: 20, paddingRight: 8, height: 56 }}>
-        <Text
-          numberOfLines={1}
-          style={{ flexShrink: 1, fontSize: 14, fontWeight: '600', letterSpacing: 0.8, color: colors.text2 }}>
-          {column.title.toUpperCase()}
+      <View className="flex-row items-center" style={{ paddingLeft: 20, paddingRight: 8, height: 56, gap: 8 }}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tone.dot }} />
+        <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 16, fontWeight: '600', color: colors.text }}>
+          {column.title}
         </Text>
-        <Text
+        <View
           style={{
-            marginLeft: 10,
-            fontSize: 14,
-            fontWeight: '600',
-            color: colors.text3,
-            fontVariant: ['tabular-nums'],
+            minWidth: 24,
+            height: 22,
+            paddingHorizontal: 7,
+            borderRadius: 11,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: withAlpha(tone.dot, 0.14),
           }}>
-          {column.cards.length}
-        </Text>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: tone.dot, fontVariant: ['tabular-nums'] }}>
+            {column.cards.length}
+          </Text>
+        </View>
         <View style={{ flex: 1 }} />
         {onMenu ? (
           <Pressable
@@ -129,13 +160,13 @@ export function BoardColumn({
               justifyContent: 'center',
               backgroundColor: pressed ? colors.bg3 : 'transparent',
             })}>
-            <MaterialCommunityIcons name="dots-vertical" size={20} color={colors.accent} />
+            <MaterialCommunityIcons name="dots-horizontal" size={20} color={colors.text2} />
           </Pressable>
         ) : null}
       </View>
 
       <LegacyScrollView
-        ref={handle?.setScrollRef}
+        ref={setScrollRef}
         style={{ flex: 1 }}
         scrollEnabled={!isDragging}
         keyboardShouldPersistTaps="handled"
@@ -262,6 +293,7 @@ export function BoardColumn({
             </View>
           </View>
         ) : null}
+        {typing ? <View style={{ height: keyboardHeight }} /> : null}
       </LegacyScrollView>
 
       {canCreate && draft == null ? (

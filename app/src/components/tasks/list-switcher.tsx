@@ -10,6 +10,7 @@ import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
 import { ScrollView, Text, View } from '@/tw';
+import { ELASTIC_CARD, ElasticView } from '@/components/ui/motion';
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -59,6 +60,7 @@ export function ListHero({
     );
   }
   return (
+    <ElasticView {...ELASTIC_CARD}>
     <Pressable
       onPress={() => {
         haptics.tap();
@@ -77,6 +79,7 @@ export function ListHero({
       </View>
       <Text style={{ fontSize: 14, color: colors.text2, marginTop: 2 }}>{subtitle}</Text>
     </Pressable>
+    </ElasticView>
   );
 }
 
@@ -307,6 +310,7 @@ function SheetRow({
     );
   }
   return (
+    <ElasticView {...ELASTIC_CARD}>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
@@ -367,5 +371,6 @@ function SheetRow({
         </Text>
       ) : null}
     </Pressable>
+    </ElasticView>
   );
 }

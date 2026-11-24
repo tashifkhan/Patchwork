@@ -40,6 +40,10 @@ export default function SettingsLayout() {
       <Stack.Screen name="appearance" options={{ title: IOS ? 'Appearance' : 'Look and feel' }} />
       <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
       <Stack.Screen name="offline" options={{ title: IOS ? 'Offline & Sync' : 'Offline and sync' }} />
+      <Stack.Screen name="productivity" options={{ title: IOS ? 'Focus & Extras' : 'Focus and extras' }} />
+<Stack.Screen name="backup" options={{ title: IOS ? 'Backup & Sharing' : 'Backup and sharing' }} />
+      <Stack.Screen name="privacy" options={{ title: 'Privacy' }} />
+      <Stack.Screen name="recycle-bin" options={{ title: IOS ? 'Recently Deleted' : 'Recently deleted' }} />
       <Stack.Screen name="ai" options={{ title: IOS ? 'AI Import' : 'AI import' }} />
       {/* Title is set per-provider by the screen itself. */}
       <Stack.Screen name="ai-provider" options={{ title: 'Provider', headerLargeTitle: false }} />

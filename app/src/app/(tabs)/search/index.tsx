@@ -17,9 +17,11 @@ import { LoadingBar, LoadingSpinner } from '@/components/ui/loading';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
 import { READABLE_MAX_WIDTH } from '@/hooks/use-adaptive-layout';
 import { useGitHubIssues } from '@/hooks/use-github';
+import { useJiraSearch } from '@/hooks/use-jira-search';
 import { useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
-import { buildSearchNodes, createSearchIndex, type SearchNode } from '@/lib/search';
+import { boardSearchNodes, buildSearchNodes, createSearchIndex, jiraSearchNodes, type SearchNode } from '@/lib/search';
+import { useBoardSummaries } from '@/hooks/use-boards';
 import {
   useFloatingTabBar,
   useTabBarContentPadding,
@@ -29,6 +31,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useTabBarChromeStore } from '@/stores/tab-bar-chrome-store';
 import { useUiStore } from '@/stores/ui-store';
 import { ScrollView, Text, TextInput, View } from '@/tw';
+import { ELASTIC_CONTROL, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 
 const RECENTS_KEY = 'search:recents';
 const MAX_RECENTS = 6;
@@ -64,9 +67,21 @@ const TYPE_META: Record<
     mdIcon: 'github',
     accentKey: 'orange',
   },
+  'jira-issue': {
+    label: 'Jira issue',
+    plural: 'Jira issues',
+    mdIcon: 'jira',
+    accentKey: 'accent',
+  },
+  board: {
+    label: 'Board',
+    plural: 'Boards',
+    mdIcon: 'view-column-outline',
+    accentKey: 'purple',
+  },
 };
 
-const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'deck-card', 'github-issue'];
+const SECTION_ORDER: NodeType[] = ['task', 'subtask', 'board', 'deck-card', 'jira-issue', 'github-issue'];
 
 interface ResultRow {
   node: SearchNode;
@@ -138,16 +153,25 @@ export default function SearchScreen() {
     return () => clearTimeout(t);
   }, []);
 
+  // Deck and Jira boards themselves, by name (only while the Boards tab is on).
+  const boardSummaries = useBoardSummaries();
   const nodes = useMemo(
-    () =>
-      buildSearchNodes(
+    () => [
+      ...buildSearchNodes(
         tasksQuery.data ?? [],
         deckCardsQuery.data,
         githubRepositories.length > 0 ? githubIssuesQuery.data?.issues : undefined
       ),
-    [tasksQuery.data, deckCardsQuery.data, githubRepositories.length, githubIssuesQuery.data?.issues]
+      ...(boardsTab ? boardSearchNodes(boardSummaries.boards) : []),
+    ],
+    [tasksQuery.data, deckCardsQuery.data, githubRepositories.length, githubIssuesQuery.data?.issues, boardsTab, boardSummaries.boards]
   );
   const fuse = useMemo(() => createSearchIndex(nodes), [nodes]);
+
+  // Jira is searched on the server as you type; issues open in the Boards tab, so
+  // like Deck cards they stay out of search while that tab is off.
+  const jiraSearch = useJiraSearch(deferredQuery, boardsTab);
+  const jiraNodes = useMemo(() => jiraSearchNodes(jiraSearch.hits), [jiraSearch.hits]);
 
   useEffect(() => {
     AsyncStorage.getItem(RECENTS_KEY)
@@ -185,11 +209,12 @@ export default function SearchScreen() {
     const trimmed = deferredQuery.trim();
     if (!trimmed) return [];
     // Cap results so fuse + render stays snappy on large indexes.
-    return fuse.search(trimmed, { limit: 48 }).map((r) => ({ node: r.item, matches: r.matches }));
-  }, [fuse, deferredQuery]);
+    const local = fuse.search(trimmed, { limit: 48 }).map((r) => ({ node: r.item, matches: r.matches }));
+    return [...local, ...jiraNodes.map((node) => ({ node }))];
+  }, [fuse, deferredQuery, jiraNodes]);
 
   const counts = useMemo(() => {
-    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0 };
+    const c: Record<NodeType, number> = { task: 0, subtask: 0, 'deck-card': 0, 'github-issue': 0, 'jira-issue': 0, board: 0 };
     for (const r of allResults) c[r.node.type] += 1;
     return c;
   }, [allResults]);
@@ -201,6 +226,8 @@ export default function SearchScreen() {
       subtask: [],
       'deck-card': [],
       'github-issue': [],
+      'jira-issue': [],
+      board: [],
     };
     for (const r of filtered) grouped[r.node.type].push(r);
     return SECTION_ORDER.filter((t) => grouped[t].length > 0).map((t) => ({
@@ -252,6 +279,15 @@ export default function SearchScreen() {
               repo: node.githubRepo,
               number: String(node.githubIssueNumber),
             },
+          });
+        }
+      } else if (node.type === 'board') {
+        if (node.boardRef) router.push({ pathname: '/deck/board/[ref]', params: { ref: node.boardRef } });
+      } else if (node.type === 'jira-issue') {
+        if (node.jiraKey) {
+          router.push({
+            pathname: '/deck/issue/[key]',
+            params: { key: node.jiraKey, ...(node.jiraAccountId ? { account: node.jiraAccountId } : {}) },
           });
         }
       } else if (node.taskUid) {
@@ -306,7 +342,7 @@ export default function SearchScreen() {
             Platform.OS === 'ios'
               ? {
                   ref: iosSearchRef,
-                  placeholder: 'Search tasks, cards, issues',
+                  placeholder: 'Search everything',
                   onChangeText: (e) => setQuery(e.nativeEvent.text),
                   hideWhenScrolling: false,
                   obscureBackground: false,
@@ -376,6 +412,19 @@ export default function SearchScreen() {
               </View>
             ) : null}
 
+            {hasQuery && jiraSearch.isSearching ? (
+              <View className="flex-row items-center gap-2 px-1">
+                <LoadingSpinner size={14} />
+                <Text className="text-sf-text-2 text-xs">Searching Jira…</Text>
+              </View>
+            ) : null}
+
+            {hasQuery && jiraSearch.error ? (
+              <Text className="text-sf-text-2 px-1 text-xs">
+                Some Jira results could not load.
+              </Text>
+            ) : null}
+
             {hasQuery ? (
               <FilterBar
                 filter={filter}
@@ -418,7 +467,9 @@ export default function SearchScreen() {
         }}
         ListEmptyComponent={
           hasQuery ? (
-            <EmptyResults query={deferredQuery} onClear={() => setQuery('')} />
+            isIndexing || jiraSearch.isSearching ? null : (
+              <EmptyResults query={deferredQuery} onClear={() => setQuery('')} />
+            )
           ) : (
             <EmptyIdle
               recents={recents}
@@ -458,8 +509,10 @@ function FilterBar({
     { value: 'all', label: 'All', count: total, icon: 'magnify' },
     { value: 'task', label: 'Tasks', count: counts.task, icon: 'checkbox-blank-outline' },
     { value: 'subtask', label: 'Subtasks', count: counts.subtask, icon: 'subdirectory-arrow-right' },
+    { value: 'board', label: 'Boards', count: counts.board, icon: 'view-column-outline' },
     { value: 'deck-card', label: 'Cards', count: counts['deck-card'], icon: 'card-text-outline' },
-    { value: 'github-issue', label: 'Issues', count: counts['github-issue'], icon: 'github' },
+    { value: 'github-issue', label: 'GitHub', count: counts['github-issue'], icon: 'github' },
+    { value: 'jira-issue', label: 'Jira', count: counts['jira-issue'], icon: 'jira' },
   ];
   return (
     <ScrollView
@@ -623,6 +676,7 @@ function GroupRow({
 }) {
   const { colors } = useTheme();
   return (
+    <ElasticView {...ELASTIC_CONTROL}>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
@@ -670,6 +724,7 @@ function GroupRow({
         ) : null}
       </View>
     </Pressable>
+    </ElasticView>
   );
 }
 
@@ -700,6 +755,7 @@ function ResultRowView({
   const snippet = makeSnippet(row.node.descriptionText, descMatch);
 
   return (
+    <ElasticView {...ELASTIC_ROW}>
     <Pressable
       onPress={() => onPress(row.node)}
       android_ripple={{ color: colors.separator }}
@@ -774,6 +830,7 @@ function ResultRowView({
         <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text3} />
       </View>
     </Pressable>
+    </ElasticView>
   );
 }
 

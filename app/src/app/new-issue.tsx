@@ -23,6 +23,7 @@ import {
   EditorPrimaryButton,
   EditorTitle,
 } from '@/components/boards/item-editor';
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { HeaderTextButton } from '@/components/settings/settings-list';
 import { DateField } from '@/components/tasks/date-field';
@@ -37,7 +38,7 @@ import { haptics } from '@/lib/haptics';
 import { createJiraIssueOrQueue } from '@/lib/outbox-sync';
 import { handleJiraError } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { ScrollView, View } from '@/tw';
+import { View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -232,13 +233,10 @@ export default function NewIssueScreen() {
           }}
         />
       ) : null}
-      <ScrollView
+      <KeyboardScrollView
         className="flex-1"
         style={{ backgroundColor: 'transparent' }}
         contentInsetAdjustmentBehavior="automatic"
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={IOS}
         contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: 32 }}>
         <EditorTitle
           value={summary}
@@ -314,7 +312,7 @@ export default function NewIssueScreen() {
             onPress={create}
           />
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       <PickerSheet
         visible={picker === 'board'}

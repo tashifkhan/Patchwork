@@ -2,6 +2,29 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.9.0] - 2026-11-24
+
+Patchwork adds Nextcloud task attachments, a daily planner, and on-device AI on supported phones.
+
+### Added
+
+- Attach photos, camera captures, or documents to Nextcloud tasks in the mobile app. Preview images and open or share files from task details.
+- Files picked offline stay on the device across restarts and upload when sync resumes. You can discard a waiting file before it uploads.
+- Plan your day on a calendar timeline, give tasks start and end times, and run a focus timer or stopwatch on any to-do.
+- Pin tasks, set repeats, edit lists as text, and turn a typed or dictated brain dump into to-dos.
+- Use on-device AI for supported text features on compatible iPhones and Android devices.
+- Back up and restore tasks, share lists by QR code, lock the app, and add a home screen widget for your last opened board.
+
+### Changed
+
+- Android has redesigned task and Deck card pages, a full-page task composer, and updated calendar, board, and timer controls.
+- Search includes Jira issues and boards. Deck boards have search, quick filters, and expandable checklists on cards.
+
+### Fixed
+
+- Task and board inputs stay above the keyboard, and Back from a Deck card returns to Boards.
+- CalDAV writes fold long calendar lines at 75 bytes. Moving tasks between Nextcloud accounts copies their files, while moves to local lists or other providers keep links to the originals.
+
 ## [1.8.3] - 2026-11-16
 
 Motion for the Android floating navbar, section counts that roll, and empty states that ease in.

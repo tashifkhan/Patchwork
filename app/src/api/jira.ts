@@ -21,7 +21,7 @@ import type { JiraAccount, JiraCredentials } from '@/lib/credentials-types';
 export const JIRA_NEW_TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
 
 const REQUEST_TIMEOUT_MS = 20_000;
-const ISSUE_FIELDS = 'summary,status,priority,assignee,issuetype,labels,duedate,sprint,closedSprints';
+const ISSUE_FIELDS = 'summary,status,priority,assignee,issuetype,labels,duedate,sprint,closedSprints,subtasks';
 const MAX_BOARD_PAGES = 6;
 const MAX_ISSUE_PAGES = 4;
 
@@ -56,6 +56,8 @@ export interface JiraIssue {
   statusName: string;
   /** new / indeterminate / done */
   statusCategory: string;
+  /** The issue's sub-tasks, as Jira lists them on the parent. */
+  subtasks?: { key: string; title: string; done: boolean }[];
   typeName?: string;
   typeIconUrl?: string;
   priorityName?: string;
@@ -332,6 +334,7 @@ interface ApiIssue {
     duedate?: string | null;
     sprint?: ApiSprintRef | null;
     closedSprints?: (ApiSprintRef & { endDate?: string; completeDate?: string })[] | null;
+    subtasks?: { key?: string; fields?: { summary?: string; status?: { statusCategory?: { key?: string } } } }[];
   };
 }
 
@@ -368,6 +371,13 @@ function toIssue(raw: ApiIssue): JiraIssue {
     statusId: f.status?.id ?? '',
     statusName: f.status?.name ?? '',
     statusCategory: f.status?.statusCategory?.key ?? 'new',
+    subtasks: (f.subtasks ?? [])
+      .filter((sub) => sub.key)
+      .map((sub) => ({
+        key: sub.key ?? '',
+        title: sub.fields?.summary ?? sub.key ?? '',
+        done: sub.fields?.status?.statusCategory?.key === 'done',
+      })),
     typeName: f.issuetype?.name,
     typeIconUrl: f.issuetype?.iconUrl,
     priorityName: f.priority?.name,
@@ -401,6 +411,57 @@ async function pagedIssues(client: JiraClient, basePath: string): Promise<JiraIs
     if (fetched === 0 || (data?.total != null && startAt >= data.total)) break;
   }
   return issues;
+}
+
+// ── Search ─────────────────────────────────────────────────────────────
+
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]+-\d+$/i;
+
+/**
+ * JQL for a free-text search. Jira's text search is Lucene underneath, so its
+ * reserved characters are dropped rather than escaped, and the last word gets a
+ * trailing `*` so "login cra" finds "login crashes". A query shaped like an issue
+ * key also matches that key exactly.
+ */
+export function jiraSearchJql(query: string, includeKey = true): string | null {
+  const clean = query
+    .replace(/[+\-&|!(){}[\]^~*?\\/:"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return null;
+  const text = `text ~ "${clean}*"`;
+  const key = query.trim().toUpperCase();
+  const where = includeKey && ISSUE_KEY.test(key) ? `(key = "${key}" OR ${text})` : text;
+  return `${where} ORDER BY updated DESC`;
+}
+
+/**
+ * Issues on one Jira login that match `query`, newest first. Uses the
+ * `/search/jql` endpoint, which replaced `/search` on Jira Cloud.
+ */
+export async function searchJiraIssues(
+  creds: JiraCredentials,
+  query: string,
+  limit = 20
+): Promise<JiraIssue[]> {
+  const client = new JiraClient(creds);
+  const run = async (jql: string) => {
+    const data = await client.request<{ issues?: ApiIssue[] }>(
+      'GET',
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${ISSUE_FIELDS}&maxResults=${limit}`
+    );
+    return (data?.issues ?? []).map(toIssue);
+  };
+  const jql = jiraSearchJql(query);
+  if (!jql) return [];
+  try {
+    return await run(jql);
+  } catch (error) {
+    // `key = X` is a 400 when the project does not exist on this site; retry as plain text.
+    const plain = jiraSearchJql(query, false);
+    if (error instanceof JiraError && error.status === 400 && plain && plain !== jql) return run(plain);
+    throw error;
+  }
 }
 
 /** The JQL a board loads with. Kanban boards drop work finished over two weeks ago. */

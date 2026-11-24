@@ -2,6 +2,7 @@ import { Stack, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable } from 'react-native';
 
+import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading';
@@ -10,7 +11,7 @@ import { SheetSurface } from '@/components/ui/sheet-surface';
 import { useCreateDeckBoard } from '@/hooks/use-deck';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 import { useUiStore } from '@/stores/ui-store';
-import { ScrollView, Text, TextInput, View } from '@/tw';
+import { Text, TextInput, View } from '@/tw';
 
 
 export default function NewBoardScreen() {
@@ -70,12 +71,10 @@ export default function NewBoardScreen() {
           />
         </View>
       ) : (
-        <ScrollView
+        <KeyboardScrollView
           className="flex-1"
           style={{ backgroundColor: 'transparent' }}
           contentInsetAdjustmentBehavior="automatic"
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: 32 }}>
           <View className="gap-2 px-5 pt-4">
             <Text className="text-sf-text-2 px-1 text-xs font-semibold uppercase">Board name</Text>
@@ -148,7 +147,7 @@ export default function NewBoardScreen() {
             message={errorMessage ?? ''}
             onDismiss={() => setErrorMessage(null)}
           />
-        </ScrollView>
+        </KeyboardScrollView>
       )}
     </SheetSurface>
   );

@@ -21,17 +21,20 @@ export function Fab({
   onPress,
   icon = 'plus',
   accessibilityLabel,
+  bottom: bottomOverride,
 }: {
   onPress: () => void;
   icon?: IconName;
   accessibilityLabel?: string;
+  /** Distance from the bottom edge; defaults to clearing the tab bar. Screens outside the tabs pass their own. */
+  bottom?: number;
 }) {
   const { colors, scheme } = useTheme();
   const glass = useLiquidGlass();
   // iOS native tabs float over the scene; the bottom safe-area inset includes
   // the tab bar there, so sit above it rather than underneath.
   const insets = useSafeAreaInsets();
-  const bottom = Platform.OS === 'ios' ? insets.bottom + 16 : 16;
+  const bottom = bottomOverride ?? (Platform.OS === 'ios' ? insets.bottom + 16 : 16);
 
   return (
     <Pressable

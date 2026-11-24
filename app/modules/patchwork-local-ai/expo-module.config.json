@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PatchworkLocalAiModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.patchworklocalai.PatchworkLocalAiModule"]
+  }
+}
