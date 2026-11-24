@@ -4,43 +4,73 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { cancelReminder, scheduleOneOffNotification } from '@/lib/notifications';
 import { useSettingsStore } from '@/stores/settings-store';
-import { endFocus, startFocus } from '@/widgets/focus';
+import { endLiveTimer, showLiveTimer } from '@/widgets/focus';
 
 /**
- * Karui's pomodoro timer: a work block, then a break, with a notification at
- * the end of each so it works with the app closed. The timer is wall-clock
- * based (`endsAt`), so nothing has to tick in the background; the screen
- * calls `settle()` when it wakes up to catch any phase that ended meanwhile.
+ * The focus timer, in two modes:
  *
- * On iOS a work block also runs the existing Live Activity.
+ * - Pomodoro (Karui): a work block then a break, with a notification at the
+ *   end of each so it works with the app closed.
+ * - Stopwatch (TickTick): counts up until you stop it, then logs the time.
+ *
+ * Both are wall-clock based (`endsAt`, `startedAt`), so nothing ticks in the
+ * background; screens call `settle()` to catch a phase that ended meanwhile.
+ * Every finished block or stopwatch run lands in `sessions`, the day's log.
+ * While running, the timer shows as a Live Activity on iOS and an ongoing
+ * notification (a Live Update on Android 16+) on Android.
  */
 
-export type PomodoroPhase = 'idle' | 'work' | 'break';
+export type TimerPhase = 'idle' | 'work' | 'break' | 'stopwatch';
 
-/** Finished work blocks per local day, `YYYY-MM-DD`. */
+export interface FocusSession {
+  id: string;
+  kind: 'pomodoro' | 'stopwatch';
+  /** Epoch ms. */
+  start: number;
+  end: number;
+  minutes: number;
+  taskUid: string | null;
+  title: string | null;
+}
+
+/** Totals per local day, `YYYY-MM-DD`. `sessions` counts pomodoro blocks; `minutes` counts everything. */
 export type PomodoroHistory = Record<string, { sessions: number; minutes: number }>;
 
-interface PomodoroState {
-  phase: PomodoroPhase;
-  /** Epoch ms when the running phase ends. Null while paused or idle. */
+interface TimerState {
+  phase: TimerPhase;
+  /** Countdown phases: epoch ms when the phase ends. Null while paused or idle. */
   endsAt: number | null;
-  /** Milliseconds left, set while paused. */
+  /** Countdown phases: ms left, set while paused. */
   pausedRemaining: number | null;
-  /** Length of the running phase, for the progress ring. */
+  /** Stopwatch: epoch ms it (virtually) started, shifted forward past pauses. */
+  startedAt: number | null;
+  /** Stopwatch: ms tracked so far, set while paused. */
+  pausedElapsed: number | null;
+  /** First start of the current stopwatch run, for the log. */
+  runStart: number | null;
+  /** Length of the running countdown phase, for the progress bar. */
   phaseMinutes: number;
   taskUid: string | null;
   taskTitle: string | null;
   notificationId: string | null;
   history: PomodoroHistory;
+  sessions: FocusSession[];
 
   start: (task?: { uid: string; title: string }) => Promise<void>;
+  startStopwatch: (task?: { uid: string; title: string }) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
-  /** End the running phase now. A skipped work block doesn't count. */
+  /** Pomodoro: end the running phase now. A skipped work block doesn't count. */
   skip: () => Promise<void>;
+  /** Stop and reset. A stopwatch run is logged; a half-done pomodoro block isn't. */
   stop: () => Promise<void>;
-  /** Advance past phases that ended while the app wasn't looking. */
+  /** Advance past countdown phases that ended while the app wasn't looking. */
   settle: (now?: number) => Promise<void>;
+  /** Add time by hand, e.g. work done away from the phone. */
+  logManual: (minutes: number, task?: { uid: string; title: string } | null, at?: number) => void;
+  removeSession: (id: string) => void;
+  /** Re-show the lock screen / status bar timer, e.g. after a relaunch. */
+  refreshLive: () => void;
 }
 
 export function dayKey(date: Date) {
@@ -48,6 +78,24 @@ export function dayKey(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/** "1:05:10" or "25:00". */
+export function formatClock(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+/** "2h 15m", "40m". */
+export function formatMinutes(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 function minutesFor(phase: 'work' | 'break') {
@@ -68,87 +116,166 @@ async function notifyAt(phase: 'work' | 'break', endsAt: number, taskTitle: stri
   );
 }
 
-export const usePomodoroStore = create<PomodoroState>()(
+const IDLE = {
+  phase: 'idle' as const,
+  endsAt: null,
+  pausedRemaining: null,
+  startedAt: null,
+  pausedElapsed: null,
+  runStart: null,
+  notificationId: null,
+  taskUid: null,
+  taskTitle: null,
+};
+
+const MAX_SESSIONS = 3000;
+
+export const usePomodoroStore = create<TimerState>()(
   persist(
     (set, get) => {
+      /** Push the current state to the lock screen / status bar. */
+      function syncLive() {
+        const s = get();
+        if (s.phase === 'idle') {
+          void endLiveTimer().catch(() => {});
+          return;
+        }
+        const title = s.taskTitle ?? (s.phase === 'stopwatch' ? 'Tracking time' : 'Focus');
+        if (s.phase === 'stopwatch') {
+          const paused = s.pausedElapsed != null;
+          void showLiveTimer({
+            mode: 'stopwatch',
+            title,
+            startedAt: s.startedAt ?? Date.now(),
+            endsAt: null,
+            paused,
+            pausedLabel: `${formatClock(s.pausedElapsed ?? 0)} tracked`,
+          }).catch(() => {});
+          return;
+        }
+        const paused = s.pausedRemaining != null;
+        const endsAt = s.endsAt ?? Date.now() + (s.pausedRemaining ?? 0);
+        void showLiveTimer({
+          mode: s.phase === 'work' ? 'focus' : 'break',
+          title,
+          startedAt: endsAt - s.phaseMinutes * 60_000,
+          endsAt,
+          paused,
+          pausedLabel: `${formatClock(s.pausedRemaining ?? 0)} left`,
+        }).catch(() => {});
+      }
+
       async function enter(phase: 'work' | 'break', now = Date.now()) {
-        const { notificationId, taskUid, taskTitle } = get();
-        await cancelReminder(notificationId).catch(() => {});
+        await cancelReminder(get().notificationId).catch(() => {});
         const phaseMinutes = minutesFor(phase);
         const endsAt = now + phaseMinutes * 60_000;
         set({ phase, endsAt, pausedRemaining: null, phaseMinutes, notificationId: null });
-        const id = await notifyAt(phase, endsAt, taskTitle);
+        syncLive();
+        const id = await notifyAt(phase, endsAt, get().taskTitle);
         set({ notificationId: id });
-        if (phase === 'work' && taskUid) {
-          void startFocus(taskUid, taskTitle ?? 'Focus', phaseMinutes * 60).catch(() => {});
-        } else {
-          void endFocus().catch(() => {});
-        }
       }
 
-      function record(minutes: number, at: number) {
-        const key = dayKey(new Date(at));
+      function log(session: Omit<FocusSession, 'id'>) {
+        if (session.minutes <= 0) return;
+        const key = dayKey(new Date(session.start));
         const history = { ...get().history };
         const day = history[key] ?? { sessions: 0, minutes: 0 };
-        history[key] = { sessions: day.sessions + 1, minutes: day.minutes + minutes };
-        // Keep a year.
-        const cutoff = dayKey(new Date(at - 366 * 86_400_000));
+        history[key] = {
+          sessions: day.sessions + (session.kind === 'pomodoro' ? 1 : 0),
+          minutes: Math.round((day.minutes + session.minutes) * 10) / 10,
+        };
+        const cutoff = dayKey(new Date(Date.now() - 366 * 86_400_000));
         for (const k of Object.keys(history)) if (k < cutoff) delete history[k];
-        set({ history });
+        const entry: FocusSession = { ...session, id: `${session.start.toString(36)}-${Math.round(session.minutes * 60)}` };
+        set({ history, sessions: [entry, ...get().sessions].slice(0, MAX_SESSIONS) });
+      }
+
+      function task(t?: { uid: string; title: string } | null) {
+        return { taskUid: t?.uid ?? null, taskTitle: t?.title ?? null };
       }
 
       return {
-        phase: 'idle',
-        endsAt: null,
-        pausedRemaining: null,
+        ...IDLE,
         phaseMinutes: 25,
-        taskUid: null,
-        taskTitle: null,
-        notificationId: null,
         history: {},
+        sessions: [],
 
-        start: async (task) => {
-          set({ taskUid: task?.uid ?? null, taskTitle: task?.title ?? null });
+        start: async (t) => {
+          if (get().phase === 'stopwatch') await get().stop();
+          set(task(t));
           await enter('work');
         },
 
+        startStopwatch: async (t) => {
+          if (get().phase !== 'idle') await get().stop();
+          const now = Date.now();
+          set({ ...IDLE, ...task(t), phase: 'stopwatch', startedAt: now, runStart: now });
+          syncLive();
+        },
+
         pause: async () => {
-          const { endsAt, notificationId } = get();
-          if (endsAt == null) return;
-          await cancelReminder(notificationId).catch(() => {});
-          set({ pausedRemaining: Math.max(0, endsAt - Date.now()), endsAt: null, notificationId: null });
-          void endFocus().catch(() => {});
+          const { phase, endsAt, startedAt, notificationId } = get();
+          if (phase === 'stopwatch') {
+            if (startedAt == null) return;
+            set({ pausedElapsed: Date.now() - startedAt, startedAt: null });
+          } else {
+            if (endsAt == null) return;
+            await cancelReminder(notificationId).catch(() => {});
+            set({ pausedRemaining: Math.max(0, endsAt - Date.now()), endsAt: null, notificationId: null });
+          }
+          syncLive();
         },
 
         resume: async () => {
-          const { pausedRemaining, phase, taskTitle, taskUid } = get();
+          const { phase, pausedRemaining, pausedElapsed, taskTitle } = get();
+          if (phase === 'stopwatch') {
+            if (pausedElapsed == null) return;
+            set({ startedAt: Date.now() - pausedElapsed, pausedElapsed: null });
+            syncLive();
+            return;
+          }
           if (pausedRemaining == null || phase === 'idle') return;
           const endsAt = Date.now() + pausedRemaining;
           set({ endsAt, pausedRemaining: null });
+          syncLive();
           const id = await notifyAt(phase, endsAt, taskTitle);
           set({ notificationId: id });
-          if (phase === 'work' && taskUid) {
-            void startFocus(taskUid, taskTitle ?? 'Focus', Math.round(pausedRemaining / 1000)).catch(() => {});
-          }
         },
 
         skip: async () => {
           const { phase } = get();
           if (phase === 'work') await enter('break');
-          else if (phase === 'break') await get().stop();
+          else await get().stop();
         },
 
         stop: async () => {
-          await cancelReminder(get().notificationId).catch(() => {});
-          set({ phase: 'idle', endsAt: null, pausedRemaining: null, notificationId: null, taskUid: null, taskTitle: null });
-          void endFocus().catch(() => {});
+          const s = get();
+          if (s.phase === 'stopwatch') {
+            const elapsed = s.pausedElapsed ?? (s.startedAt != null ? Date.now() - s.startedAt : 0);
+            const start = s.runStart ?? Date.now() - elapsed;
+            // Under a minute is almost always a mis-tap.
+            if (elapsed >= 60_000) {
+              log({ kind: 'stopwatch', start, end: Date.now(), minutes: elapsed / 60_000, taskUid: s.taskUid, title: s.taskTitle });
+            }
+          }
+          await cancelReminder(s.notificationId).catch(() => {});
+          set({ ...IDLE });
+          syncLive();
         },
 
         settle: async (now = Date.now()) => {
-          const { phase, endsAt, phaseMinutes } = get();
-          if (phase === 'idle' || endsAt == null || now < endsAt) return;
+          const { phase, endsAt, phaseMinutes, taskUid, taskTitle } = get();
+          if (phase !== 'work' && phase !== 'break') return;
+          if (endsAt == null || now < endsAt) return;
           if (phase === 'work') {
-            record(phaseMinutes, endsAt);
+            log({
+              kind: 'pomodoro',
+              start: endsAt - phaseMinutes * 60_000,
+              end: endsAt,
+              minutes: phaseMinutes,
+              taskUid,
+              title: taskTitle,
+            });
             // The break started when the work block ended, not when we noticed.
             const breakEnds = endsAt + minutesFor('break') * 60_000;
             if (breakEnds > now) {
@@ -156,24 +283,64 @@ export const usePomodoroStore = create<PomodoroState>()(
               return;
             }
           }
-          set({ phase: 'idle', endsAt: null, pausedRemaining: null, notificationId: null, taskUid: null, taskTitle: null });
-          void endFocus().catch(() => {});
+          set({ ...IDLE });
+          syncLive();
+        },
+
+        logManual: (minutes, t, at = Date.now()) => {
+          log({ kind: 'stopwatch', start: at - minutes * 60_000, end: at, minutes, ...task(t), title: t?.title ?? null });
+        },
+
+        refreshLive: () => syncLive(),
+
+        removeSession: (id) => {
+          const session = get().sessions.find((entry) => entry.id === id);
+          if (!session) return;
+          const key = dayKey(new Date(session.start));
+          const history = { ...get().history };
+          const day = history[key];
+          if (day) {
+            history[key] = {
+              sessions: Math.max(0, day.sessions - (session.kind === 'pomodoro' ? 1 : 0)),
+              minutes: Math.max(0, Math.round((day.minutes - session.minutes) * 10) / 10),
+            };
+          }
+          set({ history, sessions: get().sessions.filter((entry) => entry.id !== id) });
         },
       };
     },
     {
       name: 'patchwork-pomodoro',
+      version: 1,
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: ({ phase, endsAt, pausedRemaining, phaseMinutes, taskUid, taskTitle, notificationId, history }) => ({
+      partialize: ({
         phase,
         endsAt,
         pausedRemaining,
+        startedAt,
+        pausedElapsed,
+        runStart,
         phaseMinutes,
         taskUid,
         taskTitle,
         notificationId,
         history,
+        sessions,
+      }) => ({
+        phase,
+        endsAt,
+        pausedRemaining,
+        startedAt,
+        pausedElapsed,
+        runStart,
+        phaseMinutes,
+        taskUid,
+        taskTitle,
+        notificationId,
+        history,
+        sessions,
       }),
+      migrate: (persisted) => ({ sessions: [], ...(persisted as object) }) as TimerState,
     }
   )
 );
@@ -189,14 +356,33 @@ export function recentHistory(history: PomodoroHistory, days: number, now: Date 
   return out;
 }
 
-/** Days in a row, ending today or yesterday, with at least one finished block. */
+/** Days in a row, ending today or yesterday, with any focus time. */
 export function streak(history: PomodoroHistory, now: Date = new Date()) {
   let count = 0;
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (!history[dayKey(day)]?.sessions) day.setDate(day.getDate() - 1);
-  while (history[dayKey(day)]?.sessions) {
+  if (!history[dayKey(day)]?.minutes) day.setDate(day.getDate() - 1);
+  while (history[dayKey(day)]?.minutes) {
     count += 1;
     day.setDate(day.getDate() - 1);
   }
   return count;
+}
+
+/** Sessions that started on the given local day, newest first. */
+export function sessionsOn(sessions: FocusSession[], date: Date) {
+  const key = dayKey(date);
+  return sessions.filter((session) => dayKey(new Date(session.start)) === key);
+}
+
+/** Minutes logged against one to-do, today and in total. */
+export function taskTime(sessions: FocusSession[], taskUid: string, now: Date = new Date()) {
+  const todayKey = dayKey(now);
+  let today = 0;
+  let total = 0;
+  for (const session of sessions) {
+    if (session.taskUid !== taskUid) continue;
+    total += session.minutes;
+    if (dayKey(new Date(session.start)) === todayKey) today += session.minutes;
+  }
+  return { today, total };
 }

@@ -1,61 +1,65 @@
 import { HStack, Image, Spacer, Text, VStack } from '@expo/ui/swift-ui';
-import { font, foregroundStyle, padding } from '@expo/ui/swift-ui/modifiers';
+import { font, foregroundStyle, monospacedDigit, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity, type LiveActivityEnvironment } from 'expo-widgets';
 
 export interface FocusActivityProps {
   taskTitle: string;
+  /** `focus` / `break` count down to `endsAt`; `stopwatch` counts up from `startedAt`. */
+  mode: 'focus' | 'break' | 'stopwatch';
   startedAt: number;
-  durationSeconds: number;
+  endsAt: number;
   paused: boolean;
+  pausedLabel: string;
 }
 
 const FocusActivityLayout = (props: FocusActivityProps, env: LiveActivityEnvironment) => {
   'widget';
   // Helpers live inside the layout: expo-widgets serializes only this function's body.
-  const formatDuration = (seconds: number): string => {
-    const total = Math.max(0, Math.floor(seconds));
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-  };
-  const elapsed = Math.max(0, Math.floor((Date.now() - props.startedAt) / 1000));
-  const remaining = Math.max(0, props.durationSeconds - elapsed);
-  const accent = env.colorScheme === 'dark' ? '#FFFFFF' : '#208AEF';
-  const label = formatDuration(remaining);
+  const accent = props.mode === 'break' ? '#34C759' : env.colorScheme === 'dark' ? '#FFFFFF' : '#208AEF';
+  const icon = props.paused ? 'pause.circle.fill' : props.mode === 'stopwatch' ? 'stopwatch' : props.mode === 'break' ? 'cup.and.saucer.fill' : 'timer';
+  const caption = props.mode === 'stopwatch' ? 'Tracking' : props.mode === 'break' ? 'Break' : 'Focus';
+  // SwiftUI timer text ticks on its own: down to endsAt, or up from startedAt.
+  const clock = (size: number) =>
+    props.paused ? (
+      <Text modifiers={[font({ weight: 'bold', size }), monospacedDigit()]}>{props.pausedLabel}</Text>
+    ) : props.mode === 'stopwatch' ? (
+      <Text
+        date={new Date(props.startedAt)}
+        dateStyle="timer"
+        modifiers={[font({ weight: 'bold', size }), monospacedDigit()]}
+      />
+    ) : (
+      <Text
+        timerInterval={{ lower: new Date(props.startedAt), upper: new Date(props.endsAt) }}
+        countsDown
+        modifiers={[font({ weight: 'bold', size }), monospacedDigit()]}
+      />
+    );
 
   return {
     banner: (
       <HStack modifiers={[padding({ all: 12 })]}>
-        <Image systemName={props.paused ? 'pause.circle.fill' : 'timer'} color={accent} />
+        <Image systemName={icon} color={accent} />
         <VStack modifiers={[padding({ leading: 8 })]}>
           <Text modifiers={[font({ weight: 'semibold', size: 14 }), foregroundStyle(accent)]}>
             {props.taskTitle}
           </Text>
-          <Text modifiers={[font({ size: 12 })]}>
-            {props.paused ? 'Paused' : `${label} left`}
-          </Text>
+          <Text modifiers={[font({ size: 12 })]}>{props.paused ? 'Paused' : caption}</Text>
         </VStack>
         <Spacer />
-        <Text modifiers={[font({ weight: 'bold', size: 24 })]}>{label}</Text>
+        {clock(24)}
       </HStack>
     ),
-    compactLeading: <Image systemName="timer" color={accent} />,
-    compactTrailing: <Text>{label}</Text>,
-    minimal: <Image systemName="timer" color={accent} />,
+    compactLeading: <Image systemName={icon} color={accent} />,
+    compactTrailing: clock(14),
+    minimal: <Image systemName={icon} color={accent} />,
     expandedLeading: (
       <VStack modifiers={[padding({ all: 12 })]}>
-        <Image systemName="timer" color={accent} />
-        <Text modifiers={[font({ size: 11 })]}>Focus</Text>
+        <Image systemName={icon} color={accent} />
+        <Text modifiers={[font({ size: 11 })]}>{caption}</Text>
       </VStack>
     ),
-    expandedTrailing: (
-      <VStack modifiers={[padding({ all: 12 })]}>
-        <Text modifiers={[font({ weight: 'bold', size: 20 })]}>{label}</Text>
-        <Text modifiers={[font({ size: 11 })]}>left</Text>
-      </VStack>
-    ),
+    expandedTrailing: <VStack modifiers={[padding({ all: 12 })]}>{clock(20)}</VStack>,
     expandedBottom: (
       <VStack modifiers={[padding({ all: 12 })]}>
         <Text modifiers={[font({ weight: 'semibold', size: 13 })]}>{props.taskTitle}</Text>
