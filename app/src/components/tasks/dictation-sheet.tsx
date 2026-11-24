@@ -32,7 +32,7 @@ import {
 } from '@/lib/connectivity';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
-import { MAX_SECONDS, RECORDING, RECORDING_MIME_TYPE, SPEECH_DB, meterToLevel } from '@/lib/voice-recording';
+import { MAX_SECONDS, RECORDING, RECORDING_MIME_TYPE, SPEECH_DB, meterToLevel, prepareWithTimeout } from '@/lib/voice-recording';
 import { useAiStagingStore } from '@/stores/ai-staging-store';
 import { Text, View } from '@/tw';
 
@@ -114,7 +114,7 @@ export function DictationSheet({
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+      await prepareWithTimeout(recorder.prepareToRecordAsync());
       if (cancelled.current) return;
       recorder.record();
       haptics.impact('medium');

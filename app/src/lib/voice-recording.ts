@@ -50,3 +50,30 @@ export function meterToLevel(metering?: number) {
 export function formatRecordingClock(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
+
+/** How long the recorder gets to start before we give up and offer a retry. */
+const PREPARE_TIMEOUT_MS = 6000;
+
+export const MIC_STUCK_MESSAGE =
+  "The microphone didn't start. Close other apps using it, or check microphone access in Settings, then try again.";
+
+/**
+ * `prepareToRecordAsync` can hang without settling, for example while the OS
+ * waits on another app holding the mic. Without a limit the sheet would say
+ * "Getting the mic ready" forever; this rejects so it can offer a retry.
+ */
+export function prepareWithTimeout(prepare: Promise<void>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(MIC_STUCK_MESSAGE)), PREPARE_TIMEOUT_MS);
+    prepare.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    );
+  });
+}
