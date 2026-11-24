@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   activeFilterCount,
+  checklistProgress,
+  noteOf,
   applyFilters,
   EMPTY_FILTERS,
   filterFacets,
@@ -86,4 +88,16 @@ describe('sprint groups', () => {
   test('the sprint facet lists sprints in board order, backlog last', () => {
     expect(filterFacets(mixed).sprints.map((sprint) => sprint.key)).toEqual(['sprint:1', 'sprint:2', 'backlog']);
   });
+});
+
+
+test('card note skips headings markers and checklists', () => {
+  expect(noteOf('## Brief\n- [ ] one\nClient wants **more** whitespace.')).toBe('Brief');
+  expect(noteOf('- [ ] one\n- [x] two\n\nCheck [iOS](https://x) spacing')).toBe('Check iOS spacing');
+  expect(noteOf('   ')).toBeUndefined();
+});
+
+test('checklist progress counts ticked items', () => {
+  expect(checklistProgress('- [x] a\n- [ ] b\n* [X] c')).toEqual({ done: 2, total: 3 });
+  expect(checklistProgress('plain')).toBeUndefined();
 });

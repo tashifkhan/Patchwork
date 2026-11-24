@@ -1,18 +1,23 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Platform, Pressable } from 'react-native';
 
 import { initials, nameColor, type BoardCardItem } from '@/features/boards/model';
+import { priorityTone } from '@/components/boards/board-tone';
 import { useTheme } from '@/components/theme/context';
+import { mixHex, withAlpha } from '@/lib/theme';
 import { formatRelativeDue } from '@/lib/format';
 import { Text, View } from '@/tw';
 import { ELASTIC_CARD, ElasticView } from '@/components/ui/motion';
 
 /**
- * A card on a board column, laid out like the Jira app: title on top, then a
- * footer with the issue type and key on the left and priority plus assignee
- * on the right. Deck cards use the same footer with labels and due date.
+ * A card on a board column, in the soft board style: priority and labels as
+ * tinted chips on top (the Jira key on the right), a bold title with the
+ * first line of the description under it, checklist progress as a bar, and a
+ * footer of assignees on the left and due date, attachment and comment counts
+ * as small pills on the right.
  */
 export const BoardCard = memo(function BoardCard({
   card,
@@ -26,92 +31,95 @@ export const BoardCard = memo(function BoardCard({
   /** Without it the card is draggable, and the board's gesture owns long-press. */
   onLongPress?: () => void;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const dark = scheme === 'dark';
   const due = formatRelativeDue(card.due ?? null);
+  const priority = priorityTone(card.priorityName, colors, dark);
+  const percent = card.progress ? Math.round((card.progress.done / card.progress.total) * 100) : null;
 
   return (
-    <View style={{ borderRadius: 18, overflow: 'hidden', backgroundColor: colors.bg, borderCurve: 'continuous' }}>
-      <ElasticView {...ELASTIC_CARD}>
+    <View
+      style={{
+        borderRadius: 20,
+        overflow: 'hidden',
+        backgroundColor: dark ? colors.bg2 : colors.bg,
+        borderCurve: 'continuous',
+        boxShadow: dark ? undefined : `0 1px 3px ${withAlpha('#000000', 0.06)}`,
+      }}>
+      <ElasticView {...ELASTIC_CARD} glowRadius={20}>
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={300}
         accessibilityRole="button"
-        accessibilityLabel={[card.key, card.title].filter(Boolean).join(', ')}
+        accessibilityLabel={[card.priorityName ? `${card.priorityName} priority` : null, card.key, card.title, percent != null ? `${percent}% done` : null]
+          .filter(Boolean)
+          .join(', ')}
         accessibilityHint={onLongPress ? 'Long press to move to another column' : 'Long press and drag to move'}
         android_ripple={{ color: colors.separator }}
         style={({ pressed }) => ({
           paddingHorizontal: 16,
           paddingTop: 14,
-          paddingBottom: 12,
+          paddingBottom: 14,
           gap: 10,
           opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
         })}>
-        {card.labels.length > 0 ? (
-          <View className="flex-row flex-wrap" style={{ gap: 6 }}>
-            {card.labels.slice(0, 4).map((label, index) => (
-              <View
-                key={`${label.title}-${index}`}
-                style={{
-                  borderRadius: 6,
-                  paddingHorizontal: 8,
-                  paddingVertical: 2,
-                  backgroundColor: label.color ?? colors.bg3,
-                }}>
-                <Text
-                  numberOfLines={1}
-                  style={{ fontSize: 12, fontWeight: '600', color: label.color ? '#FFFFFF' : colors.text2 }}>
-                  {label.title}
-                </Text>
+        {/* Priority and labels as chips, the issue key on the right. */}
+        {priority || card.labels.length > 0 || card.key ? (
+          <View className="flex-row items-center" style={{ gap: 6 }}>
+            <View className="flex-row flex-wrap" style={{ gap: 6, flex: 1 }}>
+              {priority && card.priorityName ? (
+                <Chip label={card.priorityName} bg={priority.bg} ink={priority.ink} />
+              ) : null}
+              {card.labels.slice(0, 3).map((label, index) => (
+                <Chip
+                  key={`${label.title}-${index}`}
+                  label={label.title}
+                  bg={label.color ? withAlpha(label.color, dark ? 0.3 : 0.18) : colors.bg3}
+                  ink={label.color ? (dark ? mixHex(label.color, '#FFFFFF', 0.4) : mixHex(label.color, '#000000', 0.4)) : colors.text2}
+                />
+              ))}
+            </View>
+            {card.key ? (
+              <View className="flex-row items-center" style={{ gap: 4 }}>
+                {card.typeIconUrl ? (
+                  <Image
+                    source={{ uri: card.typeIconUrl, headers: imageHeaders }}
+                    style={{ width: 14, height: 14 }}
+                    accessibilityLabel={card.typeName}
+                  />
+                ) : null}
+                <Text style={{ fontSize: 12, fontWeight: '500', color: colors.text3, letterSpacing: 0.3 }}>{card.key}</Text>
               </View>
-            ))}
+            ) : null}
           </View>
         ) : null}
 
-        <Text style={{ fontSize: 16, lineHeight: 22, color: colors.text }}>{card.title}</Text>
+        <View style={{ gap: 4 }}>
+          <Text style={{ fontSize: 16, lineHeight: 21, fontWeight: '600', color: colors.text }}>{card.title}</Text>
+          {card.note ? (
+            <Text numberOfLines={2} style={{ fontSize: 14, lineHeight: 19, color: colors.text2 }}>
+              {card.note}
+            </Text>
+          ) : null}
+        </View>
 
-        <View className="flex-row items-center" style={{ gap: 8, minHeight: 26 }}>
-          {card.key ? (
-            <>
-              {card.typeIconUrl ? (
-                <Image
-                  source={{ uri: card.typeIconUrl, headers: imageHeaders }}
-                  style={{ width: 16, height: 16 }}
-                  accessibilityLabel={card.typeName}
-                />
-              ) : (
-                <MaterialCommunityIcons name="checkbox-marked-outline" size={16} color={colors.accent} />
-              )}
-              <Text style={{ fontSize: 13, fontWeight: '500', color: colors.text2, letterSpacing: 0.3 }}>
-                {card.key}
-              </Text>
-            </>
-          ) : null}
-          {due.label ? (
-            <View className="flex-row items-center" style={{ gap: 4 }}>
-              <MaterialCommunityIcons
-                name="clock-outline"
-                size={14}
-                color={due.overdue ? colors.red : colors.text2}
-              />
-              <Text style={{ fontSize: 13, color: due.overdue ? colors.red : colors.text2 }}>{due.label}</Text>
-            </View>
-          ) : null}
-          {card.hasDescription ? (
-            <MaterialCommunityIcons name="text" size={15} color={colors.text3} />
-          ) : null}
+        {percent != null ? <ProgressBar percent={percent} /> : null}
 
-          <View style={{ flex: 1 }} />
-
-          {card.priorityName || card.priorityIconUrl ? (
-            <PriorityBadge name={card.priorityName} iconUrl={card.priorityIconUrl} headers={imageHeaders} />
-          ) : null}
+        <View className="flex-row items-center" style={{ gap: 6, minHeight: 28 }}>
           {card.assignee ? (
             <Avatar name={card.assignee.name} url={card.assignee.avatarUrl} headers={imageHeaders} />
           ) : null}
           {(card.assigneeCount ?? 0) > 1 ? (
             <Text style={{ fontSize: 12, color: colors.text2 }}>+{(card.assigneeCount ?? 1) - 1}</Text>
           ) : null}
+          <View style={{ flex: 1 }} />
+          {due.label ? (
+            <CountPill icon="clock-outline" label={due.label} alert={due.overdue} />
+          ) : null}
+          {card.attachments ? <CountPill icon="paperclip" label={String(card.attachments)} /> : null}
+          {card.comments ? <CountPill icon="comment-outline" label={String(card.comments)} /> : null}
+          {!card.note && card.hasDescription ? <CountPill icon="text" /> : null}
         </View>
       </Pressable>
       </ElasticView>
@@ -119,43 +127,54 @@ export const BoardCard = memo(function BoardCard({
   );
 });
 
-/** Jira's stock priorities as glyphs; custom ones fall back to Jira's own icon. */
-const PRIORITY_GLYPHS: Record<string, { icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; color: string }> = {
-  highest: { icon: 'chevron-double-up', color: '#E5493A' },
-  high: { icon: 'chevron-up', color: '#E5493A' },
-  medium: { icon: 'equal', color: '#E2861B' },
-  low: { icon: 'chevron-down', color: '#2D8738' },
-  lowest: { icon: 'chevron-double-down', color: '#2D8738' },
-};
+function Chip({ label, bg, ink }: { label: string; bg: string; ink: string }) {
+  return (
+    <View style={{ borderRadius: 8, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: bg }}>
+      <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: ink }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
 
-function PriorityBadge({
-  name,
-  iconUrl,
-  headers,
+/** "Progress  60%" over a rounded bar that fills to the share of ticked checklist items. */
+function ProgressBar({ percent }: { percent: number }) {
+  const { colors } = useTheme();
+  const fill = useSharedValue(0);
+  useEffect(() => {
+    fill.set(withTiming(percent / 100, { duration: 520, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }));
+  }, [percent, fill]);
+  const bar = useAnimatedStyle(() => ({ width: `${fill.value * 100}%` }));
+  return (
+    <View style={{ gap: 6 }}>
+      <View className="flex-row items-center">
+        <Text style={{ flex: 1, fontSize: 12, color: colors.text3 }}>Progress</Text>
+        <Text style={{ fontSize: 12, color: colors.text3, fontVariant: ['tabular-nums'] }}>{percent}%</Text>
+      </View>
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.bg3, overflow: 'hidden' }}>
+        <Animated.View style={[{ height: 6, borderRadius: 3, backgroundColor: colors.accent }, bar]} />
+      </View>
+    </View>
+  );
+}
+
+function CountPill({
+  icon,
+  label,
+  alert,
 }: {
-  name?: string;
-  iconUrl?: string;
-  headers?: Record<string, string>;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label?: string;
+  alert?: boolean;
 }) {
   const { colors } = useTheme();
-  const glyph = name ? PRIORITY_GLYPHS[name.toLowerCase()] : undefined;
+  const color = alert ? colors.red : colors.text2;
   return (
     <View
-      accessible
-      accessibilityLabel={name ? `${name} priority` : 'Priority'}
-      style={{
-        width: 26,
-        height: 26,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: colors.bg2,
-      }}>
-      {glyph ? (
-        <MaterialCommunityIcons name={glyph.icon} size={18} color={glyph.color} />
-      ) : iconUrl ? (
-        <Image source={{ uri: iconUrl, headers }} style={{ width: 14, height: 14 }} />
-      ) : null}
+      className="flex-row items-center"
+      style={{ gap: 3, height: 24, paddingHorizontal: 7, borderRadius: 8, borderWidth: 1, borderColor: colors.separator }}>
+      <MaterialCommunityIcons name={icon} size={13} color={color} />
+      {label ? <Text style={{ fontSize: 12, color }}>{label}</Text> : null}
     </View>
   );
 }
