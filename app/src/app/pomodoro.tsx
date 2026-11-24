@@ -14,7 +14,9 @@ import { RollingClock } from '@/components/ui/rolling-clock';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, listPlacement } from '@/lib/motion';
 import { TimerProgress } from '@/components/ui/timer-progress';
+import { Glass } from '@/components/focus/clock-style';
 import { StopwatchFace, TimerFace } from '@/components/focus/expressive-faces';
+import { LogRow } from '@/components/focus/log-row';
 import { MorphControls, PresetPills, type PillAction } from '@/components/focus/morph-controls';
 import { haptics } from '@/lib/haptics';
 import {
@@ -301,7 +303,7 @@ export default function PomodoroScreen() {
         )}
 
         <RiseIn index={1}>
-        <View className="gap-3 p-4" style={{ backgroundColor: colors.bg3, borderRadius: 28, borderCurve: 'continuous' }}>
+        <Glass tint={colors.bg3} radius={28} borderAlpha={0.72} shadow={0} style={{ padding: 16, gap: 12 }}>
           <View className="flex-row justify-between">
             <Stat label="Today" value={formatMinutes(today.minutes)} detail={`${today.sessions} pomodoros`} />
             <Stat
@@ -325,7 +327,7 @@ export default function PomodoroScreen() {
               </View>
             ))}
           </View>
-        </View>
+        </Glass>
 
         </RiseIn>
 
@@ -361,7 +363,24 @@ export default function PomodoroScreen() {
             </Text>
           ) : (
             todaySessions.map((session) => (
-              <Animated.View key={session.id} layout={listPlacement()} entering={EXPAND_IN} exiting={COLLAPSE_OUT}>
+              <Animated.View
+                key={session.id}
+                layout={listPlacement()}
+                entering={EXPAND_IN}
+                exiting={COLLAPSE_OUT}
+                style={EXPRESSIVE_FACES ? { marginBottom: 4 } : undefined}>
+              {EXPRESSIVE_FACES ? (
+                <LogRow
+                  icon={session.kind === 'pomodoro' ? 'timer-outline' : session.kind === 'manual' ? 'clock-plus-outline' : 'timer-play-outline'}
+                  title={session.title ?? (session.kind === 'pomodoro' ? 'Pomodoro' : session.kind === 'manual' ? 'Added by hand' : 'Stopwatch')}
+                  detail={`${time.format(new Date(session.start))}–${time.format(new Date(session.end))}`}
+                  value={formatMinutes(session.minutes)}
+                  onLongPress={() => {
+                    haptics.longPress();
+                    setRemoving(session);
+                  }}
+                />
+              ) : (
               <Pressable
                 onLongPress={() => {
                   haptics.longPress();
@@ -393,6 +412,7 @@ export default function PomodoroScreen() {
                   {formatMinutes(session.minutes)}
                 </Text>
               </Pressable>
+              )}
               </Animated.View>
             ))
           )}

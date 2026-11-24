@@ -14,7 +14,8 @@ import Animated, {
 
 import { useTheme } from '@/components/theme/context';
 import { withAlpha } from '@/lib/theme';
-import { useElasticPress } from '@/components/ui/elastic';
+import { CLOCK_FONT, Glass } from '@/components/focus/clock-style';
+import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
 
@@ -104,7 +105,7 @@ export function MorphControls({
         style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: ROW_HEIGHT, flexDirection: 'row' }, trio]}>
         {actions.map((action) => (
           <View key={action.label} style={{ flex: 1 }}>
-            <Pill action={action} fill />
+            <Pill action={action} fill compact />
           </View>
         ))}
       </Animated.View>
@@ -114,28 +115,40 @@ export function MorphControls({
 
 function useTone(tone: PillAction['tone']) {
   const { colors } = useTheme();
+  // WidePill: glass tinted with the container. Lap and Start share primaryContainer, Reset is the
+  // plain surface, Stop takes the tertiary-ish container while running.
   switch (tone) {
     case 'primary':
-      return { bg: colors.primaryContainer, ink: colors.onPrimaryContainer, border: undefined };
-    case 'tertiary':
-      return { bg: colors.selectionBg, ink: colors.onSelectionBg, border: undefined };
     case 'tonal':
-      return { bg: colors.gray3, ink: colors.text, border: undefined };
+      return { tint: colors.primaryContainer, ink: colors.onPrimaryContainer };
+    case 'tertiary':
+      return { tint: colors.selectionBg, ink: colors.onSelectionBg };
     case 'outlined':
-      return { bg: 'transparent', ink: colors.text, border: colors.gray2 };
+      return { tint: colors.bg3, ink: colors.text };
   }
 }
 
-function PillBody({ action, labelStyle }: { action: PillAction; labelStyle?: ReturnType<typeof useAnimatedStyle> }) {
+function PillBody({
+  action,
+  labelStyle,
+  compact = false,
+}: {
+  action: PillAction;
+  labelStyle?: ReturnType<typeof useAnimatedStyle>;
+  /** Three abreast: WidePill's compact 10dp padding instead of the idle pill's 28dp. */
+  compact?: boolean;
+}) {
   const tone = useTone(action.tone);
   return (
     <Animated.View
       style={[
-        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 28, height: ROW_HEIGHT },
+        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: compact ? 10 : 28, height: ROW_HEIGHT },
         labelStyle,
       ]}>
       {action.icon ? <MaterialCommunityIcons name={action.icon} size={22} color={tone.ink} /> : null}
-      <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: tone.ink }}>
+      <Text
+        numberOfLines={1}
+        style={{ fontSize: 16, fontFamily: CLOCK_FONT.title, fontWeight: CLOCK_FONT.title ? undefined : '700', color: tone.ink }}>
         {action.label}
       </Text>
     </Animated.View>
@@ -146,13 +159,17 @@ function Pill({
   action,
   fill,
   labelStyle,
+  compact,
 }: {
   action: PillAction;
   fill?: boolean;
   labelStyle?: ReturnType<typeof useAnimatedStyle>;
+  compact?: boolean;
 }) {
+  const { colors } = useTheme();
   const tone = useTone(action.tone);
-  const press = useElasticPress({ maxStretch: 0.06, maxTranslate: 1.8, pressedScale: 0.95, releaseOnDrag: true });
+  // WidePill's luminousElasticClickable: a bigger lean than a card, and light under the finger.
+  const press = useElasticPress({ maxStretch: 0.09, maxTranslate: 2.4, pressedScale: 0.95, releaseOnDrag: true });
   return (
     <Animated.View {...press.handlers} style={[{ flex: fill ? 1 : undefined }, press.style]}>
       <Pressable
@@ -163,19 +180,11 @@ function Pill({
         onPressOut={press.release}
         accessibilityRole="button"
         accessibilityLabel={action.label}
-        style={({ pressed }) => ({
-          flex: 1,
-          height: ROW_HEIGHT,
-          // Fully round, squaring off a little while held.
-          borderRadius: pressed ? 18 : ROW_HEIGHT / 2,
-          backgroundColor: tone.bg,
-          borderWidth: tone.border ? 1 : 0,
-          borderColor: tone.border,
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-        })}>
-        <PillBody action={action} labelStyle={labelStyle} />
+        style={{ flex: 1, height: ROW_HEIGHT }}>
+        <Glass tint={tone.tint} radius={ROW_HEIGHT / 2} borderAlpha={0.86} shadow={0} style={{ flex: 1, justifyContent: 'center' }}>
+          <PressGlow press={press} color={withAlpha(colors.accent, 0.18)} radius={ROW_HEIGHT / 2} size={36} />
+          <PillBody action={action} labelStyle={labelStyle} compact={compact} />
+        </Glass>
       </Pressable>
     </Animated.View>
   );
@@ -195,37 +204,57 @@ export function PresetPills({
 }) {
   const { colors } = useTheme();
   return (
-    <View className="gap-2">
-      <Text style={{ fontSize: 13, color: colors.text2 }}>Presets</Text>
+    <View style={{ gap: 5 }}>
+      <Text
+        style={{ fontSize: 14, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '500', color: colors.text2, paddingHorizontal: 4 }}>
+        Presets
+      </Text>
       <View className="flex-row" style={{ gap: 6 }}>
-        {values.map((value) => {
-          const active = value === selected;
-          return (
-            <Pressable
-              key={value}
-              onPress={() => {
-                haptics.selection();
-                onSelect(value);
-              }}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: active }}
-              style={({ pressed }) => ({
-                flex: 1,
-                height: 44,
-                borderRadius: pressed ? 14 : 27,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: active ? colors.primaryContainer : withAlpha(colors.accent, 0.08),
-                borderWidth: 1.25,
-                borderColor: active ? colors.primaryContainer : withAlpha(colors.accent, 0.28),
-              })}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: active ? colors.onPrimaryContainer : colors.accent }}>
-                {format(value)}
-              </Text>
-            </Pressable>
-          );
-        })}
+        {values.map((value) => (
+          <PresetButton
+            key={value}
+            label={format(value)}
+            active={value === selected}
+            onPress={() => {
+              haptics.selection();
+              onSelect(value);
+            }}
+          />
+        ))}
       </View>
     </View>
+  );
+}
+
+/** PresetButton: 54dp, 27dp corners, primaryContainer at 92% with a primary hairline. */
+function PresetButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  const press = useElasticPress({ maxStretch: 0.06, maxTranslate: 1.8, pressedScale: 0.95, releaseOnDrag: true });
+  return (
+    <Animated.View {...press.handlers} style={[{ flex: 1 }, press.style]}>
+      <Pressable
+        onPress={onPress}
+        onPressOut={press.release}
+        accessibilityRole="radio"
+        accessibilityState={{ checked: active }}
+        accessibilityLabel={label}
+        style={{
+          height: 54,
+          borderRadius: 27,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          backgroundColor: withAlpha(colors.primaryContainer, 0.92),
+          // The chosen length gets a full-strength edge; the rest keep the 28% hairline.
+          borderWidth: active ? 2 : 1.25,
+          borderColor: withAlpha(colors.accent, active ? 1 : 0.28),
+        }}>
+        <PressGlow press={press} color={withAlpha(colors.accent, 0.18)} radius={27} size={30} />
+        <Text
+          style={{ fontSize: 14, fontFamily: CLOCK_FONT.title, fontWeight: CLOCK_FONT.title ? undefined : '700', color: colors.onPrimaryContainer }}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }

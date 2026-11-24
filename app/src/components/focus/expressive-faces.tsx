@@ -16,7 +16,8 @@ import Svg, { Circle, Defs, Line, Path, RadialGradient, Stop } from 'react-nativ
 
 import { useTheme } from '@/components/theme/context';
 import { withAlpha } from '@/lib/theme';
-import { useElasticPress } from '@/components/ui/elastic';
+import { ClockLighting, CLOCK_FONT, fontSizeForCap } from '@/components/focus/clock-style';
+import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { RollingClock } from '@/components/ui/rolling-clock';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
@@ -49,6 +50,7 @@ function Face({
   const press = useElasticPress({ maxStretch: 0.04, maxTranslate: 2, pressedScale: 0.97, releaseOnDrag: true });
   return (
     <Animated.View {...press.handlers} style={[{ width: size, height: size, alignSelf: 'center' }, press.style]}>
+      <ClockLighting size={size} />
       <Pressable
         onPress={() => {
           haptics.tap();
@@ -62,12 +64,15 @@ function Face({
           height: size,
           borderRadius: size / 2,
           overflow: 'hidden',
-          backgroundColor: colors.bg3,
+          // surfaceContainerLow at 96%, outline at 12%.
+          backgroundColor: withAlpha(colors.bg3, 0.96),
           borderWidth: 1.25,
-          borderColor: withAlpha(colors.text, 0.12),
+          borderColor: withAlpha(colors.gray, 0.12),
           alignItems: 'center',
           justifyContent: 'center',
         }}>
+        {/* luminousElasticClickable: light follows the finger across the face. */}
+        <PressGlow press={press} color={withAlpha(colors.accent, 0.16)} radius={size / 2} size={size * 0.29} />
         {children}
       </Pressable>
     </Animated.View>
@@ -164,7 +169,8 @@ export function StopwatchFace({
   const minutes = Math.floor(ms / 60_000);
   const seconds = Math.floor(ms / 1000) % 60;
   const hundredths = Math.floor((ms % 1000) / 10);
-  const readout = size * 0.1;
+  // 42sp on Expressive Clock's 410dp face.
+  const readout = (42 * size) / 410;
 
   return (
     <Face size={size} onPress={onToggle} label={running ? 'Pause stopwatch' : 'Start stopwatch'}>
@@ -200,14 +206,14 @@ export function StopwatchFace({
       </Animated.View>
       <View className="items-center">
         <View className="flex-row items-center" style={{ gap: 4 }}>
-          <Text style={{ fontSize: readout, fontWeight: '500', color: colors.text, fontVariant: ['tabular-nums'] }}>
+          <Text style={{ fontSize: readout, fontFamily: CLOCK_FONT.stopwatch, fontWeight: CLOCK_FONT.stopwatch ? undefined : '500', color: colors.text, fontVariant: ['tabular-nums'] }}>
             {pad(minutes)}:
           </Text>
-          <Text style={{ fontSize: readout, fontWeight: '500', color: colors.accent, fontVariant: ['tabular-nums'] }}>
+          <Text style={{ fontSize: readout, fontFamily: CLOCK_FONT.stopwatch, fontWeight: CLOCK_FONT.stopwatch ? undefined : '500', color: colors.accent, fontVariant: ['tabular-nums'] }}>
             {pad(seconds)}.{pad(hundredths)}
           </Text>
         </View>
-        <Text style={{ fontSize: 11, fontWeight: '600', letterSpacing: 1.5, color: colors.text2, opacity: 0.8 }}>
+        <Text style={{ fontSize: 11, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '600', letterSpacing: 1.5, color: colors.text2, opacity: 0.65 }}>
           {running ? 'RUNNING' : ms > 0 ? 'PAUSED' : 'STOPWATCH'}
         </Text>
       </View>
@@ -310,9 +316,16 @@ export function TimerFace({
         <RollingClock
           text={text}
           countDown
-          style={{ fontSize: size * 0.19, fontWeight: '500', color: colors.text, letterSpacing: -1 }}
+          // 49dp caps on a 420dp face; the heavy rounded cut while it counts.
+          style={{
+            fontSize: fontSizeForCap((49 * size) / 420),
+            fontFamily: running ? CLOCK_FONT.timerRun : CLOCK_FONT.timerIdle,
+            fontWeight: CLOCK_FONT.timerRun ? undefined : '600',
+            color: colors.text,
+            letterSpacing: 0.5,
+          }}
         />
-        <Text style={{ fontSize: 11, fontWeight: '600', letterSpacing: 1.8, color: colors.text2, opacity: 0.8 }}>
+        <Text style={{ fontSize: 11, fontFamily: CLOCK_FONT.label, fontWeight: CLOCK_FONT.label ? undefined : '600', letterSpacing: 1.8, color: colors.text2, opacity: 0.65 }}>
           {caption}
         </Text>
       </View>
