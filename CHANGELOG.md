@@ -2,6 +2,21 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.10.0] - 2026-11-25
+
+Meet Patch. A first-run intro, an About page, and one toolbar style everywhere.
+
+### Added
+
+- Patch, the quilted mascot from the icon, in eleven moods. Patch shows up in empty states, the app lock, AI progress, the brain dump, the focus timer, search, the 404 and crash screens, and pops up through the confetti when a list is done. Tap Patch for a squish.
+- A first-run intro: a welcome, a short tour, the look (theme, colors, pure black), then where your tasks live. Existing installs skip it. Settings, About has Show the intro again.
+- An About page with where your data goes, help, source code, the changelog and third-party notices.
+
+### Changed
+
+- Every floating to-do toolbar uses the to-do page's style: a dark pill with round buttons and the main action on the right. It stays dark on AMOLED black. iOS 26 keeps Liquid Glass.
+- On Android, Switch board and Move to are a stack of tonal cards like My lists.
+
 ## [1.9.2] - 2026-11-24
 
 Offline gets out of the way, the calendar keeps its header in place, and Android boards stack like your lists.
