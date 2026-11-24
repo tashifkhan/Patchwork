@@ -1,5 +1,4 @@
 import { useQueryClient } from '@tanstack/react-query';
-import Constants from 'expo-constants';
 import { type Href, Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -13,6 +12,7 @@ import {
   SettingsRow,
   SettingsScreen,
 } from '@/components/settings/settings-list';
+import { AboutFooter } from '@/components/settings/about-footer';
 import { useTheme } from '@/components/theme/context';
 import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
@@ -87,7 +87,6 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
     }, [])
   );
 
-  const versionLine = `${Constants.expoConfig?.name ?? 'Patchwork'} · v${Constants.expoConfig?.version ?? '1.0.0'}`;
 
   async function refreshAll() {
     setRefreshMessage(null);
@@ -246,9 +245,17 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           <SettingsActionRow title="Refresh All Data" onPress={refreshAll} />
         </SettingsGroup>
 
-        <Text style={{ textAlign: 'center', fontSize: 13, color: colors.text3 }}>
-          {versionLine}
-        </Text>
+        <SettingsGroup>
+          <SettingsRow
+            icon="information-outline"
+            sf="info.circle"
+            title="About Patchwork"
+            showChevron
+            onPress={() => go('/settings/about')}
+          />
+        </SettingsGroup>
+
+        <AboutFooter onPress={() => go('/settings/about')} />
       </SettingsScreen>
     );
   }
@@ -430,9 +437,17 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
       {errorMessage ? <Text selectable className="text-sf-red px-2 text-sm">{errorMessage}</Text> : null}
       {refreshMessage ? <Text selectable className="text-sf-green px-2 text-sm">{refreshMessage}</Text> : null}
 
-      <Text className="text-sf-text-3 self-center pt-1 text-xs" style={{ fontVariant: ['tabular-nums'] }}>
-        {Constants.expoConfig?.name ?? 'Patchwork'} · v{Constants.expoConfig?.version ?? '1.0.0'}
-      </Text>
+      <SettingsGroup>
+        <SettingsRow
+          icon="information-outline"
+          title="About Patchwork"
+          subtitle="Where your data goes, help and source code"
+          showChevron
+          onPress={() => go('/settings/about')}
+        />
+      </SettingsGroup>
+
+      <AboutFooter onPress={() => go('/settings/about')} />
     </SettingsScreen>
   );
 }
