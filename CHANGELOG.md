@@ -2,6 +2,26 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.9.1] - 2026-11-24
+
+Brain dumps keep their raw text, sync problems read in plain words, and the navbar takes Paisa's options.
+
+### Added
+
+- Sorting a brain dump also saves the text word for word as a dated to-do in a Brain dump list, created the first time you sort.
+- Sorting shows its steps while it works: a Material 3 card on Android, and a glass button with status capsules and an Apple Intelligence glow on iOS.
+- Voice brain dumps have a live waveform, a large timer, and pause and resume. The screen stays on while you talk.
+- Appearance has Paisa's navbar options: floating navbar, tab titles, frosted glass, and which tabs show. Boards and Search can be turned off and open from Settings instead.
+- My lists starts with All tasks, shows followed GitHub repos, and has New list. Long-press a list to edit it.
+- The Android Boards home has the same tiles as Tasks, for Starred, Recent, Jira and Deck.
+
+### Changed
+
+- Offline, failed syncs and changes waiting to upload share one banner on Tasks. Boards uses the same banner, and errors say what went wrong in plain words, with the raw text behind Details.
+- The Tasks title opens My lists on Android. On iOS it is a native pull-down menu of your lists.
+- A board's search, filter and sprint chips share one row, so columns start higher. Cards are shorter, with the assignee next to the issue key.
+- The voice sheet no longer dims the screen behind it.
+
 ## [1.9.0] - 2026-11-24
 
 Patchwork adds Nextcloud task attachments, a daily planner, and on-device AI on supported phones.
