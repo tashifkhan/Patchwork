@@ -45,16 +45,16 @@ export default function RecycleBinScreen() {
 
   async function putBack(targets: BinEntry[], listId?: string) {
     setMessage(null);
-    const orphaned = listId ? [] : targets.filter((entry) => !listIds.has(entry.task.list_id));
-    if (orphaned.length > 0 && listsQuery.data) {
-      setRehome(targets);
-      return;
-    }
-    const result = await restore.mutateAsync({ entries: targets, listId });
+    // Entries whose list is gone wait for the picker; the rest go home now.
+    const orphaned = listId || !listsQuery.data ? [] : targets.filter((entry) => !listIds.has(entry.task.list_id));
+    const ready = targets.filter((entry) => !orphaned.includes(entry));
+    if (orphaned.length > 0) setRehome(orphaned);
+    if (ready.length === 0) return;
+    const result = await restore.mutateAsync({ entries: ready, listId });
     setMessage(
       result.failed
         ? `Restored ${result.restored}. ${result.failed} could not be restored. Check your connection and try again.`
-        : `Restored ${result.restored} to-do${result.restored === 1 ? '' : 's'}.`
+        : `Restored ${result.restored} to-do${result.restored === 1 ? '' : 's'}.${orphaned.length ? ` Pick a list for the other ${orphaned.length}.` : ''}`
     );
   }
 

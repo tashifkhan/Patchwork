@@ -133,7 +133,21 @@ const DAILY_KEY_PREFIX = 'patchwork.daily.';
  * Replaces the repeating daily notifications stored under `key` with one per
  * `HH:MM` in `times`. An empty list (or notifications off) just cancels them.
  */
-export async function syncDailyNotifications(
+export function syncDailyNotifications(
+  key: string,
+  times: string[],
+  content: { title: string; body: string; href: string }
+): Promise<void> {
+  // One run at a time: each run cancels what the last one stored, so
+  // overlapping runs would leave unstored (uncancellable) repeats behind.
+  const run = dailyQueue.then(() => syncDailyNow(key, times, content));
+  dailyQueue = run.catch(() => {});
+  return run;
+}
+
+let dailyQueue: Promise<void> = Promise.resolve();
+
+async function syncDailyNow(
   key: string,
   times: string[],
   content: { title: string; body: string; href: string }

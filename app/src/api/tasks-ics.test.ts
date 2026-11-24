@@ -11,3 +11,32 @@ test('pinned and repeat survive a CalDAV round trip', () => {
   const cleared = updateVtodo(next, { rrule: null });
   expect(parseVtodo(cleared, 'h', null, list)!.rrule).toBeNull();
 });
+
+test('VTIMEZONE rules are never read or rewritten as the task repeat', () => {
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VTIMEZONE',
+    'TZID:Europe/Berlin',
+    'BEGIN:STANDARD',
+    'DTSTART:19701025T030000',
+    'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU',
+    'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VTODO',
+    'UID:tz1',
+    'SUMMARY:Pay rent',
+    'DUE;TZID=Europe/Berlin:20260720T090000',
+    'END:VTODO',
+    'END:VCALENDAR',
+    '',
+  ].join('\r\n');
+  expect(parseVtodo(ics, 'h', null, list)!.rrule).toBeNull();
+  const repeated = updateVtodo(ics, { rrule: 'FREQ=MONTHLY', due_at: '2026-08-20T07:00:00.000Z' });
+  expect(repeated).toContain('RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU\r\nEND:STANDARD');
+  expect(repeated).toContain('DTSTART:19701025T030000');
+  const todo = repeated.slice(repeated.indexOf('BEGIN:VTODO'));
+  expect(todo).toContain('RRULE:FREQ=MONTHLY');
+  expect(todo).toContain('DTSTART:20260820T070000Z');
+  expect(parseVtodo(repeated, 'h', null, list)!.rrule).toBe('FREQ=MONTHLY');
+});

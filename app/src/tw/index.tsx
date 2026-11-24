@@ -75,8 +75,10 @@ function fixStyle(style: any, typography?: { family?: string; scale: number }): 
   if (typography) {
     // The chosen font, unless this text asks for its own (code, mono inputs).
     if (typography.family && !fixed.fontFamily) fixed.fontFamily = typography.family;
-    if (typography.scale !== 1) {
-      fixed.fontSize = Math.round((fixed.fontSize ?? 14) * typography.scale * 2) / 2;
+    // Only sizes set on this text: a nested span without one inherits the
+    // parent's already-scaled size.
+    if (typography.scale !== 1 && typeof fixed.fontSize === 'number') {
+      fixed.fontSize = Math.round(fixed.fontSize * typography.scale * 2) / 2;
       if (typeof fixed.lineHeight === 'number') fixed.lineHeight = Math.round(fixed.lineHeight * typography.scale);
     }
   }

@@ -109,6 +109,10 @@ class PatchworkWindowModule : Module() {
     if (!paused) {
       builder.setWhen(base).setShowWhen(true).setUsesChronometer(true)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) builder.setChronometerCountDown(countDown)
+      // A countdown removes itself at zero instead of ticking into negative
+      // time; the "block done" notification from JS takes over from there.
+      val timeoutAt = (options["timeoutAt"] as? Number)?.toLong()
+      if (timeoutAt != null) builder.setTimeoutAfter(maxOf(1_000L, timeoutAt - System.currentTimeMillis()))
     } else {
       builder.setShowWhen(false)
     }

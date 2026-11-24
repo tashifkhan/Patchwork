@@ -13,6 +13,8 @@ export async function showLiveTimer(timer: LiveTimer) {
     baseTime: timer.mode === 'stopwatch' ? timer.startedAt : (timer.endsAt ?? Date.now()),
     countDown: timer.mode !== 'stopwatch',
     paused: timer.paused,
+    // A countdown nobody's watching shouldn't tick into negative time.
+    timeoutAt: timer.mode !== 'stopwatch' && !timer.paused ? (timer.endsAt ?? null) : null,
   });
 }
 

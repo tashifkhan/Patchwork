@@ -23,20 +23,30 @@ function toProps(timer: LiveTimer): FocusActivityProps {
 
 export async function showLiveTimer(timer: LiveTimer) {
   const props = toProps(timer);
+  // A countdown is stale once it reaches zero; the lock screen dims it until we catch up.
+  const stale = timer.mode !== 'stopwatch' && !timer.paused && timer.endsAt ? new Date(timer.endsAt) : undefined;
   try {
+    // After a relaunch the activity is still up but this module forgot it: adopt it, end extras.
+    if (!instance) {
+      const [first, ...extras] = FocusActivity.getInstances();
+      instance = first ?? null;
+      for (const extra of extras) void extra.end(after(new Date())).catch(() => {});
+    }
     if (instance) {
-      await instance.update(props);
+      await instance.update(props, stale);
       return;
     }
-    instance = FocusActivity.start(props, 'patchwork://pomodoro');
+    instance = FocusActivity.start(props, 'patchwork://pomodoro', stale);
   } catch {
     instance = null;
   }
 }
 
 export async function endLiveTimer() {
-  const current = instance;
   instance = null;
-  if (!current) return;
-  await current.end(after(new Date(Date.now() + 5_000))).catch(() => {});
+  let all: LiveActivity<FocusActivityProps>[] = [];
+  try {
+    all = FocusActivity.getInstances();
+  } catch {}
+  await Promise.all(all.map((activity) => activity.end(after(new Date(Date.now() + 5_000))).catch(() => {})));
 }

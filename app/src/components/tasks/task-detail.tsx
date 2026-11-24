@@ -305,15 +305,25 @@ function TaskDocument({
   }
 
   async function toggleTask(target: Task) {
+    const isSelf = target.id === task.id;
+    const { patch, repeated } = togglePatch(isSelf ? { ...target, due_at: latest.current.due_at, reminder_at: latest.current.reminder_at } : target);
     try {
-      await updateTask.mutateAsync({
-        taskId: target.id === task.id ? taskId.current : target.id,
+      const updated = await updateTask.mutateAsync({
+        taskId: isSelf ? taskId.current : target.id,
         accountId: target.account_id,
-        patch: {
-          ...togglePatch(target).patch,
-          etag: target.id === task.id ? etag.current : target.etag,
-        },
+        patch: { ...patch, etag: isSelf ? etag.current : target.etag },
       });
+      if (isSelf) {
+        taskId.current = updated.id;
+        etag.current = updated.etag;
+        // A repeat moved its dates: keep the screen (and the next save's diff) in step.
+        if (repeated) {
+          const moved = { due_at: patch.due_at ?? latest.current.due_at, reminder_at: patch.reminder_at ?? latest.current.reminder_at };
+          latest.current = { ...latest.current, ...moved };
+          saved.current = { ...saved.current, ...moved };
+          setDraft(latest.current);
+        }
+      }
     } catch {
       // The hook rolls back its optimistic update.
     }

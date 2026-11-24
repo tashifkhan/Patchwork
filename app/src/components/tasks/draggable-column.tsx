@@ -21,6 +21,11 @@ interface DraggableColumnProps<T> {
   longPressMs?: number;
   /** Turn drag-to-reorder off, e.g. while a row is open as an editable card. */
   dragEnabled?: boolean;
+  /**
+   * Hold and let go without moving. The drag gesture claims the touch on a
+   * hold, so a row's own onLongPress never fires; this stands in for it.
+   */
+  onHold?: (item: T) => void;
 }
 
 // Reorderable vertical list for variable-height rows. A long-press lifts the
@@ -39,6 +44,7 @@ export function DraggableColumn<T>({
   indicatorColor,
   longPressMs = 320,
   dragEnabled = true,
+  onHold,
 }: DraggableColumnProps<T>) {
   const heights = useRef<number[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -118,6 +124,16 @@ export function DraggableColumn<T>({
           }}
           onUpdate={updateTarget}
           onCommit={commit}
+          onHold={
+            onHold
+              ? (i) => {
+                  setActiveIndex(null);
+                  setInsertAt(null);
+                  const held = data[i];
+                  if (held) onHold(held);
+                }
+              : undefined
+          }
           onAccessibilityMove={moveAccessibly}
           showIndicatorAbove={insertAt === index && activeIndex !== index && activeIndex !== index - 1}
           indicatorColor={indicatorColor}>
@@ -139,6 +155,7 @@ interface RowProps {
   onStart: (index: number) => void;
   onUpdate: (index: number, translationY: number) => void;
   onCommit: (index: number) => void;
+  onHold?: (index: number) => void;
   onAccessibilityMove: (index: number, direction: -1 | 1) => void;
   showIndicatorAbove: boolean;
   indicatorColor: string;
@@ -153,6 +170,7 @@ function Row({
   onStart,
   onUpdate,
   onCommit,
+  onHold,
   onAccessibilityMove,
   showIndicatorAbove,
   indicatorColor,
@@ -183,8 +201,10 @@ function Row({
         runOnJS(onUpdate)(index, event.translationY);
       }
     })
-    .onEnd(() => {
-      runOnJS(onCommit)(index);
+    .onEnd((event) => {
+      // Held but never moved: a long-press, not a drag.
+      if (onHold && Math.abs(event.translationY) < 8) runOnJS(onHold)(index);
+      else runOnJS(onCommit)(index);
       dragY.value = withSpring(0);
       active.value = false;
     })

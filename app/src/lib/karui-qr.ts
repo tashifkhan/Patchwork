@@ -74,6 +74,9 @@ export function karuiFrames(payload: string, maxBytes = MAX_CHUNK_BYTES): string
       if (encoder.encode(payload.slice(i, mid)).length <= maxBytes) lo = mid;
       else hi = mid - 1;
     }
+    // Never cut between the two halves of an emoji.
+    const code = payload.charCodeAt(lo - 1);
+    if (lo < payload.length && lo - 1 > i && code >= 0xd800 && code <= 0xdbff) lo -= 1;
     chunks.push(payload.slice(i, lo));
     i = lo;
   }

@@ -74,12 +74,14 @@ export default function BrainDumpScreen() {
     Keyboard.dismiss();
     setBusy(true);
     setError(null);
+    const sentText = text;
     try {
       const result = await sortBrainDump({ text: pending, available_lists: lists, available_tags: tags });
       const fallback = lists.find((list) => list.id === aiDefaultListId)?.id ?? lists[0]?.id ?? null;
       markSorted(today, {
         note: mergeNotes(entry?.note ?? null, result.note),
         taskCount: (entry?.taskCount ?? 0) + result.tasks.length,
+        sentText,
       });
       haptics.success();
       if (result.tasks.length > 0) {
