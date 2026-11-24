@@ -8,12 +8,15 @@ import {
   SettingsRow,
   SettingsScreen,
 } from '@/components/settings/settings-list';
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { ListPicker } from '@/components/tasks/list-picker';
+import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useRestoreTasks, useTaskLists } from '@/hooks/use-tasks';
 import { emptyRecycleBin, loadRecycleBin, useRecycleBinStore, type BinEntry } from '@/lib/recycle-bin';
 import Animated from 'react-native-reanimated';
 import { COLLAPSE_OUT, listPlacement } from '@/lib/motion';
+import { Text, View } from '@/tw';
 
 // Hermes on Android has no Intl.RelativeTimeFormat, so this is spelled out.
 function deletedAgo(iso: string) {
@@ -31,6 +34,7 @@ function deletedAgo(iso: string) {
  * is gone, pick another one.
  */
 export default function RecycleBinScreen() {
+  const { colors } = useTheme();
   const entries = useRecycleBinStore((s) => s.entries);
   const listsQuery = useTaskLists();
   const restore = useRestoreTasks();
@@ -69,7 +73,11 @@ export default function RecycleBinScreen() {
           'Deleted to-dos stay here for 30 days. Tap one to restore it to its list. Restored to-dos get their checklist back if it is still on the server.'
         }>
         {entries.length === 0 ? (
-          <SettingsRow icon="trash-can-outline" title="Nothing here" subtitle="Deleted to-dos show up here" />
+          <View style={{ alignItems: 'center', gap: 6, paddingVertical: 24, paddingHorizontal: 16 }}>
+            <PatchMascot mood="sleepy" size={120} />
+            <Text style={{ fontSize: 17, fontWeight: '600', color: colors.text }}>Nothing here</Text>
+            <Text style={{ fontSize: 14, color: colors.text2, textAlign: 'center' }}>Deleted to-dos show up here</Text>
+          </View>
         ) : (
           entries.map((entry, index) => (
             // Restored rows leave and the rest close the gap, on Paisa's list spring.

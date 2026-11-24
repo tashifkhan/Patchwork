@@ -25,6 +25,7 @@ import {
   useSettingsColors,
 } from '@/components/settings/settings-list';
 import { ServerTypeMenu } from '@/components/settings/server-type-menu';
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
@@ -227,15 +228,19 @@ export default function AccountEditor() {
             <View
               className="flex-row items-start gap-3.5 rounded-3xl px-4 py-4"
               style={{ backgroundColor: cell, borderCurve: 'continuous' }}>
-              <View
-                className="h-12 w-12 items-center justify-center rounded-2xl"
-                style={{ backgroundColor: colors.primaryContainer, borderCurve: 'continuous' }}>
-                <MaterialCommunityIcons
-                  name="cloud-sync-outline"
-                  size={26}
-                  color={colors.onPrimaryContainer}
-                />
-              </View>
+              {isNew ? (
+                <PatchMascot mood="connect" size={72} style={{ marginTop: -4 }} />
+              ) : (
+                <View
+                  className="h-12 w-12 items-center justify-center rounded-2xl"
+                  style={{ backgroundColor: colors.primaryContainer, borderCurve: 'continuous' }}>
+                  <MaterialCommunityIcons
+                    name="cloud-sync-outline"
+                    size={26}
+                    color={colors.onPrimaryContainer}
+                  />
+                </View>
+              )}
               <View className="flex-1 gap-1">
                 <Text className="text-sf-text text-base font-bold">
                   {isNew ? 'Connect CalDAV' : 'Account details'}
@@ -244,6 +249,12 @@ export default function AccountEditor() {
                   {INTRO}
                 </Text>
               </View>
+            </View>
+          ) : isNew ? (
+            // iOS: Patch over the intro line, centred like a system setup page.
+            <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 12 }}>
+              <PatchMascot mood="connect" size={120} />
+              <Text style={{ fontSize: 15, lineHeight: 20, color: colors.text2, textAlign: 'center' }}>{INTRO}</Text>
             </View>
           ) : null}
 

@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { GroupedCard, RowSeparator, useSettingsColors } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { RiseIn } from '@/components/ui/motion';
@@ -94,9 +95,12 @@ export function ListsScreen() {
           </GroupedCard>
         </RiseIn>
         {areas.length === 0 && !loading ? (
-          <Text style={{ fontSize: 15, color: colors.text2, textAlign: 'center' }}>
-            No lists yet. Tap + to make one.
-          </Text>
+          <View style={{ alignItems: 'center', gap: 8 }}>
+            <PatchMascot mood="sleepy" size={140} />
+            <Text style={{ fontSize: 15, color: colors.text2, textAlign: 'center' }}>
+              No lists yet. Tap + to make one.
+            </Text>
+          </View>
         ) : null}
         {areas.map(([area, summaries]) => (
           <View key={area || 'lists'} style={{ gap: 8 }}>

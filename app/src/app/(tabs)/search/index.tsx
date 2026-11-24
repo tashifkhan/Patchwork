@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { TaskList } from '@/api/types';
 import { FilterChip } from '@/components/tasks/tag-chip-list';
 import { useTheme } from '@/components/theme/context';
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingBar, LoadingSpinner } from '@/components/ui/loading';
 import { useAllDeckCards, useDeckBoards } from '@/hooks/use-deck';
@@ -916,8 +917,8 @@ function EmptyResults({ query, onClear }: { query: string; onClear: () => void }
 
 /**
  * Idle state, modeled on Things' Quick Find: jump straight to a list or a tag,
- * or rerun a recent search. No hero illustration; the destinations are the
- * content.
+ * or rerun a recent search. The destinations are the content; Patch sits
+ * small at the bottom as a hint of what search reaches.
  */
 function EmptyIdle({
   recents,
@@ -995,6 +996,13 @@ function EmptyIdle({
           </GroupCard>
         </View>
       ) : null}
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8, paddingHorizontal: 4 }}>
+        <PatchMascot mood="curious" size={72} />
+        <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: colors.text2 }}>
+          Search looks through to-do titles, notes and tags, plus your boards and issues.
+        </Text>
+      </View>
     </View>
   );
 }

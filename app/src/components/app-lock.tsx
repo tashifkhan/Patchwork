@@ -1,10 +1,10 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Modal, StyleSheet } from 'react-native';
 import { create } from 'zustand';
 
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { RiseIn } from '@/components/ui/motion';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
@@ -108,18 +108,7 @@ export function AppLockGate() {
       <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]}>
       <View className="flex-1 items-center justify-center gap-5 px-10">
         <RiseIn fromScale={0.92}>
-        <View
-          style={{
-            width: 88,
-            height: 88,
-            borderRadius: 28,
-            borderCurve: 'continuous',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: colors.primaryContainer,
-          }}>
-          <MaterialCommunityIcons name="lock-outline" size={40} color={colors.onPrimaryContainer} />
-        </View>
+          <PatchMascot mood="guard" size={150} accessibilityLabel="Patch guarding a padlock" />
         </RiseIn>
         <Text className="text-sf-text text-center text-xl font-semibold">Patchwork is locked</Text>
         {locked ? (
