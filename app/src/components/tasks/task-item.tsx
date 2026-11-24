@@ -10,11 +10,11 @@ import { MIN_TOUCH_TARGET } from '@/components/ui/touchable-row';
 import { haptics } from '@/lib/haptics';
 import { DURATION, EASING } from '@/lib/motion';
 import { describeWhen } from '@/lib/when';
-import { useFocusStore } from '@/stores/focus-store';
-import { Text, View } from '@/tw';
-import { endFocus, startFocus } from '@/widgets/focus';
+import { router } from 'expo-router';
 
-const DEFAULT_FOCUS_SECONDS = 25 * 60;
+import { describeRrule } from '@/lib/recurrence';
+import { usePomodoroStore } from '@/stores/pomodoro-store';
+import { Text, View } from '@/tw';
 
 interface TaskItemProps {
   task: Task;
@@ -29,6 +29,12 @@ interface TaskItemProps {
   dimmed?: boolean;
   /** Open in the split view's detail pane: tinted like a selected list row. */
   selected?: boolean;
+  /** Show the focus timer button (iOS by default). A running session always shows it. */
+  showFocus?: boolean;
+  /** Multi-select mode: the checkbox selects instead of completing. */
+  selecting?: boolean;
+  checked?: boolean;
+  onLongPress?: (task: Task) => void;
 }
 
 /**
@@ -45,6 +51,10 @@ function TaskItemComponent({
   showList = true,
   dimmed = false,
   selected = false,
+  showFocus = Platform.OS === 'ios',
+  selecting = false,
+  checked = false,
+  onLongPress,
 }: TaskItemProps) {
   const { colors } = useTheme();
   const when = describeWhen(task.due_at);
@@ -52,11 +62,12 @@ function TaskItemComponent({
   const childCount = task.children.length;
   const doneChildren = task.children.filter((c) => c.completed).length;
   const listLabel = showList && depth === 0 ? task.list_name : '';
-  const focusUid = useFocusStore((s) => s.taskUid);
+  const focusUid = usePomodoroStore((s) => (s.phase === 'idle' ? null : s.taskUid));
   const isFocused = focusUid === task.uid;
-  const focusEnabled = Platform.OS === 'ios' && !task.completed;
+  const focusEnabled = process.env.EXPO_OS !== 'web' && !task.completed && (isFocused || showFocus);
   const pending = task.pending_sync === true;
-  const showMeta = Boolean(when || listLabel || pending);
+  const repeat = task.rrule ? describeRrule(task.rrule) : null;
+  const showMeta = Boolean(when || listLabel || pending || repeat);
 
   return (
     <Animated.View
@@ -83,11 +94,26 @@ function TaskItemComponent({
             : null),
         }}>
         <View style={{ marginLeft: -11 }}>
-          <TaskCheckbox
-            checked={task.completed}
-            onToggle={() => onToggle(task)}
-            label={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
-          />
+          {selecting ? (
+            <Pressable
+              onPress={() => onOpen(task)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked }}
+              accessibilityLabel={`Select ${task.title}`}
+              style={{ width: MIN_TOUCH_TARGET, height: MIN_TOUCH_TARGET, alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialCommunityIcons
+                name={checked ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+                size={24}
+                color={checked ? colors.accent : colors.text3}
+              />
+            </Pressable>
+          ) : (
+            <TaskCheckbox
+              checked={task.completed}
+              onToggle={() => onToggle(task)}
+              label={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
+            />
+          )}
         </View>
 
         <Pressable
@@ -95,8 +121,16 @@ function TaskItemComponent({
             haptics.tap();
             onOpen(task);
           }}
+          onLongPress={
+            onLongPress
+              ? () => {
+                  haptics.impact('medium');
+                  onLongPress(task);
+                }
+              : undefined
+          }
           accessibilityRole="button"
-          accessibilityHint="Opens the to-do in place"
+          accessibilityHint={selecting ? 'Selects the to-do' : 'Opens the to-do in place'}
           accessibilityLabel={`${task.title}${when ? `, due ${when.label}` : ''}`}
           android_ripple={{ color: colors.separator }}
           style={({ pressed }) => ({
@@ -108,6 +142,9 @@ function TaskItemComponent({
             paddingRight: 4,
           })}>
           <View className="flex-row items-center gap-1.5">
+            {task.pinned ? (
+              <MaterialCommunityIcons name="pin" size={15} color={colors.accent} accessibilityLabel="Pinned" />
+            ) : null}
             <Text
               numberOfLines={2}
               style={{
@@ -154,6 +191,12 @@ function TaskItemComponent({
                   </Text>
                 </View>
               ) : null}
+              {repeat ? (
+                <View className="flex-row items-center gap-1" accessibilityLabel={repeat}>
+                  <MaterialCommunityIcons name="repeat" size={13} color={colors.text2} />
+                  {when ? null : <Text style={{ fontSize: 13, color: colors.text2 }}>{repeat}</Text>}
+                </View>
+              ) : null}
               {listLabel ? (
                 <Text numberOfLines={1} style={{ fontSize: 13, color: colors.text3, flexShrink: 1 }}>
                   {listLabel}
@@ -175,11 +218,11 @@ function TaskItemComponent({
           <Pressable
             onPress={() => {
               haptics.impact(isFocused ? 'light' : 'medium');
-              if (isFocused) endFocus();
-              else startFocus(task.uid, task.title, DEFAULT_FOCUS_SECONDS);
+              if (!isFocused) void usePomodoroStore.getState().start({ uid: task.uid, title: task.title });
+              router.push('/pomodoro');
             }}
             hitSlop={8}
-            accessibilityLabel={isFocused ? 'End focus session' : 'Start 25-minute focus session'}
+            accessibilityLabel={isFocused ? 'Open the focus timer' : 'Start a focus session on this to-do'}
             accessibilityRole="button"
             style={({ pressed }) => ({
               opacity: pressed ? 0.5 : 1,
