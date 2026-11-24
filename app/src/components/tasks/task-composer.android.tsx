@@ -24,7 +24,7 @@ import { RiseIn } from '@/components/ui/motion';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { haptics } from '@/lib/haptics';
 import { EXPAND_IN, COLLAPSE_OUT, expandLayout, PAISA } from '@/lib/motion';
-import { listSwatch, swatchColors } from '@/lib/smart-lists';
+import { listTone } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
 import { blockMinutes, formatLength, withEnd, withStart } from '@/lib/time-block';
 import { atDay } from '@/lib/when';
@@ -93,7 +93,7 @@ export function TaskComposer(props: TaskComposerProps) {
   const insets = useSafeAreaInsets();
   const dark = scheme === 'dark';
   const listIndex = Math.max(0, props.lists.findIndex((l) => l.id === props.listId));
-  const { fill, ink } = swatchColors(listSwatch(listIndex), dark);
+  const { fill, ink } = listTone(colors, dark, listIndex);
   const [picking, setPicking] = useState<'date' | 'start' | 'end' | null>(null);
   const [more, setMore] = useState(false);
 
@@ -210,7 +210,7 @@ export function TaskComposer(props: TaskComposerProps) {
             <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(120)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: -14 }}>
               <MaterialCommunityIcons name="timer-outline" size={16} color={colors.text2} />
               <Text style={{ flex: 1, fontSize: 14, color: colors.text2 }}>
-                {minutes ? `${formatLength(minutes)} block · focus timer ready once it's saved` : ''}
+                {minutes ? `${formatLength(minutes)} block` : ''}
               </Text>
               <Pressable
                 hitSlop={8}
@@ -288,8 +288,12 @@ export function TaskComposer(props: TaskComposerProps) {
               android_ripple={{ color: withAlpha(colors.text, 0.08) }}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, minHeight: 60 }}>
               <MaterialCommunityIcons name="tune-variant" size={20} color={colors.accent} />
-              <Text style={{ flex: 1, fontSize: 16, fontWeight: '600', color: colors.text }}>More options</Text>
-              <Text style={{ fontSize: 13, color: colors.text2 }}>Reminder · priority · checklist · AI</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>More options</Text>
+                <Text numberOfLines={1} style={{ fontSize: 13, color: colors.text2 }}>
+                  Reminder, priority, checklist, AI
+                </Text>
+              </View>
               <Turning open={more} />
             </Pressable>
             {more ? (
@@ -516,7 +520,7 @@ function CategoryChip({
   onPress: () => void;
 }) {
   const { colors, scheme } = useTheme();
-  const swatch = index >= 0 ? swatchColors(listSwatch(index), scheme === 'dark') : null;
+  const swatch = index >= 0 ? listTone(colors, scheme === 'dark', index) : null;
   const on = useSharedValue(selected ? 1 : 0);
   useEffect(() => {
     on.set(withSpring(selected ? 1 : 0, { ...PAISA.expand, ...REDUCE }));

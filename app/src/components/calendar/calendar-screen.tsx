@@ -29,7 +29,7 @@ import { Frost, FrostTarget } from '@/components/ui/frost';
 import { RiseIn } from '@/components/ui/motion';
 import { haptics } from '@/lib/haptics';
 import { expandLayout, PAISA } from '@/lib/motion';
-import { listSwatch, swatchColors } from '@/lib/smart-lists';
+import { listTone } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
 import { formatBlock, formatLength, formatTime, minuteOfDay, placeBlocks } from '@/lib/time-block';
 import { dayKey } from '@/stores/pomodoro-store';
@@ -75,14 +75,29 @@ export function CalendarScreen() {
     0
   );
   const open = dayItems.filter((it) => !it.projected && !it.task.completed).length;
+  // The day starts at 8, or earlier when something on it (or now) is earlier.
+  const startHour = Math.min(
+    8,
+    ...timed.map((it) => it.block!.start.getHours()),
+    ...(selected === todayKey ? [now.getHours()] : [])
+  );
 
-  // Bring the morning (or now, on today) into view when the day changes.
+  // When the day changes, bring its first block (or now, on today) into view.
+  // Not on opening: the title and week strip come first.
+  const opened = useRef(true);
   useEffect(() => {
     if (timelineY == null) return;
+    if (opened.current) {
+      opened.current = false;
+      return;
+    }
     const firstHour = timed.length ? Math.min(...timed.map((it) => it.block!.start.getHours())) : 8;
     const hour = selected === todayKey ? Math.max(0, now.getHours() - 1) : Math.max(0, firstHour - 1);
     const frame = requestAnimationFrame(() =>
-      (scrollRef.current as unknown as RNScrollView | null)?.scrollTo({ y: timelineY + hour * HOUR - 140, animated: true })
+      (scrollRef.current as unknown as RNScrollView | null)?.scrollTo({
+        y: Math.max(0, timelineY + (hour - startHour) * HOUR - 140),
+        animated: true,
+      })
     );
     return () => cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,8 +150,8 @@ export function CalendarScreen() {
                 {title}
               </Animated.Text>
               <Text style={{ fontSize: 16, color: colors.text2, marginTop: 4 }}>
-                {selected === todayKey ? `${dateLine.format(selectedDate)} · ` : ''}
-                {open} open{planned > 0 ? ` · ${formatLength(Math.round(planned))} planned` : ''}
+                {selected === todayKey ? dateLine.format(selectedDate) : `${open} open`}
+                {selected === todayKey ? ` · ${open} open` : ''}{planned > 0 ? ` · ${formatLength(Math.round(planned))} planned` : ''}
               </Text>
             </View>
             {model.canCreate ? <AddTaskPill onPress={() => model.create()} /> : null}
@@ -206,6 +221,7 @@ export function CalendarScreen() {
 
           <View onLayout={(e) => setTimelineY(e.nativeEvent.layout.y)} style={{ marginTop: 16 }}>
             <Timeline
+              startHour={startHour}
               items={timed}
               isToday={selected === todayKey}
               now={now}
@@ -438,8 +454,8 @@ function AnytimeChip({
   onOpen: (task: DayItem['task']) => void;
   onToggle: (task: DayItem['task']) => void;
 }) {
-  const { scheme } = useTheme();
-  const { fill, ink } = swatchColors(listSwatch(index), scheme === 'dark');
+  const { colors, scheme } = useTheme();
+  const { fill, ink } = listTone(colors, scheme === 'dark', index);
   const { task, projected } = item;
   const done = task.completed && !projected;
   return (
@@ -479,6 +495,7 @@ function AnytimeChip({
 
 /** The day's hours with the time blocks laid over them. */
 function Timeline({
+  startHour,
   items,
   isToday,
   now,
@@ -489,6 +506,7 @@ function Timeline({
   onFocus,
   onCreateAt,
 }: {
+  startHour: number;
   items: DayItem[];
   isToday: boolean;
   now: Date;
@@ -505,30 +523,37 @@ function Timeline({
     () => placeBlocks(items.map((item) => ({ item, block: item.block! }))),
     [items]
   );
-  const lane = width - LABEL_WIDTH - 16;
-  const nowTop = (minuteOfDay(now) / 60) * HOUR;
+  // Blocks sit on the grid: from just past the hour labels to the lines' end.
+  const left = LABEL_WIDTH + 12;
+  const lane = width - left - 16;
+  const offset = startHour * 60;
+  const hours = 24 - startHour;
+  const nowTop = ((minuteOfDay(now) - offset) / 60) * HOUR;
 
   return (
-    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ height: HOUR * 24 + 16 }}>
+    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ height: HOUR * hours + 16, marginTop: 8 }}>
       {/* Tapping an empty hour adds a block there. */}
       <Pressable
         disabled={!onCreateAt}
-        onPress={(e) => onCreateAt?.(Math.min(23, Math.floor(e.nativeEvent.locationY / HOUR)))}
+        onPress={(e) => onCreateAt?.(Math.min(23, startHour + Math.floor(e.nativeEvent.locationY / HOUR)))}
         accessibilityLabel="Add a to-do at this hour"
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        {Array.from({ length: 24 }, (_, h) => (
-          <View key={h} style={{ position: 'absolute', top: h * HOUR, left: 0, right: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {Array.from({ length: hours }, (_, i) => {
+          const h = startHour + i;
+          return (
+          <View key={h} style={{ position: 'absolute', top: i * HOUR - 8, left: 0, right: 16, height: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ width: LABEL_WIDTH, textAlign: 'right', fontSize: 12, color: colors.text3, fontVariant: ['tabular-nums'] }}>
               {h === 0 ? '' : hourLabel.format(new Date(2000, 0, 1, h))}
             </Text>
             <View style={{ flex: 1, height: 1, backgroundColor: withAlpha(colors.separator, 0.8) }} />
           </View>
-        ))}
+          );
+        })}
       </Pressable>
 
       {width > 0
         ? placed.map(({ item, block, lane: col, lanes }, i) => {
-            const top = (minuteOfDay(block.start) / 60) * HOUR + 2;
+            const top = ((minuteOfDay(block.start) - offset) / 60) * HOUR + 2;
             const height = Math.max(40, ((block.end.getTime() - block.start.getTime()) / 3_600_000) * HOUR - 4);
             const colWidth = lane / lanes;
             return (
@@ -536,7 +561,7 @@ function Timeline({
                 key={`${item.task.id}-${item.projected}-${i}`}
                 index={i}
                 rise={10}
-                style={{ position: 'absolute', top, left: LABEL_WIDTH + 12 + col * colWidth, width: colWidth - 4, height }}>
+                style={{ position: 'absolute', top, left: left + col * colWidth, width: colWidth - (lanes > 1 ? 4 : 0), height }}>
                 <TimeBlockCard
                   item={item}
                   height={height}
@@ -556,7 +581,9 @@ function Timeline({
         <View pointerEvents="none" style={{ position: 'absolute', top: nowTop - 10, left: 0, right: 0, height: 20, flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ width: LABEL_WIDTH + 4, alignItems: 'flex-end' }}>
             <View style={{ backgroundColor: colors.red, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 }}>
-              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{formatTime(now)}</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+                {formatTime(now).replace(/\s?[AP]M$/i, '')}
+              </Text>
             </View>
           </View>
           <NowDot />
@@ -602,9 +629,9 @@ function TimeBlockCard({
   onToggle: (task: DayItem['task']) => void;
   onFocus: (task: DayItem['task']) => void;
 }) {
-  const { scheme } = useTheme();
+  const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
-  const { fill, ink } = swatchColors(listSwatch(index), dark);
+  const { fill, ink } = listTone(colors, dark, index);
   const { task, projected, block } = item;
   const done = task.completed && !projected;
   const radius = Math.min(26, height / 2);
