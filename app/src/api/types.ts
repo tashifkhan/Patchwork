@@ -78,7 +78,15 @@ export interface TaskAttachment {
   has_preview: boolean;
 }
 
-/** An image picked on the device, ready to upload. */
+/** Who a new attachment belongs to. Enough to queue it without a connection. */
+export interface AttachmentTarget {
+  uid: string;
+  title: string;
+  account_id?: string;
+  account_name?: string;
+}
+
+/** A file picked on the device, ready to upload. */
 export interface AttachmentUpload {
   uri: string;
   name: string;
@@ -115,6 +123,8 @@ export interface TaskCreate {
   sort_order?: number | null;
   pinned?: boolean;
   rrule?: string | null;
+  /** Read-only links kept when moving a task out of a Nextcloud account. */
+  attachments?: TaskAttachment[];
 }
 
 export interface TaskUpdate {

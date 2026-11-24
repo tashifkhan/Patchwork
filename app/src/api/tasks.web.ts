@@ -1,6 +1,7 @@
 import { api, ApiError } from './client';
 import type {
   AttachmentAccess,
+  AttachmentTarget,
   AttachmentUpload,
   Task,
   TaskAttachment,
@@ -11,6 +12,7 @@ import type {
   TaskUpdate,
 } from './types';
 import type { CalDavAccount } from '@/lib/credentials';
+import { removeEntry, type OutboxAttachmentEntry } from '@/lib/outbox';
 
 export function fetchTaskLists() {
   return api.get<TaskList[]>('/api/task-lists');
@@ -78,11 +80,23 @@ export async function getAttachmentAccess(_accountId: string | undefined): Promi
 
 export async function addTaskAttachment(
   _taskId: string,
+  _target: AttachmentTarget,
   _file: AttachmentUpload,
-  _accountId?: string,
   _etag?: string | null
-): Promise<Task> {
-  throw new ApiError(501, 'Attaching images needs the iOS or Android app.');
+): Promise<Task | null> {
+  throw new ApiError(501, 'Attaching files needs the iOS or Android app.');
+}
+
+export async function sendQueuedAttachment(_entry: OutboxAttachmentEntry): Promise<void> {
+  throw new ApiError(501, 'Attaching files needs the iOS or Android app.');
+}
+
+export async function discardQueued(entryId: string) {
+  await removeEntry(entryId);
+}
+
+export async function downloadTaskAttachment(_accountId: string, _attachment: TaskAttachment): Promise<string> {
+  throw new ApiError(501, 'Opening attachments needs the iOS or Android app.');
 }
 
 export async function removeTaskAttachment(

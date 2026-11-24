@@ -1,4 +1,7 @@
 import type { TaskAttachment } from '@/api/types';
+import { foldIcsLine } from '@/lib/ics-fold';
+
+export { foldIcsLine };
 
 /**
  * Reading and writing iCalendar `ATTACH` properties on a VTODO.
@@ -67,6 +70,11 @@ export function removeAttachment(calendarData: string, url: string) {
   );
 }
 
+/** Files paths and IDs belong to one account. A plain link can move with the task. */
+export function attachmentAsLink(attachment: TaskAttachment): TaskAttachment {
+  return { ...attachment, path: null, file_id: null, has_preview: false };
+}
+
 export function formatAttachment(attachment: TaskAttachment) {
   const params: string[] = [];
   if (attachment.mime) params.push(`FMTTYPE=${paramValue(attachment.mime)}`);
@@ -74,35 +82,6 @@ export function formatAttachment(attachment: TaskAttachment) {
   if (attachment.file_id) params.push(`X-NC-FILE-ID=${paramValue(attachment.file_id)}`);
   if (attachment.has_preview) params.push('X-NC-HAS-PREVIEW=true');
   return `ATTACH;${params.join(';')}:${attachment.url}`;
-}
-
-/** RFC 5545 §3.1: lines longer than 75 octets continue on a line starting with a space. */
-export function foldIcsLine(line: string) {
-  const parts: string[] = [];
-  let current = '';
-  let octets = 0;
-  for (const char of line) {
-    const size = utf8Length(char);
-    // Continuation lines spend one octet on the leading space.
-    const limit = parts.length === 0 ? 75 : 74;
-    if (octets + size > limit) {
-      parts.push(current);
-      current = '';
-      octets = 0;
-    }
-    current += char;
-    octets += size;
-  }
-  parts.push(current);
-  return parts.join('\r\n ');
-}
-
-function utf8Length(char: string) {
-  const code = char.codePointAt(0) ?? 0;
-  if (code < 0x80) return 1;
-  if (code < 0x800) return 2;
-  if (code < 0x10000) return 3;
-  return 4;
 }
 
 /** Quotes a parameter value when it holds a separator; `"` itself is not allowed. */

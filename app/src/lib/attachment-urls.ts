@@ -9,8 +9,9 @@ export function isImageAttachment(attachment: TaskAttachment) {
 /** WebDAV URL of the original file, or null when it is not in this account's Files. */
 export function attachmentFileUri(access: AttachmentAccess, attachment: TaskAttachment) {
   if (attachment.path) {
-    const path = attachment.path.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
-    return `${access.filesRoot}${path}`;
+    const segments = attachment.path.replace(/^\/+/, '').split('/');
+    if (segments.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) return null;
+    return `${access.filesRoot}${segments.map(encodeURIComponent).join('/')}`;
   }
   // A direct WebDAV link on the same server can load with the account's auth.
   // Anything else (a share page, another host) must never get the auth header.
