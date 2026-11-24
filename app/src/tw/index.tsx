@@ -17,6 +17,7 @@ import {
 } from "react-native";
 
 import { ThemeContext } from "@/components/theme/context";
+import { useTypography } from "@/lib/fonts";
 import type { ThemeColors } from "@/lib/theme";
 
 export const Link = (
@@ -64,18 +65,27 @@ export const View = (props: ViewProps) => {
 };
 View.displayName = "CSS(View)";
 
-function fixStyle(style: any): any {
-  if (!style) return style;
-  const flatStyle = StyleSheet.flatten(style);
+function fixStyle(style: any, typography?: { family?: string; scale: number }): any {
+  if (!style && !typography?.family && (typography?.scale ?? 1) === 1) return style;
+  const flatStyle = StyleSheet.flatten(style) ?? {};
   const fixed = { ...flatStyle, includeFontPadding: false };
   if (fixed.lineHeight && typeof fixed.lineHeight === 'number' && fixed.lineHeight < 10) {
     fixed.lineHeight = Math.round(fixed.lineHeight * (fixed.fontSize || 16));
+  }
+  if (typography) {
+    // The chosen font, unless this text asks for its own (code, mono inputs).
+    if (typography.family && !fixed.fontFamily) fixed.fontFamily = typography.family;
+    if (typography.scale !== 1) {
+      fixed.fontSize = Math.round((fixed.fontSize ?? 14) * typography.scale * 2) / 2;
+      if (typeof fixed.lineHeight === 'number') fixed.lineHeight = Math.round(fixed.lineHeight * typography.scale);
+    }
   }
   return fixed;
 }
 
 const BaseText = React.forwardRef<RNText, React.ComponentProps<typeof RNText>>((props, ref) => {
-  return <RNText {...props} style={fixStyle(props.style)} ref={ref} />;
+  const typography = useTypography();
+  return <RNText {...props} style={fixStyle(props.style, typography)} ref={ref} />;
 });
 BaseText.displayName = 'BaseText';
 
@@ -150,7 +160,8 @@ export const Text = (
 Text.displayName = "CSS(Text)";
 
 const BaseTextInput = React.forwardRef<RNTextInput, React.ComponentProps<typeof RNTextInput>>((props, ref) => {
-  return <RNTextInput {...props} style={fixStyle(props.style)} ref={ref} />;
+  const typography = useTypography();
+  return <RNTextInput {...props} style={fixStyle(props.style, typography)} ref={ref} />;
 });
 BaseTextInput.displayName = 'BaseTextInput';
 

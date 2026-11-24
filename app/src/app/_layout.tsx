@@ -14,6 +14,7 @@ import { ThemeProvider } from '@/components/theme/provider';
 import { AppLockGate } from '@/components/app-lock';
 import { ConfettiHost } from '@/components/ui/confetti';
 import { useTasks } from '@/hooks/use-tasks';
+import { loadCustomFonts } from '@/lib/fonts';
 import { DURATION } from '@/lib/motion';
 import { loadOutbox, useOutboxStore } from '@/lib/outbox';
 import { flushOutbox } from '@/lib/outbox-sync';
@@ -228,6 +229,12 @@ function NativeRuntimeCoordinator() {
       subscription.remove();
     };
   }, []);
+
+  // Imported fonts have to be registered again on every launch.
+  const customFonts = useSettingsStore((state) => state.customFonts);
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web' && customFonts.length) void loadCustomFonts(customFonts);
+  }, [customFonts]);
 
   // Brain dump nudges follow their settings (and the master notifications switch).
   const brainDumpReminders = useSettingsStore((state) => state.brainDumpReminders);

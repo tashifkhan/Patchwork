@@ -17,6 +17,7 @@ import {
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
+import { BUILT_IN_FONTS, importFontFile } from '@/lib/fonts';
 import { COLOR_PALETTES } from '@/lib/palettes';
 import { useSettingsStore, type ThemeMode } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
@@ -166,6 +167,8 @@ export default function AppearanceScreen() {
         </>
       )}
 
+      <TypographyGroup />
+
       {/* Display options */}
       <SettingsGroup title="Display">
         {isAndroid ? (
@@ -244,6 +247,116 @@ export default function AppearanceScreen() {
         ) : null}
       </SettingsGroup>
     </SettingsScreen>
+  );
+}
+
+const TEXT_SIZES = [
+  { label: 'Small', value: 0.9 },
+  { label: 'Default', value: 1 },
+  { label: 'Large', value: 1.15 },
+  { label: 'Larger', value: 1.3 },
+];
+
+/** Karui's font picker and text size, applied to every text in the app. */
+function TypographyGroup() {
+  const { colors } = useTheme();
+  const fontFamily = useSettingsStore((s) => s.fontFamily);
+  const fontScale = useSettingsStore((s) => s.fontScale);
+  const customFonts = useSettingsStore((s) => s.customFonts);
+  const setExtras = useSettingsStore((s) => s.setExtras);
+  const [error, setError] = useState<string | null>(null);
+  const choices = [
+    ...BUILT_IN_FONTS.map((font) => ({ id: font.id, label: font.label, family: font.family, custom: false })),
+    ...customFonts.map((font) => ({ id: font.id as string | null, label: font.name, family: font.id as string | undefined, custom: true })),
+  ];
+
+  return (
+    <SettingsGroup
+      title="Text"
+      footer={error ?? 'Long-press an imported font to remove it. Imported fonts stay on this device.'}>
+      <SettingsCell>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {choices.map((font) => {
+            const active = (font.id ?? null) === (fontFamily ?? null);
+            return (
+              <Pressable
+                key={font.id ?? 'system'}
+                onPress={() => setExtras({ fontFamily: font.id })}
+                onLongPress={
+                  font.custom
+                    ? () =>
+                        setExtras({
+                          customFonts: customFonts.filter((c) => c.id !== font.id),
+                          fontFamily: fontFamily === font.id ? null : fontFamily,
+                        })
+                    : undefined
+                }
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                accessibilityLabel={`${font.label} font`}
+                style={({ pressed }) => ({
+                  // M3 Expressive filter chip: selected chips round out and fill.
+                  borderRadius: active || pressed ? 18 : 8,
+                  borderCurve: 'continuous',
+                  paddingHorizontal: 14,
+                  height: 36,
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  backgroundColor: active ? colors.selectionBg : 'transparent',
+                  borderWidth: active ? 0 : 1,
+                  borderColor: colors.gray2,
+                })}>
+                {active ? <MaterialCommunityIcons name="check" size={16} color={colors.onSelectionBg} /> : null}
+                <Text style={{ fontFamily: font.family, fontSize: 15, color: active ? colors.onSelectionBg : colors.text }}>
+                  {font.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {process.env.EXPO_OS !== 'web' ? (
+            <Pressable
+              onPress={async () => {
+                setError(null);
+                try {
+                  const font = await importFontFile();
+                  if (font) setExtras({ customFonts: [...customFonts, font], fontFamily: font.id });
+                } catch (cause) {
+                  setError(cause instanceof Error ? cause.message : 'That font could not be loaded.');
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Import a font file"
+              style={({ pressed }) => ({
+                borderRadius: pressed ? 18 : 8,
+                paddingHorizontal: 14,
+                height: 36,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                borderWidth: 1,
+                borderColor: colors.gray2,
+              })}>
+              <MaterialCommunityIcons name="plus" size={16} color={colors.accent} />
+              <Text style={{ fontSize: 15, color: colors.accent }}>Import font</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </SettingsCell>
+      <RowSeparator />
+      <SettingsCell>
+        <Text className="text-sf-text text-base">Text size</Text>
+        <SegmentedChoice
+          options={TEXT_SIZES}
+          value={TEXT_SIZES.some((size) => size.value === fontScale) ? fontScale : 1}
+          onChange={(value) => setExtras({ fontScale: value })}
+        />
+        <Text className="text-sf-text-2" style={{ fontSize: 15 }}>
+          Buy oat milk, call the landlord, water the plants.
+        </Text>
+      </SettingsCell>
+    </SettingsGroup>
   );
 }
 

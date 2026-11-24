@@ -681,6 +681,7 @@ export default function TasksScreen() {
             </View>
             {process.env.EXPO_OS !== 'web' ? (
               <View className="flex-row" style={{ marginTop: Platform.OS === 'ios' ? 4 : 2 }}>
+                <HeaderIcon icon="calendar-month-outline" label="Calendar" href="/calendar" />
                 <HeaderIcon icon="head-lightbulb-outline" label="Brain dump" href="/brain-dump" />
                 <HeaderIcon icon="timer-outline" label="Focus timer" href="/pomodoro" />
               </View>
@@ -1176,7 +1177,7 @@ function HeaderIcon({
 }: {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   label: string;
-  href: '/brain-dump' | '/pomodoro';
+  href: '/brain-dump' | '/pomodoro' | '/calendar';
 }) {
   const { colors } = useTheme();
   const running = usePomodoroStore((s) => href === '/pomodoro' && s.phase !== 'idle');

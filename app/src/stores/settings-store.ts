@@ -33,6 +33,8 @@ export interface ExtraPreferences {
   fontFamily: string | null;
   /** Multiplies every text size. 0.85–1.3. */
   fontScale: number;
+  /** Fonts imported from files (see `@/lib/fonts`). */
+  customFonts: { id: string; name: string; uri: string }[];
   /** Daily nudges to empty your head into the brain dump. */
   brainDumpReminders: boolean;
   /** `HH:MM`, local time, one notification each. */
@@ -49,6 +51,7 @@ export const DEFAULT_EXTRAS: ExtraPreferences = {
   appLockDelaySeconds: 30,
   fontFamily: null,
   fontScale: 1,
+  customFonts: [],
   brainDumpReminders: false,
   brainDumpTimes: ['08:30', '21:30'],
 };
