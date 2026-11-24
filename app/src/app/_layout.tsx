@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
+import { AppLockGate } from '@/components/app-lock';
 import { ConfettiHost } from '@/components/ui/confetti';
 import { useTasks } from '@/hooks/use-tasks';
 import { DURATION } from '@/lib/motion';
@@ -140,8 +141,13 @@ export default function RootLayout() {
             />
             <Stack.Screen name="pomodoro" options={sheetScreenOptions([0.72, 1.0], 'Focus')} />
             <Stack.Screen name="brain-dump" options={sheetScreenOptions([0.85, 1.0], 'Brain dump')} />
+            <Stack.Screen name="share-tasks" options={sheetScreenOptions([0.85, 1.0], 'Share')} />
+            <Stack.Screen name="list-text" options={sheetScreenOptions([1.0], 'Edit as text')} />
+            <Stack.Screen name="calendar" options={{ headerShown: true, title: 'Calendar', headerLargeTitle: false }} />
+            <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
           </Stack>
           <ConfettiHost />
+          {process.env.EXPO_OS !== 'web' ? <AppLockGate /> : null}
           <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
         </ThemeProvider>
       </QueryClientProvider>

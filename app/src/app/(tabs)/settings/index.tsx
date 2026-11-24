@@ -185,6 +185,20 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           />
           <RowSeparator />
           <SettingsRow
+            icon="tray-arrow-down"
+            title="Backup & Sharing"
+            showChevron
+            onPress={() => go('/settings/backup')}
+          />
+          <RowSeparator />
+          <SettingsRow
+            icon="lock-outline"
+            title="Privacy"
+            showChevron
+            onPress={() => go('/settings/privacy')}
+          />
+          <RowSeparator />
+          <SettingsRow
             icon="trash-can-outline"
             title="Recently Deleted"
             value={binCount > 0 ? String(binCount) : undefined}
@@ -320,6 +334,22 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           subtitle="Pomodoro, stopwatch, week start, sounds, confetti"
           showChevron
           onPress={() => go('/settings/productivity')}
+        />
+        <RowSeparator />
+        <SettingsRow
+          icon="tray-arrow-down"
+          title="Backup and sharing"
+          subtitle="JSON and Markdown export, import, QR codes"
+          showChevron
+          onPress={() => go('/settings/backup')}
+        />
+        <RowSeparator />
+        <SettingsRow
+          icon="lock-outline"
+          title="Privacy"
+          subtitle="App lock and screen privacy"
+          showChevron
+          onPress={() => go('/settings/privacy')}
         />
         <RowSeparator />
         <SettingsRow

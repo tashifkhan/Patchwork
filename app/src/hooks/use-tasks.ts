@@ -10,7 +10,8 @@ import {
   updateTask,
   updateTaskList,
 } from '@/api/tasks';
-import type { Task, TaskCreate, TaskListCreate, TaskUpdate } from '@/api/types';
+import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from '@/api/types';
+import { assignUids, type ImportPlan } from '@/lib/backup';
 import { queryKeys } from '@/lib/query-client';
 import { addToRecycleBin, removeFromRecycleBin, type BinEntry } from '@/lib/recycle-bin';
 import { cancelTaskReminder } from '@/lib/notifications';
@@ -266,4 +267,55 @@ function removeFromTree(tasks: Task[], id: string): Task[] {
     .map((task) =>
       task.children.length ? { ...task, children: removeFromTree(task.children, id) } : task
     );
+}
+
+/**
+ * Creates everything in an import plan (see `@/lib/backup`). Lists are matched
+ * by name, case-insensitively; missing ones are created in `newListAccountId`.
+ */
+export function useImportTasks() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      plan,
+      lists,
+      newListAccountId,
+      intoListId,
+    }: {
+      plan: ImportPlan;
+      lists: TaskList[];
+      newListAccountId?: string;
+      /** Put everything into this one list instead of matching by name. */
+      intoListId?: string;
+    }) => {
+      const uids = assignUids(plan);
+      let created = 0;
+      let failed = 0;
+      for (const group of plan.lists) {
+        let listId = intoListId;
+        if (!listId) {
+          const match = lists.find((list) => !list.is_deck && list.name.trim().toLowerCase() === group.name.trim().toLowerCase());
+          listId = match?.id ?? (await createTaskList({ name: group.name, account_id: newListAccountId })).id;
+        }
+        for (const task of group.tasks) {
+          try {
+            await createTask({
+              ...task.payload,
+              list_id: listId,
+              uid: uids.get(task.key),
+              parent_uid: task.parentKey ? (uids.get(task.parentKey) ?? null) : null,
+            });
+            created += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+      }
+      return { created, failed };
+    },
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: queryKeys.taskLists });
+      client.invalidateQueries({ queryKey: queryKeys.tasks });
+    },
+  });
 }
