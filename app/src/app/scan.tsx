@@ -1,18 +1,21 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useImportConfirm } from '@/components/tasks/import-confirm';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { GlassIconButton } from '@/components/ui/glass-button';
 import { planFromText } from '@/lib/backup';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { EXPRESSIVE } from '@/lib/motion';
 import { FrameCollector, planFromSharePayload } from '@/lib/qr-share';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
+
+const IOS = Platform.OS === 'ios';
 
 /**
  * Scans a QR code from Patchwork's Share (one code, or several for a long
@@ -72,7 +75,9 @@ export default function ScanScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <Stack.Screen options={{ headerShown: true, title: 'Scan QR code', headerTransparent: true, headerTintColor: '#fff' }} />
+      <Stack.Screen
+        options={{ headerShown: !IOS, title: 'Scan QR code', headerTransparent: true, headerTintColor: '#fff' }}
+      />
       {permission?.granted ? (
         <CameraView
           style={StyleSheet.absoluteFill}
@@ -91,6 +96,23 @@ export default function ScanScreen() {
       {permission?.granted ? (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
           <Viewfinder pulse={progress?.have ?? 0} color={colors.accent} />
+        </View>
+      ) : null}
+      {IOS ? (
+        // iOS: a full-screen camera modal closes with a round glass button,
+        // the same control as the app's other bar buttons.
+        <View
+          pointerEvents="box-none"
+          style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, height: 44, justifyContent: 'center' }}>
+          <Text style={{ color: '#fff', fontSize: 17, fontWeight: '600', textAlign: 'center' }}>Scan QR code</Text>
+          <GlassIconButton
+            sf="xmark"
+            icon="close"
+            label="Close"
+            symbolColor="#fff"
+            onPress={() => router.back()}
+            style={{ position: 'absolute', left: 0 }}
+          />
         </View>
       ) : null}
       <View style={{ position: 'absolute', left: 24, right: 24, bottom: insets.bottom + 24, alignItems: 'center' }}>

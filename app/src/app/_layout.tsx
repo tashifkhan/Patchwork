@@ -96,7 +96,14 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <NativeRuntimeCoordinator />
         <ThemeProvider>
-          <Stack screenOptions={{ headerShown: false, ...(Platform.OS === 'android' ? { animation: ANDROID_PUSH } : null) }}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              ...(Platform.OS === 'android' ? { animation: ANDROID_PUSH } : null),
+              // iOS: the round glass chevron with no label, as in Settings, on
+              // every screen pushed here (Calendar, review, scan...).
+              ...(Platform.OS === 'ios' ? { headerBackButtonDisplayMode: 'minimal' as const } : null),
+            }}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Tasks' }} />
             <Stack.Screen
               name="new-task"

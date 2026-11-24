@@ -15,6 +15,8 @@ import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, expandLayout, PAISA } from '@/lib/motion';
 import Animated, { FadeIn, FadeOut, SlideInRight, useAnimatedStyle, ZoomIn } from 'react-native-reanimated';
 import { VoiceDumpSheet } from '@/components/brain-dump/voice-dump-sheet';
+import { GlassIconButton, GlassPillButton } from '@/components/ui/glass-button';
+import { useLiquidGlass } from '@/components/ui/glass-surface';
 import { useCreateTask, useTaskLists, useTasks } from '@/hooks/use-tasks';
 import { haptics } from '@/lib/haptics';
 import { flattenTasks } from '@/lib/task-buckets';
@@ -476,6 +478,15 @@ function SuggestionChip({ icon, label, onPress }: { icon: IconName; label: strin
  */
 function VoiceButton({ compact, disabled, onPress }: { compact: boolean; disabled?: boolean; onPress: () => void }) {
   const { colors } = useTheme();
+  const glass = useLiquidGlass();
+  if (glass) {
+    // iOS 26: clear interactive glass, a capsule alone and a circle next to Sort.
+    return compact ? (
+      <GlassIconButton sf="mic.fill" icon="microphone-outline" label="Talk out a brain dump" size={50} symbolColor={colors.accent} onPress={onPress} />
+    ) : (
+      <GlassPillButton label="Talk it out" sf="mic.fill" disabled={disabled} accessibilityLabel="Talk out a brain dump" onPress={onPress} />
+    );
+  }
   return (
     <ElasticPressable
       variant="control"
@@ -517,12 +528,26 @@ function VoiceButton({ compact, disabled, onPress }: { compact: boolean; disable
  */
 function SortButton({ busy, count, onPress }: { busy: boolean; count: number; onPress: () => void }) {
   const { colors } = useTheme();
+  const glass = useLiquidGlass();
   const [dots, setDots] = useState(0);
   useEffect(() => {
     if (!busy) return;
     const timer = setInterval(() => setDots((d) => (d + 1) % 4), 350);
     return () => clearInterval(timer);
   }, [busy]);
+  if (glass) {
+    // iOS 26: accent-tinted glass, the screen's one prominent action.
+    return (
+      <GlassPillButton
+        prominent
+        sf="sparkles"
+        disabled={busy}
+        label={busy ? `Sorting${'.'.repeat(dots)}` : count ? `Sort ${count} thought${count === 1 ? '' : 's'}` : 'Sort'}
+        accessibilityLabel={busy ? 'Sorting' : `Sort ${count} thought${count === 1 ? '' : 's'} into to-dos and notes`}
+        onPress={onPress}
+      />
+    );
+  }
   return (
     <ElasticPressable
       variant="control"

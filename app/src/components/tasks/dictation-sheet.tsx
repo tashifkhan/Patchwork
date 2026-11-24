@@ -24,6 +24,8 @@ import type { TaskList } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
+import { GlassPillButton } from '@/components/ui/glass-button';
+import { useLiquidGlass } from '@/components/ui/glass-surface';
 import {
   OFFLINE_DICTATION_MESSAGE,
   SLOW_DICTATION_MESSAGE,
@@ -66,6 +68,7 @@ export function DictationSheet({
 }) {
   const { colors } = useTheme();
   const panel = useSheetPanel(16);
+  const glass = useLiquidGlass();
   const recorder = useAudioRecorder(RECORDING);
   const status = useAudioRecorderState(recorder, 80);
   const setStaged = useAiStagingStore((s) => s.setStaged);
@@ -288,6 +291,37 @@ export function DictationSheet({
               {recording ? (remaining <= 30 ? `${clock} · ${remaining}s left` : clock) : ' '}
             </Text>
 
+            {glass ? (
+              // iOS 26: glass push buttons, the accent-tinted one for the main action.
+              <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
+                <GlassPillButton label="Cancel" height={52} style={{ flex: 1 }} onPress={() => void close()} />
+                {phase === 'error' ? (
+                  <GlassPillButton
+                    prominent
+                    height={52}
+                    style={{ flex: 1 }}
+                    sf={errorKind === 'permission' ? 'gearshape' : errorKind === 'ai-setup' ? 'sparkles' : errorKind === 'network' ? 'wifi' : 'mic.fill'}
+                    label={errorKind === 'permission' ? 'Open settings' : errorKind === 'ai-setup' ? 'AI settings' : 'Try again'}
+                    onPress={() => {
+                      if (errorKind === 'permission') void Linking.openSettings();
+                      else if (errorKind === 'ai-setup') void close().then(() => router.push('/settings/ai'));
+                      else void start();
+                    }}
+                  />
+                ) : (
+                  <GlassPillButton
+                    prominent
+                    height={52}
+                    style={{ flex: 1 }}
+                    sf="sparkles"
+                    label="Done"
+                    accessibilityLabel="Done, create to-dos"
+                    disabled={!recording}
+                    onPress={() => void finish()}
+                  />
+                )}
+              </View>
+            ) : (
             <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
               <Pressable
                 onPress={() => void close()}
@@ -370,6 +404,7 @@ export function DictationSheet({
                 </Pressable>
               )}
             </View>
+            )}
 
             <ProgressOverlay
               visible={phase === 'working' || phase === 'done'}
