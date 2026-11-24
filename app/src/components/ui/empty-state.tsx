@@ -4,6 +4,7 @@ import { SymbolView, type SFSymbol } from 'expo-symbols';
 import { Platform, Pressable, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
 
+import { PatchMascot, type MascotMood } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { Button, type ButtonVariant } from '@/components/ui/button';
 import { SystemEmptyState } from '@/components/ui/system-empty-state';
@@ -29,6 +30,22 @@ const SF_FOR: Partial<Record<IconName, SFSymbol>> = {
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
+/** Which Patch goes with each empty-state glyph, so every empty state gets one without call-site changes. */
+const MOOD_FOR: Partial<Record<IconName, MascotMood>> = {
+  'inbox-outline': 'sleepy',
+  'tray-full': 'sleepy',
+  'checkbox-marked-circle-outline': 'done',
+  'progress-check': 'done',
+  'cloud-alert-outline': 'oops',
+  'cloud-off-outline': 'oops',
+  'cloud-outline': 'connect',
+  'account-outline': 'connect',
+  'magnify-close': 'curious',
+  'view-column-outline': 'board',
+  jira: 'board',
+  'source-repository': 'board',
+};
+
 export interface EmptyStateAction {
   label: string;
   onPress: () => void;
@@ -45,8 +62,10 @@ export interface EmptyStateProps {
   actions?: EmptyStateAction[];
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
-  /** Soft circular icon container (default true). */
+  /** Soft circular icon container (default true). Ignored when a mascot shows. */
   iconBubble?: boolean;
+  /** Patch's pose. Defaults from `icon`; `null` shows the plain icon instead. */
+  mood?: MascotMood | null;
 }
 
 /**
@@ -62,11 +81,17 @@ export function EmptyState({
   children,
   style,
   iconBubble = true,
+  mood,
 }: EmptyStateProps) {
   const { colors } = useTheme();
+  const shownMood = mood === undefined ? MOOD_FOR[icon] : mood;
 
   if (Platform.OS === 'ios') {
-    return <IosEmptyState icon={icon} title={title} subtitle={subtitle} actions={actions} style={style}>{children}</IosEmptyState>;
+    return (
+      <IosEmptyState icon={icon} mood={shownMood ?? undefined} title={title} subtitle={subtitle} actions={actions} style={style}>
+        {children}
+      </IosEmptyState>
+    );
   }
 
   return (
@@ -80,7 +105,9 @@ export function EmptyState({
         { width: '100%', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', paddingHorizontal: 32, gap: 20 },
         style,
       ]}>
-      {iconBubble ? (
+      {shownMood ? (
+        <PatchMascot mood={shownMood} size={150} />
+      ) : iconBubble ? (
         <View
           className="h-24 w-24 items-center justify-center rounded-full"
           style={{ backgroundColor: colors.primaryContainer }}>
@@ -127,19 +154,20 @@ export function EmptyState({
  */
 function IosEmptyState({
   icon,
+  mood,
   title,
   subtitle,
   actions,
   children,
   style,
-}: Required<Pick<EmptyStateProps, 'icon'>> & Omit<EmptyStateProps, 'icon' | 'iconBubble'>) {
+}: Required<Pick<EmptyStateProps, 'icon'>> & Omit<EmptyStateProps, 'icon' | 'iconBubble' | 'mood'> & { mood?: MascotMood }) {
   const { colors } = useTheme();
   const [primary, ...secondary] = actions ?? [];
   const symbol = SF_FOR[icon];
 
-  // The real thing when nothing custom goes inside: SwiftUI's view, with
-  // native glass buttons.
-  if (!children) {
+  // The real thing when nothing custom goes inside and no mascot: SwiftUI's
+  // view, with native glass buttons.
+  if (!children && !mood) {
     return (
       <View style={[{ alignSelf: 'stretch', flexGrow: 1, justifyContent: 'center' }, style]}>
         <SystemEmptyState
@@ -153,8 +181,10 @@ function IosEmptyState({
   }
 
   return (
-    <View className="w-full items-center justify-center self-center px-10" style={[{ gap: 6 }, style]}>
-      {symbol ? (
+    <View className="w-full items-center justify-center self-center px-10" style={[{ gap: 6 }, children ? null : { flexGrow: 1 }, style]}>
+      {mood ? (
+        <PatchMascot mood={mood} size={140} style={{ marginBottom: 12 }} />
+      ) : symbol ? (
         <SymbolView name={symbol} size={56} weight="regular" tintColor={colors.gray} style={{ marginBottom: 10 }} />
       ) : (
         <MaterialCommunityIcons name={icon} size={56} color={colors.gray} style={{ marginBottom: 10 }} />

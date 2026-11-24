@@ -7,9 +7,12 @@ import Animated, {
   useReducedMotion,
   useSharedValue,
   withDelay,
+  withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { useCelebrationStore } from '@/lib/feedback';
 
@@ -37,7 +40,29 @@ export function ConfettiHost() {
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Burst key={burst} seed={burst} />
+      <CheerPatch key={`patch-${burst}`} />
     </View>
+  );
+}
+
+/** Patch pops up from the bottom edge holding the check, then ducks back down. */
+function CheerPatch() {
+  const rise = useSharedValue(0);
+  useEffect(() => {
+    rise.set(
+      withSequence(
+        withSpring(1, { damping: 11, stiffness: 180 }),
+        withDelay(1100, withTiming(0, { duration: 320, easing: Easing.in(Easing.cubic) }))
+      )
+    );
+  }, [rise]);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: (1 - rise.value) * 220 }, { rotateZ: `${(1 - rise.value) * -8}deg` }],
+  }));
+  return (
+    <Animated.View style={[{ position: 'absolute', bottom: -18, alignSelf: 'center' }, style]}>
+      <PatchMascot mood="done" size={150} interactive={false} />
+    </Animated.View>
   );
 }
 

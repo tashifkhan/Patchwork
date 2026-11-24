@@ -1,6 +1,7 @@
 import { StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { DURATION } from '@/lib/motion';
 
@@ -34,6 +35,8 @@ export function ProgressOverlay({
           backgroundColor: `${colors.bg}F5`,
         },
       ]}>
+      {/* Patch thinks while it works and holds up the check when it's done. */}
+      <PatchMascot mood={state === 'done' ? 'done' : 'thinking'} size={130} interactive={false} style={{ marginBottom: 8 }} />
       <ProgressStatus state={state} label={label} />
     </Animated.View>
   );

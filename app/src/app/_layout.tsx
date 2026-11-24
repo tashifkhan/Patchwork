@@ -13,6 +13,8 @@ import { AnimatedSplash } from '@/components/splash/animated-splash';
 import { ThemeProvider } from '@/components/theme/provider';
 import { KeyboardProvider } from '@/components/ui/keyboard';
 import { AppLockGate } from '@/components/app-lock';
+import { OnboardingGate } from '@/components/onboarding/onboarding';
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { ConfettiHost } from '@/components/ui/confetti';
 import { useReconnectSync } from '@/hooks/use-offline';
 import { useTasks } from '@/hooks/use-tasks';
@@ -162,6 +164,7 @@ export default function RootLayout() {
               <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
             </Stack>
             <ConfettiHost />
+            <OnboardingGate />
             {process.env.EXPO_OS !== 'web' ? <AppLockGate /> : null}
             <AnimatedSplash ready={ready} onLayout={() => setOverlayShown(true)} />
           </ThemeProvider>
@@ -182,6 +185,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
         <View className="bg-sf-bg flex-1 items-center justify-center gap-4 px-8">
+          <PatchMascot mood="oops" size={170} interactive={false} />
           <Text selectable className="text-sf-text text-center text-xl font-semibold">
             Patchwork hit an unexpected error
           </Text>

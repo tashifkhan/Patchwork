@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { AppState, Platform, Pressable, useWindowDimensions } from 'react-native';
 
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
@@ -173,6 +174,14 @@ export default function PomodoroScreen() {
             ) : null}
           </View>
         ) : null}
+
+        {/* Patch keeps you company: set brows while working, dozing on a break. */}
+        <View style={{ alignItems: 'center', marginBottom: -12 }}>
+          <PatchMascot
+            mood={state.phase === 'break' ? 'sleepy' : state.phase === 'idle' ? 'hello' : 'focus'}
+            size={84}
+          />
+        </View>
 
         {EXPRESSIVE_FACES ? (
           <>

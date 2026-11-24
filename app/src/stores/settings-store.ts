@@ -45,6 +45,8 @@ export interface ExtraPreferences {
   floatingTabFrosted: boolean;
   /** Show the Search tab. Off, Search opens from Settings. */
   searchTab: boolean;
+  /** First-run intro finished or skipped. Installs from before it existed count as done. */
+  onboarded: boolean;
 }
 
 export const DEFAULT_EXTRAS: ExtraPreferences = {
@@ -63,6 +65,7 @@ export const DEFAULT_EXTRAS: ExtraPreferences = {
   floatingTabLabels: false,
   floatingTabFrosted: true,
   searchTab: true,
+  onboarded: false,
 };
 export type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
 
@@ -303,7 +306,7 @@ export const useSettingsStore = create<SettingsState>()(
         jiraIssueScope,
         jiraBoardViews,
       }),
-      version: 3,
+      version: 4,
       migrate: (persistedState, version) => {
         const persisted = (persistedState ?? {}) as Record<string, unknown>;
         if (version < 2 && !Array.isArray(persisted.githubRepositories)) {
@@ -320,6 +323,8 @@ export const useSettingsStore = create<SettingsState>()(
           const minutes = typeof persisted.defaultReminderMinutes === 'number' ? persisted.defaultReminderMinutes : 0;
           persisted.defaultReminderOffsets = [Math.max(0, minutes)];
         }
+        // Anyone with saved settings already knows the app; only fresh installs see the intro.
+        if (version < 4 && persisted.onboarded === undefined) persisted.onboarded = true;
         delete persisted.defaultReminderMinutes;
         delete persisted.githubRepos;
         delete persisted.githubConnected;

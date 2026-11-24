@@ -8,6 +8,7 @@ import type { Task } from '@/api/types';
 import { MarkdownNotes } from '@/components/tasks/markdown-notes';
 import { TaskCheckbox } from '@/components/tasks/task-checkbox';
 import { useTheme } from '@/components/theme/context';
+import { ToolbarIconButton, ToolbarSurface } from '@/components/ui/floating-toolbar';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import { RiseIn } from '@/components/ui/motion';
@@ -291,25 +292,12 @@ export function TaskPage({
         }}
       />
 
-      {/* One bar for the to-do's actions. */}
-      <View
-        style={{
-          position: 'absolute',
-          left: 16,
-          right: 16,
-          bottom: barBottom,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          padding: 8,
-          borderRadius: 36,
-          backgroundColor: colors.bg3,
-          boxShadow: `0 8px 24px ${withAlpha('#000000', dark ? 0.5 : 0.14)}`,
-        }}>
-        <BarIcon icon="trash-can-outline" label="Delete to-do" color={colors.red} onPress={onDelete} />
-        <BarIcon icon="arrow-right" label="Move to another list" color={colors.text} onPress={onMove} />
+      {/* One bar for the to-do's actions, the same surface as every floating toolbar. */}
+      <ToolbarSurface style={{ position: 'absolute', left: 16, right: 16, bottom: barBottom }}>
+        <ToolbarIconButton icon="trash-can-outline" sf="trash" label="Delete to-do" color={colors.red} onPress={onDelete} />
+        <ToolbarIconButton icon="arrow-right" sf="arrow.right" label="Move to another list" onPress={onMove} />
         <DoneButton done={task.completed} onPress={() => onToggle(task)} />
-      </View>
+      </ToolbarSurface>
     </View>
   );
 }
@@ -391,29 +379,6 @@ function RoundButton({ icon, label, ink, onPress }: { icon: IconName; label: str
         <MaterialCommunityIcons name={icon} size={24} color={ink} />
       </Pressable>
     </Animated.View>
-  );
-}
-
-function BarIcon({ icon, label, color, onPress }: { icon: IconName; label: string; color: string; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={() => {
-        haptics.tap();
-        onPress();
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={({ pressed }) => ({
-        width: 56,
-        height: 56,
-        borderRadius: pressed ? 18 : 28,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: pressed ? colors.bg2 : withAlpha(colors.text, 0.05),
-      })}>
-      <MaterialCommunityIcons name={icon} size={24} color={color} />
-    </Pressable>
   );
 }
 

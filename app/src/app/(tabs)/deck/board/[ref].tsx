@@ -522,12 +522,13 @@ export default function BoardScreen() {
       <PickerSheet
         visible={switcherOpen}
         title="Switch board"
+        layout="stack"
         items={summaries.boards.map((board) => ({
           key: board.ref,
           label: board.title,
           subtitle: board.subtitle,
           selected: board.ref === ref,
-          leading: <BoardTile board={board} size={40} />,
+          leading: <BoardTile board={board} size={Platform.OS === 'android' ? 30 : 40} />,
           onPress: () => {
             setSwitcherOpen(false);
             if (board.ref !== ref) router.setParams({ ref: board.ref });
@@ -549,6 +550,7 @@ export default function BoardScreen() {
       <PickerSheet
         visible={moving != null}
         title="Move to"
+        layout="stack"
         subtitle={moving ? [moving.card.key, moving.card.title].filter(Boolean).join(' · ') : undefined}
         items={detail.columns.map((column) => ({
           key: column.id,

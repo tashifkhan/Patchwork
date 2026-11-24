@@ -11,6 +11,7 @@ import { ListPicker } from '@/components/tasks/list-picker';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { ElasticPressable, RiseIn, Swap, TurningChevron, useSpringValue } from '@/components/ui/motion';
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { SheetSurface } from '@/components/ui/sheet-surface';
 import { COLLAPSE_OUT, EXPAND_IN, expandLayout, PAISA } from '@/lib/motion';
 import Animated, {
@@ -220,6 +221,13 @@ export default function BrainDumpScreen() {
             ) : entry?.sortedAt ? (
               <InfoChip icon="check-all" label="All sorted" />
             ) : null}
+            <View style={{ flex: 1 }} />
+            {/* Patch follows the page: dozing on an empty one, an idea once there's something to sort. */}
+            <PatchMascot
+              mood={busy ? 'thinking' : thoughts ? 'idea' : entry?.sortedAt ? 'done' : 'sleepy'}
+              size={64}
+              style={{ marginVertical: -10 }}
+            />
           </View>
         </RiseIn>
 

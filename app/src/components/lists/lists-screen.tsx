@@ -11,6 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { Frost, FrostTarget } from '@/components/ui/frost';
@@ -147,9 +148,12 @@ export function ListsScreen() {
             </RiseIn>
           ))}
           {summaries.length === 0 && !loading ? (
-            <Text style={{ fontSize: 15, color: colors.text2, marginTop: 20, textAlign: 'center' }}>
-              No lists yet. Tap + to make one.
-            </Text>
+            <View style={{ alignItems: 'center', gap: 8, marginTop: 24 }}>
+              <PatchMascot mood="sleepy" size={140} />
+              <Text style={{ fontSize: 15, color: colors.text2, textAlign: 'center' }}>
+                No lists yet. Tap + to make one.
+              </Text>
+            </View>
           ) : summaries.length > 0 ? (
             <Text style={{ fontSize: 13, color: colors.text3, marginTop: 20, textAlign: 'center' }}>
               Long-press a list to rename or delete it.

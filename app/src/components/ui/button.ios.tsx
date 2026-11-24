@@ -34,6 +34,7 @@ const SF: Partial<Record<NonNullable<ButtonProps['icon']>, SFSymbol>> = {
   'timer-outline': 'stopwatch',
   'cog-outline': 'gearshape',
   'qrcode-scan': 'qrcode.viewfinder',
+  'cloud-sync-outline': 'icloud',
 };
 
 /**
