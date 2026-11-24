@@ -1,5 +1,6 @@
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Stack } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,9 +23,14 @@ export function SheetSurface({ children, title, subtitle, bottomInset }: SheetSu
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   const padBottom = bottomInset ?? Math.max(insets.bottom, 12);
+  // The sheet's native header is translucent and floats over the body, so
+  // anything not in an auto-inset scroll view (the subtitle, a fixed top row)
+  // ended up under it. Start the body below the header instead; scroll views
+  // there then see no overlap and add no inset of their own.
+  const headerHeight = useHeaderHeight();
 
   const body = (
-    <>
+    <View style={{ flex: 1, paddingTop: title ? headerHeight : 0 }}>
       {/*
         Every sheet route has the native header, so the title goes there (one
         centred title, like Reminders). Drawing it here as well stacked two
@@ -38,7 +44,7 @@ export function SheetSurface({ children, title, subtitle, bottomInset }: SheetSu
         </Text>
       ) : null}
       <View style={{ flex: 1, paddingBottom: padBottom }}>{children}</View>
-    </>
+    </View>
   );
 
   if (isLiquidGlassAvailable()) {
