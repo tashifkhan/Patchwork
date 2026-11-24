@@ -40,6 +40,7 @@ type RailProps = {
 export function NavigationRail({ state, emitter, navigateToTab }: RailProps) {
   const { colors } = useTheme();
   const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const searchTab = useSettingsStore((s) => s.searchTab);
   const insets = useSafeAreaInsets();
   const active = state.routes[state.index]?.name;
 
@@ -57,7 +58,7 @@ export function NavigationRail({ state, emitter, navigateToTab }: RailProps) {
       }}>
       {DESTINATIONS.map((dest) => {
         const route = state.routes.find((r) => r.name === dest.route);
-        if (!route || (dest.route === 'deck' && !boardsTab)) return null;
+        if (!route || (dest.route === 'deck' && !boardsTab) || (dest.route === 'search' && !searchTab)) return null;
         const focused = active === dest.route;
         return (
           <Pressable

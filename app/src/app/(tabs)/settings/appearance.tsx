@@ -16,6 +16,7 @@ import {
 } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { CAN_FROST } from '@/components/ui/frost';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { BUILT_IN_FONTS, importFontFile } from '@/lib/fonts';
 import { COLOR_PALETTES, PAPER_PALETTE } from '@/lib/palettes';
@@ -49,12 +50,6 @@ export default function AppearanceScreen() {
   const setPureBlack = useSettingsStore((s) => s.setPureBlack);
   const highContrast = useSettingsStore((s) => s.highContrast);
   const setHighContrast = useSettingsStore((s) => s.setHighContrast);
-  const floatingTabBar = useSettingsStore((s) => s.floatingTabBar);
-  const setFloatingTabBar = useSettingsStore((s) => s.setFloatingTabBar);
-  const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
-  const setTabBarLabels = useSettingsStore((s) => s.setTabBarLabels);
-  const boardsTab = useSettingsStore((s) => s.boardsTab);
-  const setBoardsTab = useSettingsStore((s) => s.setBoardsTab);
   const hapticsEnabled = useSettingsStore((s) => s.hapticsEnabled);
   const setHapticsEnabled = useSettingsStore((s) => s.setHapticsEnabled);
   const accentColor = useSettingsStore((s) => s.accentColor);
@@ -216,39 +211,9 @@ export default function AppearanceScreen() {
           value={hapticsEnabled}
           onValueChange={setHapticsEnabled}
         />
-        <RowSeparator />
-        <SettingsToggleRow
-          icon="view-column-outline"
-          title="Boards tab"
-          subtitle="Deck and Jira boards. Turn off if you only use Tasks"
-          value={boardsTab}
-          onValueChange={setBoardsTab}
-        />
-        {isAndroid ? (
-          <>
-            <RowSeparator />
-            <SettingsToggleRow
-              icon="dock-bottom"
-              title="Floating navbar"
-              subtitle="Pill-shaped bar that floats above the bottom edge"
-              value={floatingTabBar}
-              onValueChange={setFloatingTabBar}
-            />
-            {!floatingTabBar ? (
-              <>
-                <RowSeparator />
-                <SettingsToggleRow
-                  icon="label-outline"
-                  title="Navbar labels"
-                  subtitle="Show a label under every tab, not just the selected one"
-                  value={tabBarLabels}
-                  onValueChange={setTabBarLabels}
-                />
-              </>
-            ) : null}
-          </>
-        ) : null}
       </SettingsGroup>
+
+      <NavBarGroups />
     </SettingsScreen>
   );
 }
@@ -539,5 +504,93 @@ function AppearancePicker({
         );
       })}
     </View>
+  );
+}
+
+/**
+ * Paisa's navbar options: the bar's style (Android), then which tabs it
+ * holds. Tasks and Settings always stay; a tab turned off opens from Settings.
+ */
+function NavBarGroups() {
+  const isAndroid = Platform.OS === 'android';
+  const floatingTabBar = useSettingsStore((s) => s.floatingTabBar);
+  const setFloatingTabBar = useSettingsStore((s) => s.setFloatingTabBar);
+  const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
+  const setTabBarLabels = useSettingsStore((s) => s.setTabBarLabels);
+  const floatingTabLabels = useSettingsStore((s) => s.floatingTabLabels);
+  const floatingTabFrosted = useSettingsStore((s) => s.floatingTabFrosted);
+  const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const setBoardsTab = useSettingsStore((s) => s.setBoardsTab);
+  const searchTab = useSettingsStore((s) => s.searchTab);
+  const setExtras = useSettingsStore((s) => s.setExtras);
+
+  return (
+    <>
+      {isAndroid ? (
+        <SettingsGroup title="Navigation bar">
+          <SettingsToggleRow
+            icon="dock-bottom"
+            title="Floating navbar"
+            subtitle="Pill-shaped bar that floats over the screen, with the list scrolling behind it"
+            value={floatingTabBar}
+            onValueChange={setFloatingTabBar}
+          />
+          <RowSeparator />
+          {floatingTabBar ? (
+            <>
+              <SettingsToggleRow
+                icon="label-outline"
+                title="Tab titles"
+                subtitle="A title under every tab. Off, only the selected tab shows its name"
+                value={floatingTabLabels}
+                onValueChange={(value) => setExtras({ floatingTabLabels: value })}
+              />
+              <RowSeparator />
+              <SettingsToggleRow
+                icon="blur"
+                title="Frosted glass"
+                subtitle={
+                  CAN_FROST
+                    ? 'Blurs and tints what scrolls behind the bar'
+                    : 'Blur needs Android 12 or later. Off gives a solid bar'
+                }
+                value={floatingTabFrosted}
+                onValueChange={(value) => setExtras({ floatingTabFrosted: value })}
+              />
+            </>
+          ) : (
+            <SettingsToggleRow
+              icon="label-outline"
+              title="Navbar labels"
+              subtitle="Show a label under every tab, not just the selected one"
+              value={tabBarLabels}
+              onValueChange={setTabBarLabels}
+            />
+          )}
+        </SettingsGroup>
+      ) : null}
+
+      <SettingsGroup
+        title={isAndroid ? 'Tabs in the navbar' : 'Tab Bar'}
+        footer="Tasks and Settings always stay. A tab you turn off opens from Settings instead.">
+        <SettingsToggleRow
+          icon="view-column-outline"
+          sf="rectangle.split.3x1.fill"
+          title="Boards"
+          subtitle={boardsTab ? (isAndroid ? 'In the navbar' : 'In the tab bar') : 'Opens from Settings'}
+          value={boardsTab}
+          onValueChange={setBoardsTab}
+        />
+        <RowSeparator />
+        <SettingsToggleRow
+          icon="magnify"
+          sf="magnifyingglass"
+          title="Search"
+          subtitle={searchTab ? (isAndroid ? 'In the navbar' : 'In the tab bar') : 'Opens from Settings'}
+          value={searchTab}
+          onValueChange={(value) => setExtras({ searchTab: value })}
+        />
+      </SettingsGroup>
+    </>
   );
 }

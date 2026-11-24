@@ -95,6 +95,9 @@ export type FloatingTabBarProps = {
 export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBarProps) {
   const { colors, scheme } = useTheme();
   const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const searchTab = useSettingsStore((s) => s.searchTab);
+  const showTitles = useSettingsStore((s) => s.floatingTabLabels);
+  const frostOn = useSettingsStore((s) => s.floatingTabFrosted);
   const isDark = scheme === 'dark';
   const insets = useSafeAreaInsets();
   const minimized = useTabBarChromeStore((s) => s.minimized);
@@ -252,7 +255,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
   // Without blur it is a solid bar with a shadow, coloured by the accent on
   // light themes (a coloured shadow can't be seen on a dark screen).
   const frostTarget = useFrostTarget();
-  const frosted = CAN_FROST && frostTarget != null;
+  const frosted = CAN_FROST && frostTarget != null && frostOn;
   const shell = frosted
     ? ({
         overflow: 'hidden',
@@ -324,20 +327,33 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
                       // The capsule gives and lights up under the finger, so
                       // a tab doesn't dim or shrink on top of that.
                       height: FLOATING_TAB_BAR_HEIGHT - 16,
-                      paddingHorizontal: focused ? 18 : 14,
+                      paddingHorizontal: showTitles ? 14 : focused ? 18 : 14,
                       borderRadius: 999,
-                      flexDirection: 'row',
+                      // "Tab titles": every tab stacks its icon over a title.
+                      flexDirection: showTitles ? 'column' : 'row',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      gap: showTitles ? 1 : 0,
                     }}>
                     <TabGlyph motion={tab.motion} taps={focused ? taps : 0} selected={focused}>
                       <MaterialCommunityIcons
                         name={focused ? tab.iconFocused : tab.icon}
-                        size={24}
+                        size={showTitles ? 22 : 24}
                         color={focused ? onSelection : inactive}
                       />
                     </TabGlyph>
-                    {focused ? (
+                    {showTitles ? (
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: focused ? '700' : '500',
+                          color: focused ? onSelection : inactive,
+                          includeFontPadding: false,
+                        }}>
+                        {tab.label}
+                      </Text>
+                    ) : focused ? (
                       <Animated.View
                         entering={FadeIn.duration(220)}
                         exiting={FadeOut.duration(100)}
@@ -360,16 +376,19 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
             })}
           </Animated.View>
 
-          <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
-            <Pressable
-              onPress={() => goTo(SEARCH_ROUTE)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: searchFocused }}
-              accessibilityLabel="Search"
-              style={styles.circleHit}>
-              <MaterialCommunityIcons name="magnify" size={24} color={inactive} />
-            </Pressable>
-          </ElasticCircle>
+          {/* "Tabs in the navbar": with Search off, it opens from Settings instead. */}
+          {searchTab ? (
+            <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
+              <Pressable
+                onPress={() => goTo(SEARCH_ROUTE)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: searchFocused }}
+                accessibilityLabel="Search"
+                style={styles.circleHit}>
+                <MaterialCommunityIcons name="magnify" size={24} color={inactive} />
+              </Pressable>
+            </ElasticCircle>
+          ) : null}
         </Animated.View>
 
         {/* Compact: mini circle + search circle/field (image #2) */}
@@ -426,7 +445,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
                 </Pressable>
               ) : null}
             </View>
-          ) : (
+          ) : !searchTab ? null : (
             <ElasticCircle style={[styles.circle, shell]} glowColor={glowColor} frost={frost}>
               <Pressable
                 onPress={() => goTo(SEARCH_ROUTE)}

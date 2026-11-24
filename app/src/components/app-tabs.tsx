@@ -75,6 +75,8 @@ function MaterialNativeTabs() {
   const inactiveColor = colors.text2;
   const tabBarLabels = useSettingsStore((s) => s.tabBarLabels);
   const boardsTab = useSettingsStore((s) => s.boardsTab);
+  const searchTab = useSettingsStore((s) => s.searchTab);
+  const hidden = (name: string) => (name === 'deck' && !boardsTab) || (name === 'search' && !searchTab);
 
   if (Platform.OS === 'ios') {
     // The system tab bar: Liquid Glass on iOS 26+, with the app accent as the
@@ -85,7 +87,7 @@ function MaterialNativeTabs() {
           <NativeTabs.Trigger
             key={tab.name}
             name={tab.name}
-            hidden={tab.name === 'deck' && !boardsTab}
+            hidden={hidden(tab.name)}
             role={'role' in tab ? tab.role : undefined}
             listeners={{ tabPress: () => haptics.selection() }}>
             <NativeTabs.Trigger.Icon sf={tab.sf} />
@@ -121,7 +123,7 @@ function MaterialNativeTabs() {
         <NativeTabs.Trigger
           key={tab.name}
           name={tab.name}
-          hidden={tab.name === 'deck' && !boardsTab}
+          hidden={hidden(tab.name)}
           role={'role' in tab ? tab.role : undefined}
           // The native bar owns the pill/label animation; we only add the
           // selection tick so switching destinations feels physical.
