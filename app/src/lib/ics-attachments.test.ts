@@ -22,9 +22,9 @@ const VTODO = [
 
 const photo: TaskAttachment = {
   url: 'https://cloud.example.com/f/4821',
-  name: 'sink leak; before.jpg',
+  name: 'sink leak; $& before.jpg',
   mime: 'image/jpeg',
-  path: '/Tasks/abc/sink leak; before.jpg',
+  path: '/Tasks/abc/sink leak; $& before.jpg',
   file_id: '4821',
   has_preview: true,
 };
@@ -96,7 +96,7 @@ describe('attachment urls', () => {
       'https://cloud.example.com/index.php/core/preview?fileId=4821&x=256&y=256&a=1',
     );
     expect(attachmentFileUri(access, photo)).toBe(
-      'https://cloud.example.com/remote.php/dav/files/taf/Tasks/abc/sink%20leak%3B%20before.jpg',
+      'https://cloud.example.com/remote.php/dav/files/taf/Tasks/abc/sink%20leak%3B%20%24%26%20before.jpg',
     );
   });
 
