@@ -426,6 +426,13 @@ function ConnectStep() {
         {[
           { icon: 'shield-lock-outline' as const, text: 'Passwords stay in the device keychain.' },
           { icon: 'cloud-off-outline' as const, text: 'Edits made offline sync when you are back online.' },
+          {
+            icon: 'calendar-month-outline' as const,
+            text:
+              Platform.OS === 'ios'
+                ? 'Apple Reminders and your calendar events can join in. Settings, Calendars and reminders.'
+                : 'Events from your phone\'s calendars can show beside your to-dos. Settings, Calendars and reminders.',
+          },
         ].map((row) => (
           <View key={row.icon} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View

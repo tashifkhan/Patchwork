@@ -1,8 +1,11 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 
 import type { Task } from '@/api/types';
+import { useDeviceEvents } from '@/hooks/use-device-events';
 import { useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
+import { type DeviceEvent, openDeviceEvent } from '@/lib/device-events';
 import { playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
 import { nextDue } from '@/lib/recurrence';
@@ -24,6 +27,57 @@ export interface DayItem {
   projected: boolean;
   /** Where it sits on the timeline, or null for a to-do with no time of day. */
   block: Block | null;
+  /**
+   * Set for an event from the phone's calendars. `task` then only carries its
+   * title and times; the event can't be ticked or focused, and opens in the
+   * system calendar.
+   */
+  event?: DeviceEvent;
+}
+
+/** An event drawn like a to-do on one day: all-day, or a block clipped to that day. */
+function eventItems(event: DeviceEvent): { key: string; item: DayItem }[] {
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+  const task: Task = {
+    id: `event:${event.id}:${event.start}`,
+    uid: `event:${event.id}`,
+    list_id: `device-calendar:${event.calendarId}`,
+    list_name: event.calendarTitle,
+    title: event.title,
+    description: event.location ?? '',
+    markdown: event.location ?? '',
+    completed: false,
+    priority: null,
+    due_at: event.end,
+    start_at: event.start,
+    reminder_at: null,
+    tags: [],
+    sort_order: null,
+    parent_uid: null,
+    children: [],
+    etag: null,
+    updated_at: null,
+  };
+  const out: { key: string; item: DayItem }[] = [];
+  // All-day and multi-day events sit in the all-day row of every day they cover.
+  const multiDay = dayKey(start) !== dayKey(new Date(end.getTime() - 1));
+  if (event.allDay || multiDay) {
+    // Android stores all-day events at UTC midnight; read their dates in UTC so
+    // they don't slide a day west or east of Greenwich. iOS uses local midnight.
+    const utc = event.allDay && Platform.OS === 'android';
+    const asDay = (d: Date) => (utc ? new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) : startOfDay(d));
+    const day = asDay(start);
+    const last = asDay(new Date(end.getTime() - 1));
+    for (let i = 0; i < 62 && day <= last; i += 1) {
+      out.push({ key: dayKey(day), item: { task, projected: false, block: null, event } });
+      day.setDate(day.getDate() + 1);
+    }
+    return out;
+  }
+  const block = { start, end: end > start ? end : new Date(start.getTime() + 30 * 60_000) };
+  out.push({ key: dayKey(start), item: { task, projected: false, block, event } });
+  return out;
 }
 
 export function keyToDate(key: string): Date {
@@ -79,6 +133,12 @@ export function useCalendarModel() {
 
   /** The horizon for drawing repeats follows the selected month only. */
   const horizonKey = `${selectedDate.getFullYear()}-${selectedDate.getMonth()}`;
+  // Phone calendar events for the month before through the month after.
+  const [eventFrom, eventTo] = useMemo(() => {
+    const [y, m] = horizonKey.split('-').map(Number);
+    return [new Date(y, m - 1, 1), new Date(y, m + 2, 1)];
+  }, [horizonKey]);
+  const eventsQuery = useDeviceEvents(eventFrom, eventTo);
   const byDay = useMemo(() => {
     const map = new Map<string, DayItem[]>();
     const add = (task: Task, projected: boolean) => {
@@ -100,12 +160,16 @@ export function useCalendarModel() {
         }
       }
     }
+    for (const event of eventsQuery.data ?? []) {
+      for (const { key, item } of eventItems(event)) map.set(key, [...(map.get(key) ?? []), item]);
+    }
     return map;
-  }, [tasksQuery.data, horizonKey]);
+  }, [tasksQuery.data, horizonKey, eventsQuery.data]);
 
   const dayItems = byDay.get(selected) ?? [];
 
   function toggle(task: Task) {
+    if (task.uid.startsWith('event:')) return;
     const { patch } = togglePatch(task);
     if (!task.completed) playSound('complete');
     haptics.selection();
@@ -114,11 +178,16 @@ export function useCalendarModel() {
 
   function open(task: Task) {
     haptics.tap();
+    if (task.uid.startsWith('event:')) {
+      void openDeviceEvent(task.uid.slice('event:'.length));
+      return;
+    }
     router.push({ pathname: '/task/[uid]', params: { uid: task.uid } });
   }
 
   /** Focus on a to-do: a timer the length of its block, or a stopwatch when it has none. */
   function focus(task: Task) {
+    if (task.uid.startsWith('event:')) return;
     haptics.impact('medium');
     const store = usePomodoroStore.getState();
     const minutes = blockMinutes(task);

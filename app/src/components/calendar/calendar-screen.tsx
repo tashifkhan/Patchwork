@@ -29,7 +29,7 @@ import { RiseIn } from '@/components/ui/motion';
 import { haptics } from '@/lib/haptics';
 import { expandLayout, PAISA } from '@/lib/motion';
 import { listTone } from '@/lib/smart-lists';
-import { withAlpha } from '@/lib/theme';
+import { mixHex, withAlpha } from '@/lib/theme';
 import { formatBlock, formatLength, formatTime, minuteOfDay, placeBlocks } from '@/lib/time-block';
 import { dayKey } from '@/stores/pomodoro-store';
 import { Text, View } from '@/tw';
@@ -74,10 +74,10 @@ export function CalendarScreen() {
   const timed = dayItems.filter((it) => it.block);
   const untimed = dayItems.filter((it) => !it.block);
   const planned = timed.reduce(
-    (sum, it) => sum + (it.task.start_at && it.block ? (it.block.end.getTime() - it.block.start.getTime()) / 60_000 : 0),
+    (sum, it) => sum + (!it.event && it.task.start_at && it.block ? (it.block.end.getTime() - it.block.start.getTime()) / 60_000 : 0),
     0
   );
-  const open = dayItems.filter((it) => !it.projected && !it.task.completed).length;
+  const open = dayItems.filter((it) => !it.event && !it.projected && !it.task.completed).length;
   // Only the timeline scrolls, and it holds the whole day so earlier events
   // are a scroll up. On today, the now line sits a third of the way down;
   // other days open at their first block, or 8 am.
@@ -448,16 +448,18 @@ function AnytimeChip({
   onToggle: (task: DayItem['task']) => void;
 }) {
   const { colors, scheme } = useTheme();
-  const { fill, ink } = listTone(colors, scheme === 'dark', index);
+  const { fill, ink } = item.event ? eventTone(colors, scheme === 'dark', item.event.color) : listTone(colors, scheme === 'dark', index);
   const { task, projected } = item;
   const done = task.completed && !projected;
   return (
     <Pressable
       onPress={() => onOpen(task)}
       accessibilityRole="button"
+      accessibilityLabel={item.event ? `${task.title}, ${item.event.calendarTitle}, all day` : undefined}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
+        paddingLeft: item.event ? 14 : 0,
         paddingRight: 16,
         minHeight: 44,
         borderRadius: 22,
@@ -468,15 +470,19 @@ function AnytimeChip({
         opacity: pressed ? 0.8 : done ? 0.6 : 1,
         transform: [{ scale: pressed ? 0.97 : 1 }],
       })}>
-      <View style={{ opacity: projected ? 0.4 : 1 }}>
-        <TaskCheckbox
-          checked={done}
-          onToggle={() => {
-            if (!projected) onToggle(task);
-          }}
-          label={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
-        />
-      </View>
+      {item.event ? (
+        <MaterialCommunityIcons name="calendar-blank-outline" size={16} color={ink} style={{ marginRight: 8 }} />
+      ) : (
+        <View style={{ opacity: projected ? 0.4 : 1 }}>
+          <TaskCheckbox
+            checked={done}
+            onToggle={() => {
+              if (!projected) onToggle(task);
+            }}
+            label={`${task.completed ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`}
+          />
+        </View>
+      )}
       <Text
         numberOfLines={1}
         style={{ maxWidth: 220, fontSize: 15, fontWeight: '600', color: projected ? undefined : ink, textDecorationLine: done ? 'line-through' : 'none' }}>
@@ -624,7 +630,7 @@ function TimeBlockCard({
 }) {
   const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
-  const { fill, ink } = listTone(colors, dark, index);
+  const { fill, ink } = item.event ? eventTone(colors, dark, item.event.color) : listTone(colors, dark, index);
   const { task, projected, block } = item;
   const done = task.completed && !projected;
   const radius = Math.min(26, height / 2);
@@ -645,14 +651,18 @@ function TimeBlockCard({
       <Pressable
         onPress={() => onOpen(task)}
         onLongPress={() => {
-          if (projected) return;
+          if (projected || item.event) return;
           haptics.impact('medium');
           onToggle(task);
         }}
         onPressOut={press.release}
         accessibilityRole="button"
-        accessibilityLabel={`${task.title}, ${block ? formatBlock(block) : ''}${done ? ', done' : ''}${running ? ', in focus' : ''}`}
-        accessibilityHint="Long press to tick it off"
+        accessibilityLabel={
+          item.event
+            ? `${task.title}, ${block ? formatBlock(block) : ''}, ${item.event.calendarTitle}`
+            : `${task.title}, ${block ? formatBlock(block) : ''}${done ? ', done' : ''}${running ? ', in focus' : ''}`
+        }
+        accessibilityHint={item.event ? 'Opens in your calendar app' : 'Long press to tick it off'}
         style={{ flex: 1 }}>
         <Animated.View
           style={[
@@ -682,6 +692,7 @@ function TimeBlockCard({
                 <Text numberOfLines={1} style={{ fontSize: 13, color: withAlpha(ink, 0.7), marginTop: 2 }}>
                   {running ? 'In focus · ' : ''}
                   {formatBlock(block)}
+                  {item.event ? ` · ${item.event.calendarTitle}` : ''}
                 </Text>
               ) : null}
               {showNotes ? (
@@ -690,7 +701,11 @@ function TimeBlockCard({
                 </Text>
               ) : null}
             </View>
-            {!projected && !done ? <FocusButton ink={ink} running={running} onPress={() => onFocus(task)} /> : null}
+            {item.event ? (
+              <MaterialCommunityIcons name="calendar-blank-outline" size={18} color={withAlpha(ink, 0.8)} />
+            ) : !projected && !done ? (
+              <FocusButton ink={ink} running={running} onPress={() => onFocus(task)} />
+            ) : null}
           </View>
         </Animated.View>
       </Pressable>
@@ -723,4 +738,16 @@ function FocusButton({ ink, running, onPress }: { ink: string; running: boolean;
       </Pressable>
     </Animated.View>
   );
+}
+
+/**
+ * A phone calendar event's colours: a soft wash of its calendar's colour, so
+ * events read as "from your calendar" next to the to-dos' list tones.
+ */
+function eventTone(colors: ReturnType<typeof useTheme>['colors'], dark: boolean, color: string | null) {
+  const base = color && /^#[0-9a-f]{6}/i.test(color) ? color.slice(0, 7) : colors.gray;
+  return {
+    fill: mixHex(colors.bg2, base, dark ? 0.32 : 0.22),
+    ink: dark ? mixHex(base, '#FFFFFF', 0.55) : mixHex(base, '#000000', 0.5),
+  };
 }

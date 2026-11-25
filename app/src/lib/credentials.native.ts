@@ -135,6 +135,7 @@ export async function saveAccount(
     username,
     appPassword,
     serverType: input.serverType,
+    ...(input.calendarHome ? { calendarHome: assertSafeAccountUrl(input.calendarHome) } : {}),
   };
 
   const index = accounts.findIndex((existing) => existing.id === account.id);

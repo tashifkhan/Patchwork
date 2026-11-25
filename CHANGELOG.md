@@ -2,6 +2,19 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.11.0] - 2026-11-25
+
+Patchwork can show your calendar events alongside your tasks. On iPhone, you can also manage your Apple Reminders lists in Patchwork.
+
+### Added
+
+- Turn on Show calendar events in Settings → Calendars and reminders. Events from selected calendars on your phone appear in the day view, including all-day events. Tap an event to open it in your calendar app.
+- On iPhone, turn on Apple Reminders in the same settings page to see your Reminders lists in Tasks. Adding, editing or completing a reminder in Patchwork saves the change back to Apple Reminders.
+
+### Fixed
+
+- CalDAV account setup can discover to-do lists on servers that use different paths from Nextcloud.
+
 ## [1.10.0] - 2026-11-25
 
 Meet Patch. A first-run intro, an About page, and one toolbar style everywhere.

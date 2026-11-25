@@ -2,9 +2,8 @@ name: Publish F-Droid Repo
 
 # Re-dispatch F-Droid publishing on tashif.codes without rebuilding the APK.
 #
-# Prefer the automatic path: "Release Android APK" already triggers F-Droid
-# after publishing the GitHub Release. Use this only to re-import an existing
-# release (or to publish from a release that was created outside that flow).
+# Run this after uploading a locally built APK to GitHub Releases, or to
+# re-import an existing release. "Release Android APK" dispatches F-Droid itself.
 #
 # Required secret:
 #   TASHIF_CODES_WORKFLOW_TOKEN — PAT with actions:write on tashifkhan/tashif.codes

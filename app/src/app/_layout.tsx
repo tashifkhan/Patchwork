@@ -23,7 +23,7 @@ import { DURATION } from '@/lib/motion';
 import { loadOutbox, useOutboxStore } from '@/lib/outbox';
 import { flushOutbox } from '@/lib/outbox-sync';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
-import { queryClient } from '@/lib/query-client';
+import { queryClient, queryKeys } from '@/lib/query-client';
 import { ANDROID_PUSH, sheetScreenOptions } from '@/lib/screen-options';
 import { syncBrainDumpReminders } from '@/stores/brain-dump-store';
 import { usePomodoroStore } from '@/stores/pomodoro-store';
@@ -250,6 +250,23 @@ function NativeRuntimeCoordinator() {
       unsub();
       subscription.remove();
     };
+  }, []);
+
+  // Apple Reminders and phone calendar events change in other apps. Read them
+  // again whenever Patchwork comes back, so a reminder ticked in Reminders or
+  // an event moved in Google Calendar shows here without a pull to refresh.
+  useEffect(() => {
+    if (process.env.EXPO_OS === 'web') return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const { appleReminders, deviceEvents } = useSettingsStore.getState();
+      if (appleReminders) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.taskLists });
+      }
+      if (deviceEvents) void queryClient.invalidateQueries({ queryKey: ['device-events'] });
+    });
+    return () => subscription.remove();
   }, []);
 
   // Imported fonts have to be registered again on every launch.

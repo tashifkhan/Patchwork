@@ -16,25 +16,24 @@ Build profile:
 
 * `eas.json` profile: `github-release`
 * Android output: APK
-* Gradle command: `:app:assembleRelease`
+* Gradle command: `:app:assembleRelease -PreactNativeArchitectures=arm64-v8a`
 
-Manual build/download commands:
+Build a signed APK on your machine from the release source:
 
 ```bash
-bun x eas-cli build --platform android --profile github-release --non-interactive --wait
-bun x eas-cli build:download --platform android --profile github-release --latest --output ./Patchwork.apk
+bun x eas-cli build --platform android --profile github-release --local --non-interactive --output ./Patchwork.apk
 ```
 
-GitHub Actions release flow:
+Publish a local build:
 
-1. Push a tag such as `v1.0.0`.
-2. The release workflow builds and attaches an APK to GitHub Releases.
-3. If configured, it dispatches the `tashif.codes` F-Droid workflow to update the repo index.
+1. Tag the release commit and push the tag.
+2. Create a GitHub Release with the notes from `CHANGELOG.md`, the signed APK, and its SHA-256 checksum.
+3. Run **Publish F-Droid Repo** in GitHub Actions with the release tag. It imports the APK into the `tashif.codes` F-Droid repo.
 
-Required repository secrets:
+To build on EAS cloud, run **Release Android APK** in GitHub Actions with an existing tag. The workflow publishes the APK and dispatches the F-Droid import when its token is configured.
 
-* `EXPO_TOKEN`: Expo token for EAS.
-* `TASHIF_CODES_WORKFLOW_TOKEN`: Optional cross-repo workflow token for publishing the F-Droid index automatically.
+* `EXPO_TOKEN` authenticates the cloud build.
+* `TASHIF_CODES_WORKFLOW_TOKEN` authorizes the F-Droid import.
 
 ## Directory Layout
 
