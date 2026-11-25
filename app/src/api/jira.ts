@@ -161,8 +161,11 @@ class JiraClient {
     return `Basic ${base64Encode(`${this.creds.email}:${this.creds.apiToken}`)}`;
   }
 
-  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    if (signal?.aborted) cancel();
+    signal?.addEventListener('abort', cancel, { once: true });
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(`${this.creds.site}${path}`, {
@@ -188,6 +191,7 @@ class JiraClient {
       if (!response.ok) throw errorFromResponse(response.status, data);
       return data as T;
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (error instanceof JiraError) throw error;
       if (controller.signal.aborted) throw new JiraError('Jira took too long to respond.');
       throw new JiraError(
@@ -197,6 +201,7 @@ class JiraClient {
       );
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', cancel);
     }
   }
 }
@@ -442,13 +447,16 @@ export function jiraSearchJql(query: string, includeKey = true): string | null {
 export async function searchJiraIssues(
   creds: JiraCredentials,
   query: string,
-  limit = 20
+  limit = 20,
+  signal?: AbortSignal,
 ): Promise<JiraIssue[]> {
   const client = new JiraClient(creds);
   const run = async (jql: string) => {
     const data = await client.request<{ issues?: ApiIssue[] }>(
       'GET',
-      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${ISSUE_FIELDS}&maxResults=${limit}`
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${ISSUE_FIELDS}&maxResults=${limit}`,
+      undefined,
+      signal,
     );
     return (data?.issues ?? []).map(toIssue);
   };

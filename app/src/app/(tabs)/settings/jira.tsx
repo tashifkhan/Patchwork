@@ -20,7 +20,7 @@ import { useTheme } from '@/components/theme/context';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { JIRA_SCOPES } from '@/components/boards/filter-sheet';
-import { useJiraBoards } from '@/hooks/use-boards';
+import { useJiraBoards } from '@/features/boards/use-board-detail';
 import type { JiraCredentials } from '@/lib/credentials-types';
 import { haptics } from '@/lib/haptics';
 import { useJiraSessionStore } from '@/stores/jira-session-store';

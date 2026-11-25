@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { parseVtodo, serializeVtodo, updateVtodo } from '@/api/tasks.native';
+import { parseVtodo, serializeVtodo, updateVtodo } from '@/api/caldav/vtodo';
 const list = { id: 'a:l', href: 'https://x/l/', name: 'L', is_deck: false };
 test('pinned and repeat survive a CalDAV round trip', () => {
   const { calendarData } = serializeVtodo({ list_id: 'a:l', title: 'T', pinned: true, rrule: 'FREQ=WEEKLY;BYDAY=MO', due_at: '2026-07-20T09:00:00.000Z' });

@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 import { githubAccountKey, jiraAccountKey } from './account-keys';
-import { aiCredentialId, type AiProviderId } from './ai-models';
+import { aiCredentialId, type AiProviderId } from '@/features/ai/ai-models';
 import type { CalDavAccount, GitHubCredentials, JiraCredentials } from './credentials-types';
 import { assertSafeAccountUrl, normalizeServiceUrl } from './secure-url';
 

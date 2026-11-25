@@ -1,8 +1,9 @@
+import { parseDate } from '@/lib/format';
 /** Compact, locale-aware due-date formatting for widget rows. */
 export function formatDue(dueAt: string | null, now: Date = new Date()): string {
   if (!dueAt) return '';
-  const d = new Date(dueAt);
-  if (Number.isNaN(d.getTime())) return '';
+  const d = parseDate(dueAt);
+  if (!d) return '';
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfDue = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round((startOfDue - startOfToday) / 86_400_000);

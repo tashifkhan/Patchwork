@@ -9,10 +9,11 @@ import {
   SettingsScreen,
 } from '@/components/settings/settings-list';
 import { PatchMascot } from '@/components/mascot/patch-mascot';
-import { ListPicker } from '@/components/tasks/list-picker';
+import { ListPicker } from '@/features/tasks/list-picker';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useRestoreTasks, useTaskLists } from '@/hooks/use-tasks';
+import { useTaskLists } from '@/features/tasks/queries';
+import { useRestoreTasks } from '@/features/tasks/mutations';
 import { emptyRecycleBin, loadRecycleBin, useRecycleBinStore, type BinEntry } from '@/lib/recycle-bin';
 import Animated from 'react-native-reanimated';
 import { COLLAPSE_OUT, listPlacement } from '@/lib/motion';
@@ -70,7 +71,7 @@ export default function RecycleBinScreen() {
         title="Deleted to-dos"
         footer={
           message ??
-          'Deleted to-dos stay here for 30 days. Tap one to restore it to its list. Restored to-dos get their checklist back if it is still on the server.'
+          'Deleted to-dos stay here for 30 days. Tap one to restore it to its list. On-device checklists restore with their to-do.'
         }>
         {entries.length === 0 ? (
           <View style={{ alignItems: 'center', gap: 6, paddingVertical: 24, paddingHorizontal: 16 }}>

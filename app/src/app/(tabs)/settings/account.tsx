@@ -13,7 +13,8 @@ import { SymbolView } from 'expo-symbols';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform, Pressable } from 'react-native';
 
-import { validateCalDavAccount } from '@/api/tasks';
+import { validateCalDavAccount } from '@/api/caldav/client';
+import { CalDavServiceMenu, type CalDavService } from '@/components/settings/caldav-service-menu';
 import {
   HeaderTextButton,
   SETTINGS_IOS,
@@ -25,11 +26,9 @@ import {
   SettingsValueRow,
   useSettingsColors,
 } from '@/components/settings/settings-list';
-import { ServerTypeMenu } from '@/components/settings/server-type-menu';
 import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
-import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import {
@@ -53,23 +52,21 @@ export default function AccountEditor() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [baseUrl, setBaseUrl] = useState('');
-  const [serverType, setServerType] = useState<ServerType>('nextcloud');
+  const [caldavUrl, setCalDavUrl] = useState('');
+  const [iCloudUrl, setICloudUrl] = useState(ICLOUD_CALDAV_URL);
+  const [accountType, setAccountType] = useState<ServerType | 'icloud'>('nextcloud');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [removeVisible, setRemoveVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'ok' | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(!!id);
-  const [preset, setPreset] = useState<Preset>('nextcloud');
-
-  /** Fills the server for a known service; the URL stays editable. */
-  function choosePreset(next: Preset) {
-    setPreset(next);
-    const known = Object.values(PRESET_URL);
-    if (!baseUrl.trim() || known.includes(baseUrl.trim())) setBaseUrl(PRESET_URL[next]);
-    setServerType(next === 'nextcloud' ? 'nextcloud' : 'other');
-  }
+  const service = accountType === 'nextcloud' || accountType === 'owncloud' || accountType === 'icloud'
+    ? accountType
+    : 'other';
+  const isICloud = service === 'icloud';
+  const baseUrl = isICloud ? iCloudUrl : caldavUrl;
+  const serverType = accountType === 'icloud' ? 'other' : accountType;
 
   useEffect(() => {
     if (!id) return;
@@ -80,8 +77,10 @@ export default function AccountEditor() {
         setDisplayName(account.displayName);
         setUsername(account.username);
         setPassword(account.appPassword);
-        setBaseUrl(account.baseUrl);
-        setServerType(account.serverType);
+        const iCloud = isICloudUrl(account.baseUrl);
+        setAccountType(iCloud ? 'icloud' : account.serverType);
+        if (iCloud) setICloudUrl(account.baseUrl);
+        else setCalDavUrl(account.baseUrl);
       })
       .finally(() => {
         if (active) setLoadingAccount(false);
@@ -269,27 +268,36 @@ export default function AccountEditor() {
             </View>
           ) : null}
 
-          {isNew ? (
-            <FormSection title="Service" footer={PRESET_NOTE[preset]}>
-              <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
-                <SegmentedChoice
-                  options={[
-                    { label: 'Nextcloud', value: 'nextcloud' as Preset },
-                    { label: 'iCloud', value: 'icloud' as Preset },
-                    { label: 'Other', value: 'other' as Preset },
-                  ]}
-                  value={preset}
-                  onChange={choosePreset}
-                />
-              </View>
-              {preset === 'icloud' ? (
-                <SettingsActionRow
-                  title="Make an app-specific password"
-                  onPress={() => void WebBrowser.openBrowserAsync('https://account.apple.com').catch(() => {})}
-                />
-              ) : null}
-            </FormSection>
-          ) : null}
+          <FormSection title="Server" footer={SERVICE_NOTE[service]}>
+            <SettingsValueRow label="Service" icon="server">
+              <CalDavServiceMenu
+                value={service}
+                onChange={(next) => {
+                  if (next === service) return;
+                  setAccountType(next);
+                  setConnectionStatus(null);
+                }}
+              />
+            </SettingsValueRow>
+            <SettingsTextField
+              label={ios ? 'URL' : 'Server URL'}
+              icon="web"
+              value={baseUrl}
+              onChangeText={isICloud ? setICloudUrl : setCalDavUrl}
+              placeholder={isICloud ? ICLOUD_CALDAV_URL : 'https://cloud.example.com'}
+              keyboardType="url"
+              autoCapitalize="none"
+              autoComplete="off"
+              textContentType="URL"
+              returnKeyType="next"
+            />
+            {isICloud ? (
+              <SettingsActionRow
+                title="Create an app-specific password"
+                onPress={() => void WebBrowser.openBrowserAsync('https://account.apple.com').catch(() => {})}
+              />
+            ) : null}
+          </FormSection>
 
           <FormSection title={ios ? 'Account' : 'Profile'}>
             <SettingsTextField
@@ -320,32 +328,14 @@ export default function AccountEditor() {
               icon="lock-outline"
               value={password}
               onChangeText={setPassword}
-              placeholder={ios ? 'App password' : 'App password'}
+              placeholder="App password"
               secureTextEntry={!showPassword}
               autoCapitalize="none"
               autoComplete="password"
               textContentType="password"
-              returnKeyType="next"
+              returnKeyType="done"
               trailing={eye}
             />
-          </FormSection>
-
-          <FormSection title="Server" footer={ios ? INTRO : undefined}>
-            <SettingsTextField
-              label={ios ? 'URL' : 'Server URL'}
-              icon="web"
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-              placeholder="https://cloud.example.com"
-              keyboardType="url"
-              autoCapitalize="none"
-              autoComplete="off"
-              textContentType="URL"
-              returnKeyType="done"
-            />
-            <SettingsValueRow label="Server type" icon="server">
-              <ServerTypeMenu value={serverType} onChange={setServerType} />
-            </SettingsValueRow>
           </FormSection>
 
           {ios ? (
@@ -443,25 +433,27 @@ export default function AccountEditor() {
   );
 }
 
-const INTRO =
-  'Syncs to-dos with Nextcloud, ownCloud, Fastmail, iCloud and other CalDAV servers. Use an app password when your server offers one.';
+const INTRO = 'Connect a CalDAV account to sync your to-dos.';
+const ICLOUD_CALDAV_URL = 'https://caldav.icloud.com';
 
-type Preset = 'nextcloud' | 'icloud' | 'other';
-
-const PRESET_URL: Record<Preset, string> = {
-  nextcloud: '',
-  icloud: 'https://caldav.icloud.com',
-  other: '',
-};
-
-const PRESET_NOTE: Record<Preset, string> = {
-  nextcloud: 'Your Nextcloud address, your login, and an app password from Settings, Security in Nextcloud.',
+const SERVICE_NOTE: Record<CalDavService, string> = {
+  nextcloud: 'Create an app password in your Nextcloud security settings.',
+  owncloud: 'Use an app password if your ownCloud server offers one.',
   icloud:
     Platform.OS === 'ios'
-      ? 'Your Apple ID email and an app-specific password. iCloud only shares reminder lists over CalDAV if they were never upgraded, which is rare since iOS 13. On iPhone, turn on Apple Reminders in Settings, Calendars and reminders instead.'
-      : 'Your Apple ID email and an app-specific password. iCloud only shares reminder lists over CalDAV if they were never upgraded, which is rare since iOS 13, so this may find no lists. Apple has no other way in from Android.',
-  other: 'Any CalDAV server. Patchwork finds where your calendars live from the address you give it.',
+      ? 'Use your Apple Account email and an app-specific password. For upgraded lists, turn on Apple Reminders in Settings, Calendars and reminders.'
+      : 'Use your Apple Account email and an app-specific password. iCloud only shares older reminder lists over CalDAV.',
+  other: 'Enter your provider’s CalDAV address. Use an app password if available.',
 };
+
+function isICloudUrl(value: string) {
+  try {
+    const { hostname } = new URL(value);
+    return hostname === 'icloud.com' || hostname.endsWith('.icloud.com');
+  } catch {
+    return false;
+  }
+}
 
 /** A grouped card of form fields, divided like any settings group. */
 function FormSection({

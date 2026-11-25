@@ -11,8 +11,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Modal, Pressable } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 
-import { dictationBlocker, transcribeBrainDump } from '@/api/ai';
-import { ApiError } from '@/api/client';
+import { dictationBlocker, transcribeBrainDump } from '@/features/ai/generate-tasks';
+import { ApiError } from '@/api/error';
 import { GlassPillButton } from '@/components/ui/glass-button';
 import { useLiquidGlass } from '@/components/ui/glass-surface';
 import { useTheme } from '@/components/theme/context';
@@ -24,7 +24,7 @@ import {
   SLOW_DICTATION_MESSAGE,
   checkConnection,
   isNetworkError,
-} from '@/lib/connectivity';
+} from '@/features/sync/connectivity';
 import { haptics } from '@/lib/haptics';
 import { COLLAPSE_OUT, DURATION, EASING, EXPAND_IN } from '@/lib/motion';
 import {

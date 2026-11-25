@@ -2,14 +2,13 @@
 
 my tasks were spread across nextcloud, github issues, jira and a deck board i forgot existed. so i stitched them into one app. it's called patchwork because naming things is hard and this one was right there.
 
-runs on android and ios. the web and macos apps are in progress rn, so expect rough edges if you poke at them. built with expo, plus a small fastapi proxy so the web version can talk to caldav without cors throwing a tantrum.
+runs on android and ios and is built with expo.
 
 ## get it
 
 - **f-droid:** add `https://tashif.codes/fdroid/repo?fingerprint=568557c435bdf555725de95de596a90d6fa964d4bf0b71874f254cd0be7e94c9` in Settings → Repositories, refresh, install Patchwork. the fingerprint lets f-droid check the repo is really mine
 - **apk:** grab it from the [latest release](https://github.com/tashifkhan/Patchwork/releases/latest)
 - **ios:** build it yourself, [instructions below](#building-the-ios-app). apple wants $99 a year and i want to keep $99 a year
-- **web and macos:** in progress, not shipped yet
 
 ## screenshots
 
@@ -60,7 +59,7 @@ same app, ios clothes. the tasks here are demo data, my real list is too embarra
 - tablet and foldable layouts that actually use the extra space
 - a things-inspired redesign in 1.4, because of course i redesigned it
 
-on native, your credentials and api keys stay on the device in secure storage and the app talks to your servers directly. on web, requests go through the proxy so secrets never ship to the browser.
+your credentials and api keys stay on the device in secure storage. the app talks to your servers directly.
 
 ## run it
 
@@ -70,17 +69,8 @@ the app uses bun:
 cd app
 cp .env.example .env
 bun install
-bun start        # then w for web, a for android, i for ios
+bun start        # then a for android or i for ios
 ```
-
-the proxy uses uv:
-
-```sh
-cd proxy
-uv run uvicorn main:app --reload
-```
-
-the proxy reads its nextcloud, ai and cors settings from env vars. the full list is in [`proxy/app/core/config.py`](proxy/app/core/config.py).
 
 ## building the ios app
 
@@ -115,9 +105,9 @@ a free apple id works, but the app stops opening after 7 days and you have to bu
 ## where stuff lives
 
 ```text
-app/          the expo app (android, ios, web)
-proxy/        fastapi proxy for the web client and the ai endpoints
-.github/      release and f-droid workflows
+app/          the expo app (android and ios)
+proxy/        deprecated fastapi proxy
+.github/      app checks and release workflows
 screenshots/  the pictures above
 ```
 

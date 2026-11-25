@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 
-import { ApiError } from '@/api/client';
+import { ApiError } from '@/api/error';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,7 +18,6 @@ export const queryClient = new QueryClient({
 });
 
 export const queryKeys = {
-  health: ['health'] as const,
   taskLists: ['task-lists'] as const,
   tasks: ['tasks'] as const,
   deckBoards: ['deck', 'boards'] as const,

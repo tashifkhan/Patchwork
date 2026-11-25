@@ -11,7 +11,7 @@ import {
   SettingsTextField,
 } from '@/components/settings/settings-list';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useInvalidateAiKeys } from '@/hooks/use-ai';
+import { useInvalidateAiKeys } from '@/features/ai/queries';
 import { saveAiApiKey } from '@/lib/credentials';
 import { useSettingsStore } from '@/stores/settings-store';
 

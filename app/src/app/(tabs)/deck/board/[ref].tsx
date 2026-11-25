@@ -34,7 +34,7 @@ import {
   type BoardColumnItem,
   type BoardFilters,
 } from '@/features/boards/model';
-import { useBoardDetail, useBoardSummaries } from '@/hooks/use-boards';
+import { useBoardDetail, useBoardSummaries } from '@/features/boards/use-board-detail';
 import { haptics } from '@/lib/haptics';
 import { useTabBarContentPadding } from '@/lib/tab-bar';
 import { useSettingsStore } from '@/stores/settings-store';

@@ -1,6 +1,6 @@
 import type { Task, TaskCreate, TaskList } from '@/api/types';
 import { listsToMarkdown, parseMarkdownLists, type TextList, type TextTask } from '@/lib/task-text';
-import { flattenTasks } from '@/lib/task-buckets';
+import { flattenTasks } from '@/features/tasks/task-buckets';
 
 /**
  * Backups and moving to-dos between apps. JSON keeps every field Patchwork

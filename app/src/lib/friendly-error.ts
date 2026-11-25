@@ -1,4 +1,4 @@
-import { useConnectivityStore } from '@/lib/connectivity';
+import { useConnectivityStore } from '@/features/sync/connectivity';
 
 export type SyncErrorKind = 'offline' | 'unreachable' | 'auth' | 'other';
 

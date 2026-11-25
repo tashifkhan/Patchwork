@@ -3,8 +3,8 @@ import { Image } from 'expo-image';
 import { useState, type ReactNode } from 'react';
 import { Platform, Pressable } from 'react-native';
 
-import { MarkdownNotes } from '@/components/tasks/markdown-notes';
-import { MarkdownViewer } from '@/components/tasks/markdown-viewer';
+import { MarkdownNotes } from '@/components/ui/markdown-notes';
+import { MarkdownViewer } from '@/components/ui/markdown-viewer';
 import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner } from '@/components/ui/loading';
 import { haptics } from '@/lib/haptics';

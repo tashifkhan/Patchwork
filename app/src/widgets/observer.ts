@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import type { Task } from '@/api/types';
+import type { TaskSnapshot } from '@/features/tasks/repository';
 import { queryClient, queryKeys } from '@/lib/query-client';
 import { useSettingsStore } from '@/stores/settings-store';
 
@@ -13,7 +13,7 @@ let debounce: ReturnType<typeof setTimeout> | null = null;
 function schedulePush() {
   if (debounce) clearTimeout(debounce);
   debounce = setTimeout(() => {
-    const tasks = queryClient.getQueryData<Task[]>(queryKeys.tasks);
+    const tasks = queryClient.getQueryData<TaskSnapshot>(queryKeys.tasks)?.tasks;
     if (tasks) pushAllWidgets(tasks).catch(() => {});
     try {
       pushBoardsWidget();

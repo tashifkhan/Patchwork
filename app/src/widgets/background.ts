@@ -1,7 +1,7 @@
 import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 
-import { fetchTasks } from '@/api/tasks';
+import { fetchTasks } from '@/features/tasks/repository';
 
 import { refreshBoardsWidget } from './boards-snapshot';
 import { pushAllWidgets } from './snapshot';

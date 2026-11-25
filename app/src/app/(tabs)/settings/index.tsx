@@ -16,7 +16,7 @@ import { AboutFooter } from '@/components/settings/about-footer';
 import { useTheme } from '@/components/theme/context';
 import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { getAccounts, getGeminiApiKey, type CalDavAccount } from '@/lib/credentials';
-import { useOutboxStore } from '@/lib/outbox';
+import { useOutboxStore } from '@/features/sync/outbox';
 import { loadRecycleBin, useRecycleBinStore } from '@/lib/recycle-bin';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useJiraSessionStore } from '@/stores/jira-session-store';

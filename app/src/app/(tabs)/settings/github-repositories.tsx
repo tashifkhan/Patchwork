@@ -15,7 +15,7 @@ import { useTheme } from '@/components/theme/context';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
-import { selectionFromRepo, useGitHubRepos } from '@/hooks/use-github';
+import { selectionFromRepo, useGitHubRepos } from '@/features/github/queries';
 import { useTabBarContentPadding } from '@/lib/tab-bar';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useSettingsStore } from '@/stores/settings-store';

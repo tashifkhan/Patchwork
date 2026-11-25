@@ -3,14 +3,14 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
-import { createTask, deleteTask, updateTask } from '@/api/tasks';
-import { TextStats } from '@/components/tasks/markdown-notes';
+import { createTask, deleteTask, updateTask } from '@/features/tasks/repository';
+import { TextStats } from '@/components/ui/markdown-notes';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { RiseIn } from '@/components/ui/motion';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { useTaskLists, useTasks } from '@/hooks/use-tasks';
+import { useTaskLists, useTasks } from '@/features/tasks/queries';
 import { haptics } from '@/lib/haptics';
 import { diffListText, summarize, type ListOp } from '@/lib/list-diff';
 import { queryKeys } from '@/lib/query-client';
@@ -78,7 +78,7 @@ export default function ListTextScreen() {
         } else if (op.kind === 'update') {
           await updateTask(op.task.id, op.patch, op.task.account_id);
         } else {
-          await deleteTask(op.task.id, op.task.account_id, op.task.etag);
+          await deleteTask(op.task.id, op.task.account_id, op.task.etag, { skipBin: true });
           deleted.push(op.task);
         }
       } catch {

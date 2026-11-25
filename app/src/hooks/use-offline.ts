@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { create } from 'zustand';
 
-import { checkConnection, useConnectivityStore } from '@/lib/connectivity';
-import { flushOutbox } from '@/lib/outbox-sync';
+import { checkConnection, useConnectivityStore } from '@/features/sync/connectivity';
+import { flushOutbox } from '@/features/sync/replay';
+import { useTaskWarnings } from '@/features/tasks/queries';
 import { queryClient } from '@/lib/query-client';
-import { useSyncStatusStore } from '@/stores/sync-status-store';
+import { useSyncStatusStore } from '@/features/sync/sync-status-store';
 
 const OFFLINE_PREFIX = "You're offline";
 
@@ -20,7 +21,7 @@ export const useOfflineBannerStore = create<{ dismissed: boolean; setDismissed: 
  */
 export function useIsOffline() {
   const probe = useConnectivityStore((s) => s.quality === 'offline');
-  const tasks = useSyncStatusStore((s) => s.taskWarnings[0]?.startsWith(OFFLINE_PREFIX) ?? false);
+  const tasks = useTaskWarnings()?.[0]?.startsWith(OFFLINE_PREFIX) ?? false;
   const deck = useSyncStatusStore((s) => s.deckWarnings[0]?.startsWith(OFFLINE_PREFIX) ?? false);
   return probe || tasks || deck;
 }

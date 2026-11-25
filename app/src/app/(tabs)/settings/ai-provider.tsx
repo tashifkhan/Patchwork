@@ -19,8 +19,8 @@ import {
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { RELAYROOM_DEFAULT_URL, fetchRelayroomModelOptions, relayroomTarget } from '@/api/relayroom';
-import { useAiCatalog, useInvalidateAiKeys } from '@/hooks/use-ai';
-import { aiCredentialId, modelBadges, type AiModelInfo, type ReasoningEffort } from '@/lib/ai-models';
+import { useAiCatalog, useInvalidateAiKeys } from '@/features/ai/queries';
+import { aiCredentialId, modelBadges, type AiModelInfo, type ReasoningEffort } from '@/features/ai/ai-models';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
 import { clearAiApiKey, getAiApiKey, saveAiApiKey } from '@/lib/credentials';
 import { useSettingsStore } from '@/stores/settings-store';

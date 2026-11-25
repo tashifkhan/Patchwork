@@ -16,13 +16,15 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 
 import { useTheme } from '@/components/theme/context';
+import { Fab } from '@/components/ui/fab';
 import { GlassIconButton, GlassPillButton } from '@/components/ui/glass-button';
 import { haptics } from '@/lib/haptics';
 import { PAISA } from '@/lib/motion';
+import { IOS_GLASS } from '@/lib/screen-options';
+import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { mixHex, withAlpha } from '@/lib/theme';
 import { formatBlock, formatTime, minuteOfDay, placeBlocks } from '@/lib/time-block';
 import { dayKey } from '@/stores/pomodoro-store';
@@ -60,7 +62,7 @@ function itemColor(item: DayItem, colorIndex: Map<string, number>) {
  */
 export function CalendarScreen() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
+  const fabBottom = useTabBarFabOffset();
   const model = useCalendarModel();
   const { now, todayKey, selected, setSelected, selectedDate, mondayFirst, byDay, dayItems } = model;
   const scrollRef = useRef<ScrollView>(null);
@@ -95,19 +97,16 @@ export function CalendarScreen() {
           headerLargeTitle: false,
           headerShadowVisible: false,
           headerRight: () => (
-            <View style={{ flexDirection: 'row', gap: 4 }}>
-              <HeaderSymbol
-                sf={showMonth ? 'calendar.circle.fill' : 'calendar'}
-                label={showMonth ? 'Hide month' : 'Show month'}
-                onPress={() => setShowMonth((v) => !v)}
-              />
-              {model.canCreate ? <HeaderSymbol sf="plus" label="New to-do" onPress={() => model.create()} /> : null}
-            </View>
+            <HeaderSymbol
+              sf={showMonth ? 'calendar.circle.fill' : 'calendar'}
+              label={showMonth ? 'Hide month' : 'Show month'}
+              onPress={() => setShowMonth((v) => !v)}
+            />
           ),
         }}
       />
       {/* Pinned under the bar, like Calendar's week row. */}
-      <View style={{ marginTop: headerHeight, backgroundColor: colors.bg, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: colors.separator }}>
+      <View style={{ marginTop: IOS_GLASS ? headerHeight : 0, backgroundColor: colors.bg, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: colors.separator }}>
           {showMonth ? (
             <MonthGrid
               selected={selected}
@@ -128,17 +127,11 @@ export function CalendarScreen() {
               onSelect={select}
             />
           )}
-          <Animated.Text
-            key={selected}
-            entering={FadeIn.duration(200)}
-            style={{ textAlign: 'center', fontSize: 15, fontWeight: '600', color: colors.text, marginTop: 6 }}>
-            {fullDate.format(selectedDate)}
-          </Animated.Text>
       </View>
       <ScrollView
         ref={scrollRef}
         contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}>
+        contentContainerStyle={{ paddingBottom: fabBottom + (model.canCreate ? 68 : 56) }}>
 
         {allDay.length ? (
           <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: colors.separator }}>
@@ -169,9 +162,12 @@ export function CalendarScreen() {
       </ScrollView>
 
       {/* Calendar's bottom-left Today button, as floating Liquid Glass. */}
-      <View style={{ position: 'absolute', left: 16, bottom: insets.bottom + 8 }}>
-        <GlassPillButton label="Today" height={44} onPress={() => select(todayKey)} disabled={selected === todayKey} />
-      </View>
+      {selected !== todayKey ? (
+        <View style={{ position: 'absolute', left: 16, bottom: fabBottom }}>
+          <GlassPillButton label="Today" height={44} onPress={() => select(todayKey)} />
+        </View>
+      ) : null}
+      {model.canCreate ? <Fab accessibilityLabel="Add task" onPress={() => model.create()} /> : null}
     </View>
   );
 }

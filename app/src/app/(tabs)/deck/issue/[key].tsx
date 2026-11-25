@@ -36,8 +36,8 @@ import {
 import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { HeaderTextButton } from '@/components/settings/settings-list';
-import { DateField } from '@/components/tasks/date-field';
-import { TaskActionBar } from '@/components/tasks/task-action-bar';
+import { DateField } from '@/components/ui/date-field';
+import { TaskActionBar } from '@/features/tasks/task-action-bar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';

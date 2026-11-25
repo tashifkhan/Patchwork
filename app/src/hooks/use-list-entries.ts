@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 
-import { useGitHubIssues } from '@/hooks/use-github';
-import { useTaskLists, useTasks } from '@/hooks/use-tasks';
+import { useGitHubIssues } from '@/features/github/queries';
+import { useTaskLists, useTasks } from '@/features/tasks/queries';
 import { type ListSummary, summarizeLists } from '@/lib/smart-lists';
-import { flattenTasks } from '@/lib/task-buckets';
+import { flattenTasks } from '@/features/tasks/task-buckets';
 import { useGitHubSessionStore } from '@/stores/github-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
 

@@ -1,12 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 
-import { ApiError } from '@/api/client';
+import { ApiError } from '@/api/error';
 import { DetailRow } from '@/components/boards/item-editor';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useCreateTask, useTaskLists, useUpdateTask } from '@/hooks/use-tasks';
-import { useDeleteDeckCard } from '@/hooks/use-deck';
+import { useTaskLists } from '@/features/tasks/queries';
+import { useCreateTask, useUpdateTask } from '@/features/tasks/mutations';
+import { useDeleteDeckCard } from '@/features/boards/queries';
 
 interface MoveToTasksProps {
   boardId: number;

@@ -2,8 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
-import { getApiBaseUrl, setApiBaseUrl } from '@/api/client';
-import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/lib/ai-models';
+import { DEFAULT_AI_MODELS, type AiCustomProvider, type AiModelSelection, type AiProviderId } from '@/features/ai/ai-models';
 import type { JiraIssueScope } from '@/api/jira';
 import { normalizeReminderOffsets } from '@/lib/reminder-offsets';
 import { assertSafeAiBaseUrl } from '@/lib/secure-url';
@@ -80,7 +79,7 @@ export type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types
 
 interface SettingsState extends ExtraPreferences {
   setExtras: (partial: Partial<ExtraPreferences>) => void;
-  proxyUrl: string;
+
   themeMode: ThemeMode;
   /** Android only: derive the palette from the device wallpaper (Material You). */
   dynamicColor: boolean;
@@ -134,7 +133,7 @@ interface SettingsState extends ExtraPreferences {
   recentBoards: string[];
   toggleFavoriteBoard: (ref: string) => void;
   markBoardViewed: (ref: string) => void;
-  setProxyUrl: (url: string) => void;
+
   setThemeMode: (mode: ThemeMode) => void;
   setDynamicColor: (enabled: boolean) => void;
   setAccentColor: (color: string | null) => void;
@@ -170,7 +169,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       ...DEFAULT_EXTRAS,
       setExtras: (partial) => set(partial),
-      proxyUrl: getApiBaseUrl(),
+
       themeMode: 'system',
       dynamicColor: true,
       accentColor: null,
@@ -208,10 +207,6 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           recentBoards: [ref, ...state.recentBoards.filter((entry) => entry !== ref)].slice(0, 5),
         })),
-      setProxyUrl: (url) => {
-        setApiBaseUrl(url);
-        set({ proxyUrl: url });
-      },
       setThemeMode: (themeMode) => set({ themeMode }),
       setDynamicColor: (dynamicColor) => set({ dynamicColor }),
       setAccentColor: (accentColor) => set({ accentColor, colorPalette: null }),
@@ -263,7 +258,7 @@ export const useSettingsStore = create<SettingsState>()(
       name: 'patchwork-settings',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: ({
-        proxyUrl,
+
         themeMode,
         dynamicColor,
         accentColor,
@@ -290,7 +285,7 @@ export const useSettingsStore = create<SettingsState>()(
         ...rest
       }) => ({
         ...pickExtras(rest),
-        proxyUrl,
+
         themeMode,
         dynamicColor,
         accentColor,
@@ -340,10 +335,7 @@ export const useSettingsStore = create<SettingsState>()(
         delete persisted.githubMode;
         return persisted as unknown as SettingsState;
       },
-      onRehydrateStorage: () => (state) => {
-        if (state?.proxyUrl) {
-          setApiBaseUrl(state.proxyUrl);
-        }
+      onRehydrateStorage: () => () => {
         useSettingsStore.setState({ hydrated: true });
       },
     }

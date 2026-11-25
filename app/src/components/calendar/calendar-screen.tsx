@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, type ScrollView as RNScrollView } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -23,14 +22,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { M3MonthCard, type DayMark } from '@/components/calendar/m3-month';
 import { useTheme } from '@/components/theme/context';
-import { TaskCheckbox } from '@/components/tasks/task-checkbox';
+import { TaskCheckbox } from '@/features/tasks/task-checkbox';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
+import { Fab } from '@/components/ui/fab';
 import { RiseIn } from '@/components/ui/motion';
 import { haptics } from '@/lib/haptics';
 import { expandLayout, PAISA } from '@/lib/motion';
 import { listTone } from '@/lib/smart-lists';
+import { useTabBarContentPadding } from '@/lib/tab-bar';
 import { mixHex, withAlpha } from '@/lib/theme';
-import { formatBlock, formatLength, formatTime, minuteOfDay, placeBlocks } from '@/lib/time-block';
+import { formatBlock, formatTime, minuteOfDay, placeBlocks } from '@/lib/time-block';
 import { dayKey } from '@/stores/pomodoro-store';
 import { Text, View } from '@/tw';
 
@@ -38,20 +39,18 @@ import { type DayItem, keyToDate, useCalendarModel, weekOf } from './use-calenda
 
 const HOUR = 64;
 const LABEL_WIDTH = 56;
-const BAR_HEIGHT = 64;
 /** Room above midnight so the first hour line isn't flush with the edge. */
 const TIMELINE_PAD = 12;
 const REDUCE = { reduceMotion: ReduceMotion.System } as const;
 
 const monthTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
 const weekdayLong = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
-const dateLine = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' });
 const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
 const hourLabel = new Intl.DateTimeFormat(undefined, { hour: 'numeric' });
 
 /**
- * Android calendar: a day planner. Big day title with an Add task pill, a week
- * strip, the day's to-dos with no time as chips, then an hour timeline with
+ * Android calendar: a month picker, a week strip, the day's to-dos with no
+ * time as chips, then an hour timeline with
  * each time block as a soft pastel card in its list's colour, a red now line,
  * and a play button that starts the focus timer for the block. Tapping an
  * empty hour starts a new block there. The month picker opens from the month
@@ -61,6 +60,7 @@ export function CalendarScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const model = useCalendarModel();
+  const timelineBottom = useTabBarContentPadding(model.canCreate ? 84 : 24);
   const { now, todayKey, selected, setSelected, selectedDate, mondayFirst, byDay, dayItems } = model;
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const [showMonth, setShowMonth] = useState(false);
@@ -73,11 +73,6 @@ export function CalendarScreen() {
 
   const timed = dayItems.filter((it) => it.block);
   const untimed = dayItems.filter((it) => !it.block);
-  const planned = timed.reduce(
-    (sum, it) => sum + (!it.event && it.task.start_at && it.block ? (it.block.end.getTime() - it.block.start.getTime()) / 60_000 : 0),
-    0
-  );
-  const open = dayItems.filter((it) => !it.event && !it.projected && !it.task.completed).length;
   // Only the timeline scrolls, and it holds the whole day so earlier events
   // are a scroll up. On today, the now line sits a third of the way down;
   // other days open at their first block, or 8 am.
@@ -114,7 +109,7 @@ export function CalendarScreen() {
     return out;
   }, [byDay]);
 
-  const title = selected === todayKey ? 'Today' : weekdayLong.format(selectedDate);
+  const monthLabel = monthTitle.format(selectedDate);
   const select = (key: string) => {
     haptics.selection();
     setSelected(key);
@@ -125,50 +120,26 @@ export function CalendarScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <Stack.Screen options={{ headerShown: false }} />
-      {/* Top bar */}
-      <View style={{ marginTop: insets.top, height: BAR_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, gap: 4 }}>
-        <RoundIcon icon="arrow-left" label="Back" onPress={() => router.back()} />
-        <View style={{ flex: 1 }} />
-        {selected !== todayKey ? (
-          <Animated.View entering={FadeIn.duration(180)}>
-            <RoundIcon icon="calendar-today" label="Go to today" onPress={() => select(todayKey)} />
-          </Animated.View>
-        ) : null}
-      </View>
-
-      {/* Fixed header: the day, the month, the week and anytime to-dos. */}
-      <View>
-        {/* Title and Add task */}
-        <RiseIn style={{ paddingHorizontal: 20, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Animated.Text
-              key={title}
-              entering={FadeIn.duration(220)}
-              style={{ fontSize: 40, lineHeight: 46, fontWeight: '800', letterSpacing: -1, color: colors.text }}>
-              {title}
-            </Animated.Text>
-            <Text style={{ fontSize: 16, color: colors.text2, marginTop: 4 }}>
-              {selected === todayKey ? dateLine.format(selectedDate) : `${open} open`}
-              {selected === todayKey ? ` · ${open} open` : ''}{planned > 0 ? ` · ${formatLength(Math.round(planned))} planned` : ''}
-            </Text>
-          </View>
-          {model.canCreate ? <AddTaskPill onPress={() => model.create()} /> : null}
-        </RiseIn>
-
-        {/* Month name opens the month picker */}
-        <Pressable
-          onPress={() => {
-            haptics.tap();
-            setShowMonth((v) => !v);
-          }}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: showMonth }}
-          accessibilityLabel={`${monthTitle.format(selectedDate)}. ${showMonth ? 'Hide' : 'Show'} month`}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 20, marginTop: 22, alignSelf: 'flex-start' }}>
-          <Text style={{ fontSize: 20, fontWeight: '500', color: colors.text }}>{monthTitle.format(selectedDate)}</Text>
-          <Chevron open={showMonth} />
-        </Pressable>
+      <View style={{ paddingTop: insets.top }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingRight: 8 }}>
+          <Pressable
+            onPress={() => {
+              haptics.tap();
+              setShowMonth((v) => !v);
+            }}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showMonth }}
+            accessibilityLabel={`${monthLabel}. ${showMonth ? 'Hide' : 'Show'} month`}
+            style={{ minHeight: 48, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 20 }}>
+            <Text style={{ flexShrink: 1, fontSize: 20, fontWeight: '500', color: colors.text }}>{monthLabel}</Text>
+            <Chevron open={showMonth} />
+          </Pressable>
+          {selected !== todayKey ? (
+            <Animated.View entering={FadeIn.duration(180)}>
+              <RoundIcon icon="calendar-today" label="Go to today" onPress={() => select(todayKey)} />
+            </Animated.View>
+          ) : null}
+        </View>
         {showMonth ? (
           <Animated.View entering={FadeIn.duration(200)} layout={expandLayout()} style={{ paddingHorizontal: 16, marginTop: 12 }}>
             <M3MonthCard
@@ -228,7 +199,7 @@ export function CalendarScreen() {
           ref={scrollRef}
           onScroll={onScroll}
           scrollEventThrottle={16}
-          contentContainerStyle={{ paddingTop: TIMELINE_PAD, paddingBottom: insets.bottom + 48 }}>
+          contentContainerStyle={{ paddingTop: TIMELINE_PAD, paddingBottom: timelineBottom }}>
           <Timeline
             startHour={0}
             items={timed}
@@ -247,6 +218,7 @@ export function CalendarScreen() {
           style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: 1, backgroundColor: colors.separator }, hairline]}
         />
       </View>
+      {model.canCreate ? <Fab accessibilityLabel="Add task" onPress={() => model.create()} /> : null}
     </View>
   );
 }
@@ -289,39 +261,6 @@ function RoundIcon({
         style={{ width: 48, height: 48, borderRadius: 24, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
         <PressGlow press={press} color={withAlpha(colors.text, 0.12)} radius={24} size={24} />
         <MaterialCommunityIcons name={icon} size={24} color={colors.text} />
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-/** The filled "Add task" pill from the title row. Its plus turns a quarter on press. */
-function AddTaskPill({ onPress }: { onPress: () => void }) {
-  const { colors } = useTheme();
-  const press = useElasticPress({ maxStretch: 0.06, maxTranslate: 2, pressedScale: 0.94 });
-  const plus = useAnimatedStyle(() => ({ transform: [{ rotate: `${press.glow.value * 90}deg` }] }));
-  return (
-    <Animated.View {...press.handlers} style={[press.style, { marginTop: 6 }]}>
-      <Pressable
-        onPress={onPress}
-        onPressOut={press.release}
-        accessibilityRole="button"
-        accessibilityLabel="Add task"
-        style={{
-          height: 52,
-          borderRadius: 26,
-          paddingHorizontal: 22,
-          overflow: 'hidden',
-          backgroundColor: colors.accent,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 6,
-          boxShadow: `0 6px 16px ${withAlpha(colors.accent, 0.3)}`,
-        }}>
-        <PressGlow press={press} color={withAlpha('#FFFFFF', 0.22)} radius={26} />
-        <Animated.View style={plus}>
-          <MaterialCommunityIcons name="plus" size={20} color={colors.onAccent} />
-        </Animated.View>
-        <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '700' }}>Add task</Text>
       </Pressable>
     </Animated.View>
   );

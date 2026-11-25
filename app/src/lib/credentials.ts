@@ -1,12 +1,69 @@
-// Default resolution target for `@/lib/credentials`.
-//
-// Metro never loads this file — it picks `.native.ts` on iOS/Android and
-// `.web.ts` on web. It exists for TypeScript (which does not understand Metro's
-// platform extensions) and for plain-Node consumers such as `bun test`, so it
-// re-exports the web stub rather than the native module: the stub is inert and
-// pulls in no react-native/expo-secure-store graph.
-//
-// Because TypeScript type-checks every call site against this stub, a symbol
-// added to `credentials.native.ts` but not to `credentials.web.ts` now fails to
-// compile instead of becoming a silent `undefined` at runtime on web.
-export * from './credentials.web';
+// Inert credentials for tooling outside Metro. Metro loads credentials.native.ts on devices.
+
+import type { CalDavAccount } from './credentials-types';
+import type { AiProviderId } from '@/features/ai/ai-models';
+
+export type { CalDavAccount, NextcloudCredentials, ServerType } from './credentials-types';
+export type { GitHubCredentials, JiraAccount, JiraCredentials } from './credentials-types';
+export { githubAccountKey, jiraAccountKey } from './account-keys';
+
+export async function getAccounts(): Promise<CalDavAccount[]> {
+  return [];
+}
+
+export async function getAccount(_id: string): Promise<CalDavAccount | null> {
+  return null;
+}
+
+export async function saveAccount(
+  input: Omit<CalDavAccount, 'id'> & { id?: string }
+): Promise<CalDavAccount> {
+  return { id: input.id ?? 'web', ...input } as CalDavAccount;
+}
+
+export async function deleteAccount(_id: string): Promise<void> {}
+
+export async function getGeminiApiKey(): Promise<string | null> {
+  return null;
+}
+
+export async function saveGeminiApiKey(_apiKey: string): Promise<void> {}
+
+export async function clearGeminiApiKey(): Promise<void> {}
+
+export async function getAiApiKey(_providerId: AiProviderId): Promise<string | null> {
+  return null;
+}
+
+export async function saveAiApiKey(_providerId: AiProviderId, _apiKey: string): Promise<void> {}
+
+export async function clearAiApiKey(_providerId: AiProviderId): Promise<void> {}
+
+export async function getGitHubAccounts(): Promise<import('./credentials-types').GitHubCredentials[]> {
+  return [];
+}
+
+export async function getGitHubCredentials(_accountId?: number): Promise<import('./credentials-types').GitHubCredentials | null> {
+  return null;
+}
+
+export async function removeGitHubCredentials(
+  _creds: Pick<import('./credentials-types').GitHubCredentials, 'account'>
+): Promise<void> {}
+
+export async function saveGitHubCredentials(_creds: import('./credentials-types').GitHubCredentials): Promise<void> {}
+
+export async function clearGitHubCredentials(): Promise<void> {}
+
+// Jira Cloud blocks browser (CORS) requests, so Jira is mobile-only.
+export async function getJiraAccounts(): Promise<import('./credentials-types').JiraCredentials[]> {
+  return [];
+}
+
+export async function removeJiraCredentials(_id: string): Promise<void> {}
+
+export async function saveJiraCredentials(_creds: import('./credentials-types').JiraCredentials): Promise<void> {
+  throw new Error('Jira is available in the iOS and Android apps.');
+}
+
+export async function clearJiraCredentials(): Promise<void> {}

@@ -5,7 +5,7 @@ import { Platform, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KeyboardScrollView } from '@/components/ui/keyboard';
-import { ApiError } from '@/api/client';
+import { ApiError } from '@/api/error';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 
 import { BoardStack } from '@/components/boards/board-stack';
@@ -18,13 +18,13 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { LoadingState } from '@/components/ui/loading';
 import type { BoardSummary } from '@/features/boards/model';
-import { useBoardSummaries } from '@/hooks/use-boards';
+import { useBoardSummaries } from '@/features/boards/use-board-detail';
 import { describeSyncError } from '@/lib/friendly-error';
 import { haptics } from '@/lib/haptics';
 import { useTabBarContentPadding, useTabBarMinimizeOnScroll } from '@/lib/tab-bar';
 import { useJiraSessionStore } from '@/stores/jira-session-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { useSyncStatusStore } from '@/stores/sync-status-store';
+import { useSyncStatusStore } from '@/features/sync/sync-status-store';
 import { Text, TextInput, View } from '@/tw';
 import { ELASTIC_BUTTON, ELASTIC_ROW, ElasticView } from '@/components/ui/motion';
 

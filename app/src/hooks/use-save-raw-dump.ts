@@ -1,8 +1,9 @@
 import { useCallback } from 'react';
 
 import type { TaskList } from '@/api/types';
-import { useCreateTask, useCreateTaskList, useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
-import { flattenTasks } from '@/lib/task-buckets';
+import { useTaskLists, useTasks } from '@/features/tasks/queries';
+import { useCreateTask, useCreateTaskList, useUpdateTask } from '@/features/tasks/mutations';
+import { flattenTasks } from '@/features/tasks/task-buckets';
 
 /** The list every raw brain dump lands in. Created on first sort. */
 export const BRAIN_DUMP_LIST = 'Brain dump';

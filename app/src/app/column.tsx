@@ -6,7 +6,7 @@ import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { useCreateDeckStack, useDeleteDeckStack, useUpdateDeckStack } from '@/hooks/use-deck';
+import { useCreateDeckStack, useDeleteDeckStack, useUpdateDeckStack } from '@/features/boards/queries';
 import { Text, TextInput, View } from '@/tw';
 
 export default function StackScreen() {

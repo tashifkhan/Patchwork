@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-import type { Task } from '@/api/types';
-import { bucketOf, byManualOrder, flattenTasks } from '@/lib/task-buckets';
+import { taskLink, taskRef, type Task } from '@/features/tasks/model';
+import { bucketOf, byManualOrder, flattenTasks } from '@/features/tasks/task-buckets';
 import { LAST_LIST_STORAGE_KEY } from '@/stores/ui-store';
 
 import ListWidget from './ListWidget';
@@ -25,6 +25,7 @@ function toWidgetTask(task: Task): WidgetTask {
   return {
     id: task.id,
     uid: task.uid,
+    href: `patchwork://${taskLink(taskRef(task))}`,
     title: task.title,
     due_at: task.due_at,
     list_name: task.list_name,

@@ -19,17 +19,17 @@ import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner } from '@/components/ui/loading';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { ToggleChip } from '@/components/ui/toggle-chip';
-import { useAiCatalog, useAiKeys } from '@/hooks/use-ai';
-import { useOnDeviceAi } from '@/hooks/use-on-device-ai';
-import { useTaskLists } from '@/hooks/use-tasks';
+import { useAiCatalog, useAiKeys } from '@/features/ai/queries';
+import { useOnDeviceAi } from '@/features/ai/use-on-device-ai';
+import { useTaskLists } from '@/features/tasks/queries';
 import {
   effortLabel,
   modelBadges,
   modelById,
   reasoningChoices,
   type ReasoningEffort,
-} from '@/lib/ai-models';
-import { isOnDevice, onDeviceEngineName, onDeviceSubtitle } from '@/lib/on-device-ai';
+} from '@/features/ai/ai-models';
+import { isOnDevice, onDeviceEngineName, onDeviceSubtitle } from '@/features/ai/on-device-ai';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Text, View } from '@/tw';
 

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 
-import { discardQueued } from '@/api/tasks';
+import { discardQueued } from '@/features/tasks/repository';
 
 import {
   RowSeparator,
@@ -10,11 +10,11 @@ import {
   SettingsScreen,
 } from '@/components/settings/settings-list';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useTaskLists } from '@/hooks/use-tasks';
-import { useConnectivityStore } from '@/lib/connectivity';
-import { LOCAL_ACCOUNT_ID } from '@/lib/local-tasks';
-import { describeEntry, loadOutbox, useOutboxStore, type OutboxEntry } from '@/lib/outbox';
-import { flushOutbox, type FlushResult } from '@/lib/outbox-sync';
+import { useTaskLists } from '@/features/tasks/queries';
+import { useConnectivityStore } from '@/features/sync/connectivity';
+import { LOCAL_ACCOUNT_ID } from '@/features/tasks/local-tasks';
+import { describeEntry, loadOutbox, useOutboxStore, type OutboxEntry } from '@/features/sync/outbox';
+import { flushOutbox, type FlushResult } from '@/features/sync/replay';
 import { queryClient, queryKeys } from '@/lib/query-client';
 
 /**
@@ -23,6 +23,7 @@ import { queryClient, queryKeys } from '@/lib/query-client';
  */
 export default function OfflineSettingsScreen() {
   const entries = useOutboxStore((s) => s.entries);
+  const loadError = useOutboxStore((s) => s.loadError);
   const quality = useConnectivityStore((s) => s.quality);
   const listsQuery = useTaskLists();
   const localLists = (listsQuery.data ?? []).filter((list) => list.account_id === LOCAL_ACCOUNT_ID);
@@ -32,7 +33,7 @@ export default function OfflineSettingsScreen() {
   const [discardError, setDiscardError] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadOutbox();
+    void loadOutbox().catch(() => {});
   }, []);
 
   async function syncNow() {
@@ -40,6 +41,8 @@ export default function OfflineSettingsScreen() {
     setResult(null);
     try {
       setResult(await flushOutbox({ retryFailed: true }));
+    } catch {
+      // The outbox store exposes a failed read alongside the retry action.
     } finally {
       setSyncing(false);
     }
@@ -72,7 +75,9 @@ export default function OfflineSettingsScreen() {
       </SettingsGroup>
 
       <SettingsGroup title="Waiting to sync" footer={status}>
-        {entries.length === 0 ? (
+        {loadError ? (
+          <SettingsRow icon="cloud-alert-outline" title="Outbox unavailable" subtitle={loadError} />
+        ) : entries.length === 0 ? (
           <SettingsRow icon="cloud-check-outline" title="Everything is synced" />
         ) : (
           entries.map((entry, index) => {

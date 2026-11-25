@@ -44,7 +44,10 @@ const TodayWidgetView = (props: TodayProps | undefined, env: WidgetEnvironment) 
 
   const formatDue = (dueAt: string | null): string => {
     if (!dueAt) return '';
-    const d = new Date(dueAt);
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueAt);
+    const d = dateOnly
+      ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+      : new Date(dueAt);
     if (Number.isNaN(d.getTime())) return '';
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -81,7 +84,7 @@ const TodayWidgetView = (props: TodayProps | undefined, env: WidgetEnvironment) 
     );
     if (isSmall) return <HStack key={task.id}>{content}</HStack>;
     return (
-      <Link key={task.id} destination={`patchwork:///task/${encodeURIComponent(task.uid)}`}>
+      <Link key={task.id} destination={task.href ?? `patchwork:///task/${encodeURIComponent(task.uid)}`}>
         {content}
       </Link>
     );

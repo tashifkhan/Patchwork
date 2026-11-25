@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { useCreateDeckBoard } from '@/hooks/use-deck';
+import { useCreateDeckBoard } from '@/features/boards/queries';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
 import { useUiStore } from '@/stores/ui-store';
 import { Text, TextInput, View } from '@/tw';

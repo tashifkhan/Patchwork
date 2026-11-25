@@ -2,6 +2,21 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.12.0] - 2026-11-26
+
+Calendar has its own tab. Tap the floating plus to add a task on the selected day.
+
+### Changed
+
+- The calendar leaves more room for the timeline, and opening a task from Calendar keeps you in that tab.
+- CalDAV account setup uses one service picker. iCloud fills in its server address, and switching back restores the URL you entered.
+
+### Fixed
+
+- Deleting an on-device task moves its checklist to Recently Deleted with it. Restoring the task brings back the checklist and its completion state.
+- If a CalDAV list fails to refresh, Patchwork keeps its last known tasks and reminders.
+- Retrying a queued Nextcloud attachment does not upload a duplicate, and date-only tasks stay on the correct day in widgets.
+
 ## [1.11.0] - 2026-11-25
 
 Patchwork can show your calendar events alongside your tasks. On iPhone, you can also manage your Apple Reminders lists in Patchwork.
