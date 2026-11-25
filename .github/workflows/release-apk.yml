@@ -3,9 +3,8 @@ name: Release Android APK
 # Builds a production APK with EAS, attaches it to a GitHub Release, then
 # dispatches the F-Droid publish workflow on tashif.codes.
 #
-# Triggers:
-#   - Push a version tag:   git tag v1.2.3 && git push origin v1.2.3
-#   - Manual run:           Actions → Release Android APK → Run workflow
+# Run this workflow manually with an existing release tag to build on EAS cloud.
+# For a local build, upload the signed APK to GitHub Releases and run Publish F-Droid Repo.
 #
 # Required secrets (Patchwork repo):
 #   EXPO_TOKEN                    — Expo account token for EAS builds
@@ -13,13 +12,10 @@ name: Release Android APK
 #                                   (optional; skip F-Droid if unset)
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish (e.g. v1.0.0). Must match vX.Y.Z.'
+        description: 'Existing release tag to build and publish (e.g. v1.0.0)'
         required: true
         type: string
       skip_fdroid:
@@ -29,7 +25,7 @@ on:
         type: boolean
 
 concurrency:
-  group: release-apk-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-apk-${{ inputs.tag }}
   cancel-in-progress: false
 
 permissions:
@@ -45,15 +41,12 @@ jobs:
         working-directory: app
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag }}
       TASHIF_CODES_WORKFLOW_TOKEN: ${{ secrets.TASHIF_CODES_WORKFLOW_TOKEN }}
       TASHIF_CODES_REPO: tashifkhan/tashif.codes
       NODE_ENV: production
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Validate tag and secrets
         working-directory: .
         run: |
@@ -70,6 +63,11 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "APK_NAME=Patchwork-${VERSION}.apk" >> "$GITHUB_ENV"
           echo "Resolved version: $VERSION"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -215,7 +213,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          target_commitish: ${{ github.sha }}
           name: Patchwork ${{ env.RELEASE_TAG }}
           draft: false
           prerelease: false
@@ -227,7 +224,7 @@ jobs:
             ${{ steps.download_apk.outputs.checksum_path }}
 
       - name: Trigger tashif.codes F-Droid publish
-        if: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN != '' && !(github.event_name == 'workflow_dispatch' && inputs.skip_fdroid) }}
+        if: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN != '' && !inputs.skip_fdroid }}
         env:
           GH_TOKEN: ${{ env.TASHIF_CODES_WORKFLOW_TOKEN }}
         working-directory: .

@@ -14,11 +14,11 @@ export interface DeviceCalendar {
 
 let calendarPromise: Promise<CalendarModule | null> | null = null;
 
-function canUseCalendar() {
+export function canUseCalendar() {
   return !(Platform.OS === 'web' || (Platform.OS === 'android' && Constants.appOwnership === 'expo'));
 }
 
-async function getCalendar() {
+export async function getCalendar() {
   if (!canUseCalendar()) return null;
   calendarPromise ??= import('expo-calendar').catch(() => null);
   return calendarPromise;

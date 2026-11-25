@@ -21,6 +21,13 @@ export interface CalDavAccount {
   username: string;
   appPassword: string;
   serverType: ServerType;
+  /**
+   * Where the server keeps this user's calendars, found by CalDAV discovery
+   * (RFC 6764) when the URL isn't a Nextcloud-style path. iCloud answers on
+   * caldav.icloud.com but keeps calendars on a per-user host, so requests go
+   * to this URL's origin instead of `baseUrl`'s.
+   */
+  calendarHome?: string;
 }
 
 /** Back-compat alias for the single-account shape some callers still import. */

@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from 'react';
 import { SymbolView } from 'expo-symbols';
-import { Pressable } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { Platform, Pressable } from 'react-native';
 
 import { validateCalDavAccount } from '@/api/tasks';
 import {
@@ -28,6 +29,7 @@ import { ServerTypeMenu } from '@/components/settings/server-type-menu';
 import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
+import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { LoadingBar, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import {
@@ -59,6 +61,15 @@ export default function AccountEditor() {
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'ok' | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(!!id);
+  const [preset, setPreset] = useState<Preset>('nextcloud');
+
+  /** Fills the server for a known service; the URL stays editable. */
+  function choosePreset(next: Preset) {
+    setPreset(next);
+    const known = Object.values(PRESET_URL);
+    if (!baseUrl.trim() || known.includes(baseUrl.trim())) setBaseUrl(PRESET_URL[next]);
+    setServerType(next === 'nextcloud' ? 'nextcloud' : 'other');
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -99,8 +110,8 @@ export default function AccountEditor() {
         appPassword: password,
         serverType,
       };
-      await validateCalDavAccount(candidate);
-      await saveAccount({ ...candidate, id });
+      const resolved = await validateCalDavAccount(candidate);
+      await saveAccount({ ...resolved, id });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.taskLists }),
         queryClient.invalidateQueries({ queryKey: queryKeys.tasks }),
@@ -258,6 +269,28 @@ export default function AccountEditor() {
             </View>
           ) : null}
 
+          {isNew ? (
+            <FormSection title="Service" footer={PRESET_NOTE[preset]}>
+              <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                <SegmentedChoice
+                  options={[
+                    { label: 'Nextcloud', value: 'nextcloud' as Preset },
+                    { label: 'iCloud', value: 'icloud' as Preset },
+                    { label: 'Other', value: 'other' as Preset },
+                  ]}
+                  value={preset}
+                  onChange={choosePreset}
+                />
+              </View>
+              {preset === 'icloud' ? (
+                <SettingsActionRow
+                  title="Make an app-specific password"
+                  onPress={() => void WebBrowser.openBrowserAsync('https://account.apple.com').catch(() => {})}
+                />
+              ) : null}
+            </FormSection>
+          ) : null}
+
           <FormSection title={ios ? 'Account' : 'Profile'}>
             <SettingsTextField
               label={ios ? 'Name' : 'Display name'}
@@ -411,7 +444,24 @@ export default function AccountEditor() {
 }
 
 const INTRO =
-  'Works with Nextcloud, iCloud, Fastmail and other CalDAV servers. Use an app password when your server offers one.';
+  'Syncs to-dos with Nextcloud, ownCloud, Fastmail, iCloud and other CalDAV servers. Use an app password when your server offers one.';
+
+type Preset = 'nextcloud' | 'icloud' | 'other';
+
+const PRESET_URL: Record<Preset, string> = {
+  nextcloud: '',
+  icloud: 'https://caldav.icloud.com',
+  other: '',
+};
+
+const PRESET_NOTE: Record<Preset, string> = {
+  nextcloud: 'Your Nextcloud address, your login, and an app password from Settings, Security in Nextcloud.',
+  icloud:
+    Platform.OS === 'ios'
+      ? 'Your Apple ID email and an app-specific password. iCloud only shares reminder lists over CalDAV if they were never upgraded, which is rare since iOS 13. On iPhone, turn on Apple Reminders in Settings, Calendars and reminders instead.'
+      : 'Your Apple ID email and an app-specific password. iCloud only shares reminder lists over CalDAV if they were never upgraded, which is rare since iOS 13, so this may find no lists. Apple has no other way in from Android.',
+  other: 'Any CalDAV server. Patchwork finds where your calendars live from the address you give it.',
+};
 
 /** A grouped card of form fields, divided like any settings group. */
 function FormSection({

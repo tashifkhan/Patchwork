@@ -167,6 +167,14 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           />
           <RowSeparator />
           <SettingsRow
+            icon="calendar-month-outline"
+            sf="calendar"
+            title="Calendars & Reminders"
+            showChevron
+            onPress={() => go('/settings/calendars')}
+          />
+          <RowSeparator />
+          <SettingsRow
             icon="cloud-sync-outline"
             sf="icloud.and.arrow.up"
             title="Offline & Sync"
@@ -320,6 +328,18 @@ export function SettingsHub({ embedded = false }: { embedded?: boolean }) {
           showChevron
           onPress={() => go('/settings/notifications')}
         />
+        {!isWeb ? (
+          <>
+            <RowSeparator />
+            <SettingsRow
+              icon="calendar-month-outline"
+              title="Calendars and reminders"
+              subtitle="Show events from your phone's calendars"
+              showChevron
+              onPress={() => go('/settings/calendars')}
+            />
+          </>
+        ) : null}
         {!isWeb ? (
           <>
             <RowSeparator />

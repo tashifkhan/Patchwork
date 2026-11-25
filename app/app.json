@@ -2,7 +2,7 @@
   "expo": {
     "name": "Patchwork",
     "slug": "todo",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "patchwork",
@@ -61,7 +61,8 @@
       [
         "expo-calendar",
         {
-          "calendarPermission": "Allow $(PRODUCT_NAME) to add tasks with due dates to your calendar."
+          "calendarPermission": "$(PRODUCT_NAME) shows your calendar events next to your to-dos and can add to-dos with dates to your calendar.",
+          "remindersPermission": "$(PRODUCT_NAME) shows your Reminders lists as to-do lists and saves your changes back to them."
         }
       ],
       [

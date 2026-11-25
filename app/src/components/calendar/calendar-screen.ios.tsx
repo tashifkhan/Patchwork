@@ -46,6 +46,11 @@ function calendarColor(index: number) {
   return CALENDAR_COLORS[index % CALENDAR_COLORS.length];
 }
 
+/** A to-do's list colour, or a phone event's own calendar colour. */
+function itemColor(item: DayItem, colorIndex: Map<string, number>) {
+  return item.event?.color ?? calendarColor(colorIndex.get(item.task.list_id) ?? 0);
+}
+
 /**
  * iOS calendar, in the shape of Apple Calendar's day view: the month as the
  * bar title, a week strip pinned under the bar, an all-day row, then the hour
@@ -69,7 +74,9 @@ export function CalendarScreen() {
     if (timelineY == null) return;
     const firstHour = timed.length ? Math.min(...timed.map((it) => it.block!.start.getHours())) : 8;
     const hour = selected === todayKey ? Math.max(0, now.getHours() - 1) : Math.max(0, firstHour - 1);
-    const frame = requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: timelineY + hour * HOUR - 8, animated: true }));
+    // A day with only all-day items stays at the top, so the all-day row is in view.
+    const y = selected !== todayKey && !timed.length && allDay.length ? 0 : timelineY + hour * HOUR - 8;
+    const frame = requestAnimationFrame(() => scrollRef.current?.scrollTo({ y, animated: true }));
     return () => cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, timelineY]);
@@ -139,7 +146,7 @@ export function CalendarScreen() {
             <View style={{ flex: 1, gap: 3, paddingLeft: 8, paddingRight: 12 }}>
               {allDay.map((item, i) => (
                 <Animated.View key={`${item.task.id}-${item.projected}`} entering={FadeIn.delay(i * 30).duration(200)}>
-                  <AllDayCapsule item={item} color={calendarColor(model.colorIndex.get(item.task.list_id) ?? 0)} onOpen={model.open} onToggle={model.toggle} />
+                  <AllDayCapsule item={item} color={itemColor(item, model.colorIndex)} onOpen={model.open} onToggle={model.toggle} />
                 </Animated.View>
               ))}
             </View>
@@ -384,6 +391,7 @@ function AllDayCapsule({
     <Pressable
       onPress={() => onOpen(task)}
       accessibilityRole="button"
+      accessibilityLabel={item.event ? `${task.title}, ${item.event.calendarTitle}, all day` : undefined}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
@@ -394,7 +402,9 @@ function AllDayCapsule({
         backgroundColor: withAlpha(color, pressed ? 0.32 : scheme === 'dark' ? 0.28 : 0.18),
         opacity: done || projected ? 0.55 : 1,
       })}>
-      {!projected ? (
+      {item.event ? (
+        <View style={{ width: 3, alignSelf: 'stretch', marginVertical: 5, borderRadius: 2, backgroundColor: color }} />
+      ) : !projected ? (
         <CheckCircle done={done} color={ink} onPress={() => onToggle(task)} label={`${done ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`} />
       ) : (
         <SymbolView name="repeat" size={12} tintColor={ink} />
@@ -469,7 +479,7 @@ function Timeline({
                 <EventBlock
                   item={item}
                   height={height}
-                  color={calendarColor(colorIndex.get(item.task.list_id) ?? 0)}
+                  color={itemColor(item, colorIndex)}
                   running={!item.projected && runningUid === item.task.uid}
                   onOpen={onOpen}
                   onToggle={onToggle}
@@ -530,7 +540,12 @@ function EventBlock({
       onPressIn={() => scale.set(withTiming(0.97, { duration: 90 }))}
       onPressOut={() => scale.set(withSpring(1, { damping: 14, stiffness: 380, ...REDUCE }))}
       accessibilityRole="button"
-      accessibilityLabel={`${task.title}, ${block ? formatBlock(block) : ''}${done ? ', done' : ''}${running ? ', in focus' : ''}`}
+      accessibilityLabel={
+        item.event
+          ? `${task.title}, ${block ? formatBlock(block) : ''}, ${item.event.calendarTitle}`
+          : `${task.title}, ${block ? formatBlock(block) : ''}${done ? ', done' : ''}${running ? ', in focus' : ''}`
+      }
+      accessibilityHint={item.event ? 'Opens in Calendar' : undefined}
       style={{ flex: 1 }}>
       <Animated.View
         style={[
@@ -549,7 +564,7 @@ function EventBlock({
         <View style={{ width: 4, backgroundColor: color, opacity: projected ? 0.5 : 1 }} />
         <View style={{ flex: 1, paddingHorizontal: 6, paddingVertical: compact ? 0 : 4, justifyContent: compact ? 'center' : 'flex-start' }}>
           <View style={{ flexDirection: 'row', alignItems: compact ? 'center' : 'flex-start', gap: 5 }}>
-            {!projected ? (
+            {!projected && !item.event ? (
               <View style={{ paddingTop: compact ? 0 : 1 }}>
                 <CheckCircle done={done} color={ink} onPress={() => onToggle(task)} label={`${done ? 'Mark incomplete' : 'Mark complete'}: ${task.title}`} />
               </View>
@@ -560,7 +575,7 @@ function EventBlock({
               {task.title}
               {compact && block ? <Text style={{ fontWeight: '400' }}>{`  ${formatTime(block.start)}`}</Text> : null}
             </Text>
-            {!projected && !done ? (
+            {!projected && !done && !item.event ? (
               <Pressable
                 onPress={() => onFocus(task)}
                 hitSlop={8}
@@ -571,9 +586,10 @@ function EventBlock({
             ) : null}
           </View>
           {!compact && block ? (
-            <Text numberOfLines={1} style={{ fontSize: 12, color: withAlpha(ink, 0.8), marginTop: 1, marginLeft: 21 }}>
+            <Text numberOfLines={1} style={{ fontSize: 12, color: withAlpha(ink, 0.8), marginTop: 1, marginLeft: item.event ? 0 : 21 }}>
               {running ? 'In focus · ' : ''}
               {formatBlock(block)}
+              {item.event?.location ? ` · ${item.event.location}` : ''}
             </Text>
           ) : null}
         </View>

@@ -66,7 +66,7 @@ export function deleteTask(taskId: string, _accountId?: string, _etag?: string |
  * perform. Present only because the native module exports it; a missing symbol
  * here is a runtime `undefined` on web that TypeScript cannot see.
  */
-export async function validateCalDavAccount(_account: CalDavAccount): Promise<void> {
+export async function validateCalDavAccount(_account: CalDavAccount): Promise<CalDavAccount> {
   throw new ApiError(
     501,
     'CalDAV accounts are configured on the proxy server, not in the browser. Set them in the proxy environment, or use the iOS/Android app to connect an account on-device.'

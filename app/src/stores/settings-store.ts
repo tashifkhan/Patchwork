@@ -47,6 +47,12 @@ export interface ExtraPreferences {
   searchTab: boolean;
   /** First-run intro finished or skipped. Installs from before it existed count as done. */
   onboarded: boolean;
+  /** Draw events from the phone's own calendars (Google, iCloud, Outlook...) in the Calendar view. */
+  deviceEvents: boolean;
+  /** Phone calendars the user hid from the Calendar view, by id. */
+  hiddenEventCalendars: string[];
+  /** iOS: show Apple Reminders lists as task lists, through EventKit. */
+  appleReminders: boolean;
 }
 
 export const DEFAULT_EXTRAS: ExtraPreferences = {
@@ -66,6 +72,9 @@ export const DEFAULT_EXTRAS: ExtraPreferences = {
   floatingTabFrosted: true,
   searchTab: true,
   onboarded: false,
+  deviceEvents: false,
+  hiddenEventCalendars: [],
+  appleReminders: false,
 };
 export type { GitHubIssueScope, GitHubIssueState } from '@/features/github/types';
 

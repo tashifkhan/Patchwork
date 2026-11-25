@@ -13,6 +13,7 @@ import type {
   TaskListUpdate,
   TaskUpdate,
 } from './types';
+import { APPLE_ACCOUNT_ID, isAppleListId, isAppleTaskId } from '@/lib/apple-reminders-ids';
 import { base64Encode } from '@/lib/base64';
 import { isNetworkError, knownOffline } from '@/lib/connectivity';
 import { getAccounts, type CalDavAccount } from '@/lib/credentials';
@@ -69,9 +70,10 @@ const USER_ID_KEY = 'patchwork.nextcloud-user-id.';
 export async function fetchTaskLists() {
   const accounts = await getAccounts();
   const clients = accounts.map((account) => new CalDavClient(account));
-  const [results, localLists] = await Promise.all([
+  const [results, localLists, appleLists] = await Promise.all([
     Promise.allSettled(clients.map((client) => client.listTaskCalendars())),
     localListsToShow(accounts.length === 0),
+    (await apple()).getAppleLists().catch(() => [] as TaskList[]),
   ]);
   const lists: TaskList[] = [];
   const warnings: string[] = [];
@@ -92,7 +94,7 @@ export async function fetchTaskLists() {
     }
   }
   if (offline) warnings.unshift(OFFLINE_WARNING);
-  lists.push(...localLists);
+  lists.push(...localLists, ...appleLists);
   useSyncStatusStore.getState().setTaskSync(warnings);
   if (lists.length === 0) throw firstRejected(results) ?? new ApiError(404, 'No task lists found.');
   return lists;
@@ -101,7 +103,7 @@ export async function fetchTaskLists() {
 export async function fetchTasks() {
   const accounts = await getAccounts();
   const clients = accounts.map((account) => new CalDavClient(account));
-  const [results, localLists, localTasks, outbox] = await Promise.all([
+  const [results, localLists, localTasks, outbox, appleTasks] = await Promise.all([
     Promise.allSettled(
       clients.map(async (client) => {
         const lists = await client.listTaskCalendars();
@@ -120,6 +122,7 @@ export async function fetchTasks() {
     localListsToShow(accounts.length === 0),
     getLocalTasks(),
     getEntries(),
+    (await apple()).getAppleTasks().catch(() => [] as Task[]),
   ]);
 
   // Tasks saved offline join their account's tree, so a pending checklist item
@@ -156,7 +159,7 @@ export async function fetchTasks() {
   }
   const knownAccounts = new Set(accounts.map((account) => account.id));
   const orphans = pending.filter((task) => !task.account_id || !knownAccounts.has(task.account_id));
-  tasks.push(...attachChildren(localTasks), ...attachChildren(orphans));
+  tasks.push(...attachChildren(localTasks), ...attachChildren(orphans), ...appleTasks);
 
   if (offline) warnings.unshift(OFFLINE_WARNING);
   useSyncStatusStore.getState().setTaskSync(warnings);
@@ -165,6 +168,9 @@ export async function fetchTasks() {
   }
   return tasks;
 }
+
+/** The EventKit side of Apple Reminders, loaded on first use (iOS only in practice). */
+const apple = () => import('@/lib/apple-reminders');
 
 const OFFLINE_WARNING =
   "You're offline. Showing what was last synced. New to-dos are saved on this device and sent when you're back online.";
@@ -191,6 +197,7 @@ function errorMessage(error: unknown) {
 
 export async function createTaskList(payload: TaskListCreate) {
   if (payload.account_id === LOCAL_ACCOUNT_ID) return createLocalList(payload.name);
+  if (payload.account_id === APPLE_ACCOUNT_ID) return (await apple()).createAppleList(payload.name);
   const accounts = await getAccounts();
   if (accounts.length === 0 && !payload.account_id) return createLocalList(payload.name);
   const clients = accounts.map((account) => new CalDavClient(account));
@@ -212,12 +219,14 @@ export async function createTaskList(payload: TaskListCreate) {
 
 export async function updateTaskList(listId: string, payload: TaskListUpdate) {
   if (isLocalListId(listId)) return renameLocalList(listId, payload.name);
+  if (isAppleListId(listId)) return (await apple()).renameAppleList(listId, payload.name);
   const { client, target } = await resolveListTarget(listId);
   return client.renameTaskCalendar(target, payload.name);
 }
 
 export async function deleteTaskList(listId: string) {
   if (isLocalListId(listId)) return deleteLocalList(listId);
+  if (isAppleListId(listId)) return (await apple()).deleteAppleList(listId);
   const { client, target } = await resolveListTarget(listId);
   await client.deleteTaskCalendar(target);
 }
@@ -230,6 +239,10 @@ export async function deleteTaskList(listId: string) {
  */
 export async function createTask(payload: TaskCreate): Promise<Task> {
   if (isLocalListId(payload.list_id)) return createLocalTask(payload);
+  if (isAppleListId(payload.list_id)) {
+    if (payload.parent_uid) throw new ApiError(400, 'Apple Reminders has no checklists, so this item can\'t go under a reminder.');
+    return (await apple()).createAppleTask(payload);
+  }
   const withUid = { ...payload, uid: payload.uid ?? randomUuid() };
   if (knownOffline()) return queueTask(withUid);
   try {
@@ -315,6 +328,8 @@ async function putNewTask(client: CalDavClient, target: TaskList, uid: string, c
 }
 
 export async function updateTask(taskId: string, payload: TaskUpdate, accountId?: string): Promise<Task> {
+  if (isAppleTaskId(taskId)) return updateAppleOrMove(taskId, payload);
+  if (payload.list_id && isAppleListId(payload.list_id)) return moveIntoApple(taskId, payload, accountId);
   if (isPendingTaskId(taskId)) return updatePendingTask(taskId, payload);
   if (isLocalTaskId(taskId)) {
     if (payload.list_id && !isLocalListId(payload.list_id)) return moveLocalTaskToAccount(taskId, payload);
@@ -418,6 +433,7 @@ export async function deleteTask(
   etag?: string | null,
   options?: { keepAttachments?: boolean }
 ) {
+  if (isAppleTaskId(taskId)) return (await apple()).deleteAppleTask(taskId);
   if (isPendingTaskId(taskId)) return discardQueued(pendingEntryId(taskId));
   if (isLocalTaskId(taskId)) return deleteLocalTask(taskId);
   const client = await clientForTask(taskId, accountId);
@@ -477,6 +493,63 @@ async function moveLocalTaskToAccount(taskId: string, patch: TaskUpdate): Promis
   const created = await createTask({ ...taskToCreate(existing), ...fields, list_id: patch.list_id! });
   await deleteLocalTask(taskId);
   return created;
+}
+
+/**
+ * Edit an Apple reminder. EventKit can't move a reminder between lists, so a
+ * list change copies it to the new list (Apple or not) and removes the old one.
+ */
+async function updateAppleOrMove(taskId: string, payload: TaskUpdate): Promise<Task> {
+  if (!payload.list_id) return (await apple()).updateAppleTask(taskId, payload);
+  const existing = await (await apple()).getAppleTask(taskId);
+  if (!existing) throw new ApiError(404, 'This reminder is no longer in Reminders.');
+  if (existing.list_id === payload.list_id) return (await apple()).updateAppleTask(taskId, payload);
+  const { etag: _etag, ...fields } = payload;
+  const created = await createTask({ ...taskToCreate(existing), ...fields, uid: undefined, list_id: payload.list_id });
+  await (await apple()).deleteAppleTask(taskId);
+  return created;
+}
+
+/** Move an on-device, queued or CalDAV to-do into an Apple Reminders list. */
+async function moveIntoApple(taskId: string, payload: TaskUpdate, accountId?: string): Promise<Task> {
+  const source = await readTask(taskId, accountId);
+  const localChildren = isLocalTaskId(taskId)
+    ? (await getLocalTasks()).filter((task) => task.parent_uid === source.uid)
+    : [];
+  if ((source.children ?? []).length || localChildren.length) {
+    throw new ApiError(400, 'Apple Reminders has no checklists. Move the checklist items out first.');
+  }
+  if (source.attachments?.length) {
+    throw new ApiError(400, 'Apple Reminders has no attachments. Remove the images first.');
+  }
+  const { etag: _etag, ...fields } = payload;
+  const created = await (await apple()).createAppleTask({ ...taskToCreate(source), ...fields, list_id: payload.list_id! });
+  try {
+    await deleteTask(taskId, accountId, source.etag, { keepAttachments: true });
+  } catch (error) {
+    await (await apple()).deleteAppleTask(created.id).catch(() => {});
+    throw error;
+  }
+  return created;
+}
+
+/** The current state of any to-do, for copying it somewhere else. */
+async function readTask(taskId: string, accountId?: string): Promise<Task> {
+  if (isLocalTaskId(taskId)) {
+    const task = await getLocalTask(taskId);
+    if (!task) throw new ApiError(404, 'This to-do is no longer on this device.');
+    return task;
+  }
+  if (isPendingTaskId(taskId)) {
+    const entry = (await getEntries()).find((candidate) => candidate.id === pendingEntryId(taskId));
+    if (!entry || entry.kind !== 'task') throw new ApiError(404, 'This to-do was already sent. Refresh to see it.');
+    return pendingTask(entry);
+  }
+  const client = await clientForTask(taskId, accountId);
+  const existing = await client.fetchTaskByHref(taskId);
+  const parsed = parseVtodo(existing.calendarData, client.absoluteUrl(taskId), existing.etag, existing.list);
+  if (!parsed) throw new ApiError(500, 'Task could not be read');
+  return parsed;
 }
 
 function taskToCreate(task: Task): TaskCreate {
@@ -765,9 +838,80 @@ export async function removeTaskAttachment(
   return updated;
 }
 
-export async function validateCalDavAccount(account: CalDavAccount): Promise<void> {
-  const client = new CalDavClient(account);
+/**
+ * Checks an account can list its task calendars, and returns it with the
+ * calendar home filled in when the server needed discovery to find it.
+ */
+export async function validateCalDavAccount(account: CalDavAccount): Promise<CalDavAccount> {
+  let resolved = account;
+  const nextcloudPath = calendarHomeFromUrl(account.baseUrl.replace(/\/+$/, ''), account.username);
+  const nextcloudLike = account.serverType === 'nextcloud' || account.serverType === 'owncloud';
+  if (!nextcloudPath && !nextcloudLike) {
+    const home = await discoverCalendarHome(account);
+    if (home) resolved = { ...account, calendarHome: home };
+  }
+  const client = new CalDavClient(resolved);
   await client.listTaskCalendars();
+  return resolved;
+}
+
+/** True when two hosts share their last two labels (p42-caldav.icloud.com and caldav.icloud.com). */
+function sameSite(a: string, b: string) {
+  const tail = (host: string) => new URL(host).hostname.toLowerCase().split('.').slice(-2).join('.');
+  try {
+    return tail(a) === tail(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * RFC 6764 / RFC 4791 discovery: ask the URL (then its `/.well-known/caldav`)
+ * for the user's principal, then the principal for its calendar home. Only
+ * follows answers on the same site, so a password is never sent to a host the
+ * user didn't point at.
+ */
+async function discoverCalendarHome(account: CalDavAccount): Promise<string | null> {
+  const base = account.baseUrl.replace(/\/+$/, '');
+  const auth = `Basic ${base64Encode(`${account.username}:${account.appPassword}`)}`;
+  const propfind = async (url: string, prop: string) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: 'PROPFIND',
+        signal: controller.signal,
+        headers: { Authorization: auth, Depth: '0', 'Content-Type': 'application/xml; charset=utf-8' },
+        body: `<d:propfind xmlns:d="${DAV_NS}" xmlns:cal="${CALDAV_NS}"><d:prop>${prop}</d:prop></d:propfind>`,
+      });
+      if (response.status === 401) throw new ApiError(401, 'The server turned down that username and password.');
+      if (!response.ok) return null;
+      return { xml: await response.text(), url: response.url || url };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  for (const start of [base, `${originOf(base)}/.well-known/caldav`]) {
+    const found = await propfind(start, '<d:current-user-principal />');
+    if (!found || !sameSite(found.url, base)) continue;
+    const principalTag = readTagText(found.xml, 'current-user-principal');
+    const principalHref = principalTag ? readTagText(principalTag, 'href') : null;
+    if (!principalHref) continue;
+    const principal = new URL(principalHref, found.url).toString();
+    if (!sameSite(principal, base)) continue;
+    const homeSet = await propfind(principal, '<cal:calendar-home-set />');
+    const homeTag = homeSet ? readTagText(homeSet.xml, 'calendar-home-set') : null;
+    const homeHref = homeTag ? readTagText(homeTag, 'href') : null;
+    if (!homeHref) continue;
+    const home = new URL(homeHref, homeSet!.url).toString();
+    if (!sameSite(home, base)) continue;
+    return home.endsWith('/') ? home : `${home}/`;
+  }
+  return null;
 }
 
 class CalDavClient {
@@ -780,8 +924,13 @@ class CalDavClient {
   constructor(account: CalDavAccount) {
     this.account = account;
     const inputUrl = account.baseUrl.replace(/\/+$/, '');
-    this.calendarHome = calendarHomeFromUrl(inputUrl, account.username);
-    this.baseUrl = this.calendarHome ? originOf(inputUrl) : inputUrl;
+    this.calendarHome = account.calendarHome ?? calendarHomeFromUrl(inputUrl, account.username);
+    // A discovered home may live on another host of the same service (iCloud).
+    this.baseUrl = account.calendarHome
+      ? originOf(account.calendarHome)
+      : this.calendarHome
+        ? originOf(inputUrl)
+        : inputUrl;
     this.username = account.username;
     this.authHeader = `Basic ${base64Encode(`${account.username}:${account.appPassword}`)}`;
   }
