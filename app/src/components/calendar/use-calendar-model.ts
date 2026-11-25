@@ -6,6 +6,7 @@ import type { Task } from '@/api/types';
 import { useDeviceEvents } from '@/hooks/use-device-events';
 import { useTaskLists, useTasks } from '@/features/tasks/queries';
 import { useUpdateTask } from '@/features/tasks/mutations';
+import { taskRef } from '@/features/tasks/model';
 import { type DeviceEvent, openDeviceEvent } from '@/lib/device-events';
 import { playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
@@ -183,7 +184,7 @@ export function useCalendarModel() {
       void openDeviceEvent(task.uid.slice('event:'.length));
       return;
     }
-    router.push({ pathname: '/task/[uid]', params: { uid: task.uid } });
+    router.push({ pathname: '/calendar/task/[uid]', params: { ...taskRef(task) } });
   }
 
   /** Focus on a to-do: a timer the length of its block, or a stopwatch when it has none. */
@@ -201,10 +202,10 @@ export function useCalendarModel() {
   /** New to-do on the selected day; with an hour, as an hour-long block from then. */
   function create(hour?: number) {
     if (!targetList) return;
-    haptics.impact('medium');
     let start: string | null = null;
     let due = atDay(selectedDate);
     if (hour != null) {
+      haptics.impact('medium');
       const begin = new Date(selectedDate);
       begin.setHours(hour, 0, 0, 0);
       start = begin.toISOString();

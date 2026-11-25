@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabs } from 'expo-router/native-tabs';
 import { useEffect, useRef } from 'react';
 import { Platform, View } from 'react-native';
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -32,11 +32,10 @@ function FloatingBarBridge({ state, emitter, navigateToTab }: FloatingTabBarProp
   return null;
 }
 
-const FLOATING_SCREENS = ['(tasks)', 'deck', 'settings', 'search'] as const;
-
 // iOS shows the filled symbol for the selected tab, like the system apps.
 const NATIVE_TABS = [
   { name: '(tasks)', label: 'Tasks', sf: { default: 'checklist', selected: 'checklist' }, md: 'checklist' },
+  { name: 'calendar', label: 'Calendar', sf: 'calendar', md: 'calendar_month' },
   {
     name: 'deck',
     label: 'Boards',
@@ -169,8 +168,8 @@ function FloatingTabs() {
         },
         sceneStyle: { backgroundColor: colors.bg },
       }}>
-      {FLOATING_SCREENS.map((name) => (
-        <Tabs.Screen key={name} name={name} options={{ title: name }} />
+      {NATIVE_TABS.map(({ name, label }) => (
+        <Tabs.Screen key={name} name={name} options={{ title: label }} />
       ))}
           </Tabs>
         </FrostTarget>
@@ -216,8 +215,8 @@ function RailTabs() {
         tabBarPosition: 'left',
         sceneStyle: { backgroundColor: colors.bg },
       }}>
-      {FLOATING_SCREENS.map((name) => (
-        <Tabs.Screen key={name} name={name} options={{ title: name }} />
+      {NATIVE_TABS.map(({ name, label }) => (
+        <Tabs.Screen key={name} name={name} options={{ title: label }} />
       ))}
     </Tabs>
   );

@@ -740,7 +740,6 @@ export default function TasksScreen() {
               <View style={{ marginTop: Platform.OS === 'ios' ? 4 : 2 }}>
                 <HeaderIcons
                   items={[
-                    { icon: 'calendar-month-outline', label: 'Calendar', href: '/calendar' },
                     { icon: 'head-lightbulb-outline', label: 'Brain dump', href: '/brain-dump' },
                     { icon: 'timer-outline', label: 'Focus timer', href: '/pomodoro' },
                   ]}
@@ -1212,7 +1211,6 @@ export default function TasksScreen() {
 }
 
 const HEADER_SF = {
-  '/calendar': 'calendar',
   '/brain-dump': 'brain.head.profile',
   '/pomodoro': 'timer',
 } as const;

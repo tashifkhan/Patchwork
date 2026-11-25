@@ -70,7 +70,7 @@ export function HeaderBackButtonLeft({
   );
 }
 
-const TAB_ROOTS = ['/deck', '/settings', '/search'];
+const TAB_ROOTS = ['/calendar', '/deck', '/settings', '/search'];
 
 /** The main screen of the tab that owns `pathname`, or null if it is one. */
 function tabRootFor(pathname: string): Href | null {

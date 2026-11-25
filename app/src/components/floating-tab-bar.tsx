@@ -4,6 +4,7 @@ import {
   Pressable,
   StyleSheet,
   TextInput as RNTextInput,
+  useWindowDimensions,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -65,11 +66,16 @@ const MAIN_TABS: {
   motion: IconMotion;
 }[] = [
   { route: '(tasks)', label: 'Tasks', icon: 'checkbox-marked-outline', iconFocused: 'format-list-checks', motion: 'hop' },
+  { route: 'calendar', label: 'Calendar', icon: 'calendar-blank-outline', iconFocused: 'calendar-month', motion: 'hop' },
   { route: 'deck', label: 'Boards', icon: 'view-column-outline', iconFocused: 'view-column', motion: 'wiggle' },
   { route: 'settings', label: 'Settings', icon: 'cog-outline', iconFocused: 'cog', motion: 'turn' },
 ];
 
 const SEARCH_ROUTE = 'search';
+const TAB_WIDTH = 48;
+const CAPSULE_PADDING = 8;
+const TAB_GAP = 4;
+const SEARCH_GAP = 10;
 const TIMING = { duration: 280, easing: Easing.out(Easing.cubic) };
 /** Paisa's settle spring (dampingRatio 0.8, StiffnessMediumLow) for the label opening and the tabs making room. */
 const SETTLE = LinearTransition.springify().damping(32).stiffness(400).mass(1);
@@ -100,6 +106,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
   const frostOn = useSettingsStore((s) => s.floatingTabFrosted);
   const isDark = scheme === 'dark';
   const insets = useSafeAreaInsets();
+  const { width, fontScale } = useWindowDimensions();
   const minimized = useTabBarChromeStore((s) => s.minimized);
   const expand = useTabBarChromeStore((s) => s.expand);
   const searchQuery = useTabBarChromeStore((s) => s.floatingSearchQuery);
@@ -107,6 +114,12 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
 
   const activeRoute = state.routes[state.index]?.name ?? '(tasks)';
   const searchFocused = activeRoute === SEARCH_ROUTE;
+  const tabs = MAIN_TABS.filter((tab) => boardsTab || tab.route !== 'deck');
+  const capsuleWidth = width - 2 * FLOATING_TAB_BAR_MARGIN -
+    (searchTab ? FLOATING_TAB_CIRCLE + SEARCH_GAP : 0);
+  const tabSpace = capsuleWidth - 2 * CAPSULE_PADDING - (tabs.length - 1) * TAB_GAP - 3;
+  const focusedWidth = tabSpace - (tabs.length - 1) * TAB_WIDTH;
+  const showActiveTitle = focusedWidth >= 52 + 62 * fontScale;
   // When search is open, always use the search layout (image #2).
   const compact = searchFocused || minimized;
 
@@ -302,7 +315,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
               pointerEvents="none"
               style={[styles.pill, { backgroundColor: selectionFill }, pillStyle]}
             />
-            {MAIN_TABS.filter((tab) => boardsTab || tab.route !== 'deck').map((tab) => {
+            {tabs.map((tab) => {
               const focused = activeRoute === tab.route;
               return (
                 // Every tab is an icon. The selected one sits on the pill and
@@ -327,7 +340,9 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
                       // The capsule gives and lights up under the finger, so
                       // a tab doesn't dim or shrink on top of that.
                       height: FLOATING_TAB_BAR_HEIGHT - 16,
-                      paddingHorizontal: showTitles ? 14 : focused ? 18 : 14,
+                      minWidth: TAB_WIDTH,
+                      maxWidth: showTitles ? Math.max(TAB_WIDTH, tabSpace / tabs.length) : undefined,
+                      paddingHorizontal: showTitles ? 5 : focused && showActiveTitle ? 10 : 12,
                       borderRadius: 999,
                       // "Tab titles": every tab stacks its icon over a title.
                       flexDirection: showTitles ? 'column' : 'row',
@@ -353,7 +368,7 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
                         }}>
                         {tab.label}
                       </Text>
-                    ) : focused ? (
+                    ) : focused && showActiveTitle ? (
                       <Animated.View
                         entering={FadeIn.duration(220)}
                         exiting={FadeOut.duration(100)}
@@ -561,7 +576,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: SEARCH_GAP,
   },
   // Paisa's bar hugs its tabs and sits centered; search rides beside it.
   centered: {
@@ -570,11 +585,11 @@ const styles = StyleSheet.create({
   capsule: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: TAB_GAP,
     height: FLOATING_TAB_BAR_HEIGHT,
     borderRadius: FLOATING_TAB_BAR_HEIGHT / 2,
     borderCurve: 'continuous',
-    paddingHorizontal: 8,
+    paddingHorizontal: CAPSULE_PADDING,
   },
   pill: {
     position: 'absolute',

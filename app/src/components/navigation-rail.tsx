@@ -13,6 +13,7 @@ type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 const DESTINATIONS: { route: string; label: string; icon: IconName; iconFocused: IconName }[] = [
   { route: '(tasks)', label: 'Tasks', icon: 'checkbox-marked-outline', iconFocused: 'format-list-checks' },
+  { route: 'calendar', label: 'Calendar', icon: 'calendar-blank-outline', iconFocused: 'calendar-month' },
   { route: 'deck', label: 'Boards', icon: 'view-column-outline', iconFocused: 'view-column' },
   { route: 'search', label: 'Search', icon: 'magnify', iconFocused: 'magnify' },
   { route: 'settings', label: 'Settings', icon: 'cog-outline', iconFocused: 'cog' },

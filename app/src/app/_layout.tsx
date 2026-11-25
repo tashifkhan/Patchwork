@@ -108,7 +108,7 @@ export default function RootLayout() {
                 headerShown: false,
                 ...(Platform.OS === 'android' ? { animation: ANDROID_PUSH } : null),
                 // iOS: the round glass chevron with no label, as in Settings, on
-                // every screen pushed here (Calendar, review, scan...).
+                // every screen pushed here (review, scan...).
                 ...(Platform.OS === 'ios' ? { headerBackButtonDisplayMode: 'minimal' as const } : null),
               }}>
               <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Tasks' }} />
@@ -159,7 +159,6 @@ export default function RootLayout() {
               <Stack.Screen name="brain-dump" options={sheetScreenOptions([0.85, 1.0], 'Brain dump')} />
               <Stack.Screen name="share-tasks" options={sheetScreenOptions([0.85, 1.0], 'Share')} />
               <Stack.Screen name="list-text" options={sheetScreenOptions([1.0], 'Edit as text')} />
-              <Stack.Screen name="calendar" options={{ headerShown: true, title: 'Calendar', headerLargeTitle: false }} />
               <Stack.Screen name="lists" options={{ title: 'Lists' }} />
               <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
             </Stack>
