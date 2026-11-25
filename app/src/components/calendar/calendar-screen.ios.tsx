@@ -128,12 +128,6 @@ export function CalendarScreen() {
               onSelect={select}
             />
           )}
-          <Animated.Text
-            key={selected}
-            entering={FadeIn.duration(200)}
-            style={{ textAlign: 'center', fontSize: 15, fontWeight: '600', color: colors.text, marginTop: 6 }}>
-            {fullDate.format(selectedDate)}
-          </Animated.Text>
       </View>
       <ScrollView
         ref={scrollRef}
