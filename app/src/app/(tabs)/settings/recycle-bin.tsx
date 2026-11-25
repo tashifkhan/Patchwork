@@ -9,10 +9,11 @@ import {
   SettingsScreen,
 } from '@/components/settings/settings-list';
 import { PatchMascot } from '@/components/mascot/patch-mascot';
-import { ListPicker } from '@/components/tasks/list-picker';
+import { ListPicker } from '@/features/tasks/list-picker';
 import { useTheme } from '@/components/theme/context';
 import { NativeAlert } from '@/components/ui/native-alert';
-import { useRestoreTasks, useTaskLists } from '@/hooks/use-tasks';
+import { useTaskLists } from '@/features/tasks/queries';
+import { useRestoreTasks } from '@/features/tasks/mutations';
 import { emptyRecycleBin, loadRecycleBin, useRecycleBinStore, type BinEntry } from '@/lib/recycle-bin';
 import Animated from 'react-native-reanimated';
 import { COLLAPSE_OUT, listPlacement } from '@/lib/motion';

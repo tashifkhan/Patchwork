@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';

@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 import * as SplashScreen from 'expo-splash-screen';
 import { router, type ErrorBoundaryProps } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { AppState, Platform, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -17,11 +17,11 @@ import { OnboardingGate } from '@/components/onboarding/onboarding';
 import { PatchMascot } from '@/components/mascot/patch-mascot';
 import { ConfettiHost } from '@/components/ui/confetti';
 import { useReconnectSync } from '@/hooks/use-offline';
-import { useTasks } from '@/hooks/use-tasks';
+import { taskQuery } from '@/features/tasks/queries';
 import { loadCustomFonts } from '@/lib/fonts';
 import { DURATION } from '@/lib/motion';
-import { loadOutbox, useOutboxStore } from '@/lib/outbox';
-import { flushOutbox } from '@/lib/outbox-sync';
+import { loadOutbox, useOutboxStore } from '@/features/sync/outbox';
+import { flushOutbox } from '@/features/sync/replay';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient, queryKeys } from '@/lib/query-client';
 import { ANDROID_PUSH, sheetScreenOptions } from '@/lib/screen-options';
@@ -202,7 +202,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 function NativeRuntimeCoordinator() {
-  const tasksQuery = useTasks();
+  const tasksQuery = useQuery(taskQuery);
   const initializeGitHub = useGitHubSessionStore((state) => state.initialize);
   const notificationsEnabled = useSettingsStore((state) => state.notificationsEnabled);
   const defaultReminderOffsets = useSettingsStore((state) => state.defaultReminderOffsets);
@@ -219,8 +219,9 @@ function NativeRuntimeCoordinator() {
   useEffect(() => {
     if (process.env.EXPO_OS === 'web') return;
     const flush = () => void flushOutbox().catch(() => {});
-    void loadOutbox().then(flush);
+    void loadOutbox().then(flush).catch(() => {});
     const subscription = AppState.addEventListener('change', (state) => {
+      focusManager.setFocused(state === 'active');
       if (state === 'active') flush();
     });
     const timer = setInterval(() => {
@@ -286,16 +287,16 @@ function NativeRuntimeCoordinator() {
 
   useEffect(() => {
     if (!tasksQuery.data) return;
-    syncTaskReminders(tasksQuery.data).catch(() => {});
+    syncTaskReminders(tasksQuery.data.tasks, tasksQuery.data.complete).catch(() => {});
   }, [tasksQuery.data, notificationsEnabled, defaultReminderOffsets]);
 
   useEffect(() => {
     let active = true;
     let stop = () => {};
-    startNotificationResponseObserver((taskUid) => {
+    startNotificationResponseObserver((ref) => {
       router.push({
         pathname: '/task/[uid]',
-        params: { uid: taskUid },
+        params: { ...ref },
       });
     }, (href) => {
       if (href === '/pomodoro' || href === '/brain-dump') router.push(href);

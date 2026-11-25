@@ -1,6 +1,6 @@
-# Patchwork Backend Proxy (FastAPI)
+# Patchwork Backend Proxy (Deprecated)
 
-This directory contains the FastAPI backend proxy application for the developer-centric tasks app.
+This directory contains the legacy FastAPI proxy. Patchwork for Android and iOS connects directly to configured services.
 
 ## Purpose of the Proxy
 

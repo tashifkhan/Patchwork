@@ -1,6 +1,6 @@
 import { firstDue, shorthandToRrule } from '@/lib/recurrence';
-import { normalizeTags } from '@/lib/tags';
-import { atDay } from '@/lib/when';
+import { normalizeTags } from '@/features/tasks/tags';
+import { atDay } from '@/features/tasks/when';
 
 /**
  * Shorthand typed straight into a new to-do's title:

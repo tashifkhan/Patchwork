@@ -1,9 +1,10 @@
-import type { BucketKey } from '@/lib/task-buckets';
+import type { BucketKey } from '@/features/tasks/task-buckets';
 
 /** Compact, JSON-serializable subset of Task used by widget extensions. */
 export interface WidgetTask {
   id: string;
   uid: string;
+  href?: string;
   title: string;
   due_at: string | null;
   list_name: string;

@@ -4,16 +4,17 @@ import { Platform } from 'react-native';
 
 import type { Task } from '@/api/types';
 import { useDeviceEvents } from '@/hooks/use-device-events';
-import { useTaskLists, useTasks, useUpdateTask } from '@/hooks/use-tasks';
+import { useTaskLists, useTasks } from '@/features/tasks/queries';
+import { useUpdateTask } from '@/features/tasks/mutations';
 import { type DeviceEvent, openDeviceEvent } from '@/lib/device-events';
 import { playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
 import { nextDue } from '@/lib/recurrence';
 import { togglePatch } from '@/lib/task-actions';
-import { flattenTasks } from '@/lib/task-buckets';
+import { flattenTasks } from '@/features/tasks/task-buckets';
 import { type Block, blockMinutes, blockOf } from '@/lib/time-block';
-import { atDay, startOfDay } from '@/lib/when';
-import { setCreateHandoff } from '@/stores/create-handoff';
+import { atDay, startOfDay } from '@/features/tasks/when';
+import { setCreateHandoff } from '@/features/tasks/create-handoff';
 import { dayKey, usePomodoroStore } from '@/stores/pomodoro-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -209,7 +210,7 @@ export function useCalendarModel() {
       start = begin.toISOString();
       due = new Date(begin.getTime() + 60 * 60_000).toISOString();
     }
-    setCreateHandoff({
+    const draftId = setCreateHandoff({
       title: '',
       body: '',
       task: {
@@ -224,7 +225,7 @@ export function useCalendarModel() {
         subtaskDraft: '',
       },
     });
-    router.push('/new-task');
+    router.push({ pathname: '/new-task', params: { draftId } });
   }
 
   return {

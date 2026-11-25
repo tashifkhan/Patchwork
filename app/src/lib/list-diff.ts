@@ -1,6 +1,6 @@
 import type { Task, TaskUpdate } from '@/api/types';
-import { normalizeTags } from '@/lib/tags';
-import { flattenTasks } from '@/lib/task-buckets';
+import { normalizeTags } from '@/features/tasks/tags';
+import { flattenTasks } from '@/features/tasks/task-buckets';
 import type { TextTask } from '@/lib/task-text';
 
 /**

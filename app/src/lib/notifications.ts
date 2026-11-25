@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import type { Task } from '@/api/types';
+import { taskKey, taskLink, taskRef, type Task, type TaskRef } from '@/features/tasks/model';
 import { useSettingsStore } from '@/stores/settings-store';
 
 import { parseDate } from './format';
@@ -12,6 +12,11 @@ type NotificationsModule = typeof import('expo-notifications');
 
 let notificationsPromise: Promise<NotificationsModule | null> | null = null;
 const REMINDER_KEY_PREFIX = 'patchwork.reminder.';
+const SCOPED_REMINDER_PREFIX = 'patchwork.task-reminder.v2.';
+
+function isReminderKey(key: string) {
+  return key.startsWith(REMINDER_KEY_PREFIX) || key.startsWith(SCOPED_REMINDER_PREFIX);
+}
 
 /** The notifications scheduled for one task (several with multiple default reminders). */
 interface StoredReminder {
@@ -53,25 +58,14 @@ export async function ensureNotificationPermissions(): Promise<boolean> {
   return request.granted;
 }
 
-// Schedules a task's local reminders and returns the first notification id.
-// Stored against the task UID so they can be cancelled/rescheduled later.
-export async function scheduleTaskReminder(params: {
-  taskUid: string;
-  title: string;
-  reminderAt: string | null;
-  dueAt?: string | null;
-}): Promise<string | null> {
-  return syncTaskReminder(params);
-}
-
-export async function syncTaskReminder(params: {
-  taskUid: string;
+async function syncTaskReminder(params: {
+  ref: TaskRef;
   title: string;
   reminderAt: string | null;
   dueAt?: string | null;
 }): Promise<string | null> {
   const Notifications = await getNotifications();
-  const key = reminderStorageKey(params.taskUid);
+  const key = reminderStorageKey(params.ref);
   const stored = await readStoredReminder(key);
   const { notificationsEnabled, defaultReminderOffsets } = useSettingsStore.getState();
   // The task's own reminder wins; otherwise one per default before the due time.
@@ -102,7 +96,12 @@ export async function syncTaskReminder(params: {
         content: {
           title: params.title,
           body: body ?? 'Task reminder',
-          data: { taskUid: params.taskUid, href: `/task/${encodeURIComponent(params.taskUid)}` },
+          data: {
+            taskUid: params.ref.uid,
+            taskAccount: params.ref.account ?? null,
+            taskList: params.ref.list ?? null,
+            href: taskLink(params.ref),
+          },
         },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: time.date },
       })
@@ -196,15 +195,18 @@ export async function cancelReminder(notificationId: string | null): Promise<voi
   await Notifications.cancelScheduledNotificationAsync(notificationId);
 }
 
-export async function cancelTaskReminder(taskUid: string): Promise<void> {
-  const key = reminderStorageKey(taskUid);
+export function cancelTaskReminder(ref: TaskRef): Promise<void> {
+  return cancelStoredReminder(reminderStorageKey(ref));
+}
+
+async function cancelStoredReminder(key: string): Promise<void> {
   const stored = await readStoredReminder(key);
   if (stored) await cancelReminders(stored.notificationIds);
   await AsyncStorage.removeItem(key);
 }
 
 export async function cancelAllTaskReminders(): Promise<void> {
-  const keys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(REMINDER_KEY_PREFIX));
+  const keys = (await AsyncStorage.getAllKeys()).filter(isReminderKey);
   const reminders = await AsyncStorage.multiGet(keys);
   await Promise.allSettled(
     reminders.map(([, value]) => {
@@ -224,32 +226,37 @@ export async function cancelAllTaskReminders(): Promise<void> {
  * time: two overlapping runs (a quick refetch after a save) each found no
  * stored record and both scheduled, leaving duplicate reminders behind.
  */
-export function syncTaskReminders(tasks: Task[]): Promise<void> {
-  const run = reminderQueue.then(() => syncTaskRemindersNow(tasks));
+export function syncTaskReminders(tasks: Task[], complete: boolean): Promise<void> {
+  const run = reminderQueue.then(() => syncTaskRemindersNow(tasks, complete));
   reminderQueue = run.catch(() => {});
   return run;
 }
 
 let reminderQueue: Promise<void> = Promise.resolve();
 
-async function syncTaskRemindersNow(tasks: Task[]): Promise<void> {
+async function syncTaskRemindersNow(tasks: Task[], complete: boolean): Promise<void> {
   const flat = flattenTasks(tasks);
-  const activeUids = new Set(flat.map((task) => task.uid));
-  const storedKeys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(REMINDER_KEY_PREFIX));
+  const activeKeys = new Set(flat.map((task) => reminderStorageKey(taskRef(task))));
+  const allKeys = (await AsyncStorage.getAllKeys()).filter(isReminderKey);
+  const legacyKeys = new Set(flat.map((task) => `${REMINDER_KEY_PREFIX}${task.uid}`));
+  await Promise.allSettled(allKeys.filter((key) => legacyKeys.has(key)).map(cancelStoredReminder));
+  const storedKeys = complete
+    ? allKeys.filter((key) => !legacyKeys.has(key))
+    : [];
   await Promise.allSettled([
     ...flat.map((task) =>
       task.completed
-        ? cancelTaskReminder(task.uid)
+        ? cancelTaskReminder(taskRef(task))
         : syncTaskReminder({
-            taskUid: task.uid,
+            ref: taskRef(task),
             title: task.title,
             reminderAt: task.reminder_at,
             dueAt: task.due_at,
           })
     ),
     ...storedKeys
-      .filter((key) => !activeUids.has(key.slice(REMINDER_KEY_PREFIX.length)))
-      .map((key) => cancelTaskReminder(key.slice(REMINDER_KEY_PREFIX.length))),
+      .filter((key) => !activeKeys.has(key))
+      .map(cancelStoredReminder),
   ]);
   await sweepUntrackedTaskReminders();
 }
@@ -261,18 +268,22 @@ async function sweepUntrackedTaskReminders() {
   const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
   const tracked = new Map<string, Set<string>>();
   for (const request of scheduled) {
-    const uid = request.content.data?.taskUid;
+    const data = request.content.data;
+    const uid = data?.taskUid;
     if (typeof uid !== 'string' || !uid) continue;
-    if (!tracked.has(uid)) {
-      const stored = await readStoredReminder(reminderStorageKey(uid));
-      tracked.set(uid, new Set(stored?.notificationIds ?? []));
+    const account = typeof data?.taskAccount === 'string' ? data.taskAccount : undefined;
+    const list = typeof data?.taskList === 'string' ? data.taskList : undefined;
+    const key = reminderStorageKey({ uid, account, list });
+    if (!tracked.has(key)) {
+      const stored = await readStoredReminder(key);
+      tracked.set(key, new Set(stored?.notificationIds ?? []));
     }
-    if (!tracked.get(uid)!.has(request.identifier)) await cancelReminder(request.identifier).catch(() => {});
+    if (!tracked.get(key)!.has(request.identifier)) await cancelReminder(request.identifier).catch(() => {});
   }
 }
 
 export async function startNotificationResponseObserver(
-  onTaskUid: (taskUid: string) => void,
+  onOpenTask: (ref: TaskRef) => void,
   onHref?: (href: string) => void
 ): Promise<() => void> {
   const Notifications = await getNotifications();
@@ -282,12 +293,12 @@ export async function startNotificationResponseObserver(
   const handleResponse = (response: Awaited<ReturnType<typeof Notifications.getLastNotificationResponseAsync>>) => {
     if (!response || response.notification.request.identifier === lastResponseId) return;
     lastResponseId = response.notification.request.identifier;
-    const taskUid = response.notification.request.content.data?.taskUid;
-    if (typeof taskUid === 'string' && taskUid) onTaskUid(taskUid);
-    else {
-      const href = response.notification.request.content.data?.href;
-      if (typeof href === 'string' && href.startsWith('/')) onHref?.(href);
-    }
+    const data = response.notification.request.content.data;
+    const uid = data?.taskUid;
+    const account = typeof data?.taskAccount === 'string' ? data.taskAccount : undefined;
+    const list = typeof data?.taskList === 'string' ? data.taskList : undefined;
+    if (typeof uid === 'string' && uid) onOpenTask({ uid, account, list });
+    else if (typeof data?.href === 'string' && data.href.startsWith('/')) onHref?.(data.href);
   };
 
   handleResponse(await Notifications.getLastNotificationResponseAsync());
@@ -295,8 +306,8 @@ export async function startNotificationResponseObserver(
   return () => subscription.remove();
 }
 
-function reminderStorageKey(taskUid: string) {
-  return `${REMINDER_KEY_PREFIX}${taskUid}`;
+function reminderStorageKey(ref: TaskRef) {
+  return `${SCOPED_REMINDER_PREFIX}${encodeURIComponent(taskKey(ref))}`;
 }
 
 async function readStoredReminder(key: string): Promise<StoredReminder | null> {

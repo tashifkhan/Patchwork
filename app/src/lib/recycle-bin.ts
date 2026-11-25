@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
 import type { Task, TaskCreate } from '@/api/types';
-import { attachmentAsLink } from '@/lib/ics-attachments';
+import { attachmentAsLink } from '@/api/caldav/ics-attachments';
 
 /**
  * Deleted to-dos, kept on this device for 30 days so a mistaken delete can be

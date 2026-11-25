@@ -5,12 +5,12 @@ import { useState } from 'react';
 
 import { updateDeckStack } from '@/api/deck';
 import type { DeckBoardDetail, DeckStack } from '@/api/types';
-import { DraggableColumn } from '@/components/tasks/draggable-column';
+import { DraggableColumn } from '@/features/tasks/draggable-column';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { useDeckBoard } from '@/hooks/use-deck';
+import { useDeckBoard } from '@/features/boards/queries';
 import { haptics } from '@/lib/haptics';
 import { queryKeys } from '@/lib/query-client';
 import { ScrollView, Text, View } from '@/tw';

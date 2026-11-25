@@ -1,6 +1,6 @@
 import type { Task, TaskList } from '@/api/types';
 import type { ThemeColors } from '@/lib/theme';
-import { bucketOf, flattenTasks } from '@/lib/task-buckets';
+import { bucketOf, flattenTasks } from '@/features/tasks/task-buckets';
 
 /** The four views at the top of Tasks, after the Reminders and Things home screens. */
 export type SmartKey = 'today' | 'scheduled' | 'all' | 'overdue';

@@ -6,7 +6,7 @@ import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { useDeleteTaskList, useUpdateTaskList } from '@/hooks/use-tasks';
+import { useDeleteTaskList, useUpdateTaskList } from '@/features/tasks/mutations';
 import { useUiStore } from '@/stores/ui-store';
 import { Text, TextInput, View } from '@/tw';
 

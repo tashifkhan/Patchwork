@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { DeckCard } from '@/api/types';
 import { columnTone } from '@/components/boards/board-tone';
-import { MarkdownNotes } from '@/components/tasks/markdown-notes';
+import { MarkdownNotes } from '@/components/ui/markdown-notes';
 import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';

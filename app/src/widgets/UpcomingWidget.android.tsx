@@ -18,13 +18,16 @@ const UpcomingWidgetView = (props: UpcomingProps | undefined, _env: WidgetEnviro
 
   const formatDue = (dueAt: string | null): string => {
     if (!dueAt) return '';
-    const d = new Date(dueAt);
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueAt);
+    const d = dateOnly
+      ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+      : new Date(dueAt);
     if (Number.isNaN(d.getTime())) return '';
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfDue = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const dayDiff = Math.round((startOfDue - startOfToday) / 86400000);
-    const hasTime = !/T00:00:00/.test(dueAt);
+    const hasTime = !dateOnly && !/T00:00:00/.test(dueAt);
     const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     if (dayDiff === 0 || dayDiff === 1) return hasTime ? time : '';
     if (dayDiff === -1) return 'Yesterday';

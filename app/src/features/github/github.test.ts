@@ -5,7 +5,7 @@ import {
   buildGitHubIssueQuery,
   fetchGitHubIssues,
   validatePublicGitHubRepo,
-} from '@/api/github.native';
+} from '@/api/github';
 import { isLegacyCredential } from '@/lib/github-auth';
 import { parseGitHubNextLink } from './pagination';
 import { normalizeGitHubRepository } from './repository-ref';

@@ -21,7 +21,7 @@ import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner, LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import type { GitHubAccount, GitHubIssueScope } from '@/features/github/types';
-import { useGitHubConnection } from '@/hooks/use-github-connection';
+import { useGitHubConnection } from '@/features/github/use-github-connection';
 import { GITHUB_NEW_TOKEN_URL } from '@/lib/github-auth';
 import { haptics } from '@/lib/haptics';
 import { useSettingsStore } from '@/stores/settings-store';

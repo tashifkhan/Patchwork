@@ -9,10 +9,10 @@ import {
   SettingsRow,
   SettingsScreen,
 } from '@/components/settings/settings-list';
-import { useImportConfirm } from '@/components/tasks/import-confirm';
+import { useImportConfirm } from '@/features/tasks/import-confirm';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
-import { useTaskLists, useTasks } from '@/hooks/use-tasks';
+import { useTaskLists, useTasks } from '@/features/tasks/queries';
 import { buildBackup, buildMarkdown, planFromText } from '@/lib/backup';
 import { Text, TextInput } from '@/tw';
 

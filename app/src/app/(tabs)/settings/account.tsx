@@ -13,7 +13,7 @@ import { SymbolView } from 'expo-symbols';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform, Pressable } from 'react-native';
 
-import { validateCalDavAccount } from '@/api/tasks';
+import { validateCalDavAccount } from '@/api/caldav/client';
 import {
   HeaderTextButton,
   SETTINGS_IOS,

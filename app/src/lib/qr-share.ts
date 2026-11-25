@@ -1,7 +1,7 @@
 import type { Task } from '@/api/types';
 import { planFromLists, type ImportPlan } from '@/lib/backup';
 import { shorthandToRrule } from '@/lib/recurrence';
-import { flattenTasks } from '@/lib/task-buckets';
+import { flattenTasks } from '@/features/tasks/task-buckets';
 import type { TextTask } from '@/lib/task-text';
 
 /**

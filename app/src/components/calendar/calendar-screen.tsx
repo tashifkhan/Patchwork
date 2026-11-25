@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { M3MonthCard, type DayMark } from '@/components/calendar/m3-month';
 import { useTheme } from '@/components/theme/context';
-import { TaskCheckbox } from '@/components/tasks/task-checkbox';
+import { TaskCheckbox } from '@/features/tasks/task-checkbox';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { RiseIn } from '@/components/ui/motion';
 import { haptics } from '@/lib/haptics';

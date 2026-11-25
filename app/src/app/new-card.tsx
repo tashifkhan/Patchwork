@@ -15,11 +15,11 @@ import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { PickerSheet } from '@/components/boards/picker-sheet';
 import { NewBoardChip } from '@/components/deck/new-board-chip';
 import { HeaderTextButton } from '@/components/settings/settings-list';
-import { DateField } from '@/components/tasks/date-field';
+import { DateField } from '@/components/ui/date-field';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/hooks/use-deck';
+import { useCreateDeckCard, useDeckBoard, useDeckBoards } from '@/features/boards/queries';
 import { haptics } from '@/lib/haptics';
 import { Text, View } from '@/tw';
 

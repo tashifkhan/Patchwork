@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { boardSearchNodes, createSearchIndex } from './search';
+import { boardSearchNodes, createSearchIndex } from '@/features/search/search-index';
 
 test('boards are searchable by name and open by ref', () => {
   const nodes = boardSearchNodes([

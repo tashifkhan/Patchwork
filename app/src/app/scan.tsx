@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useImportConfirm } from '@/components/tasks/import-confirm';
+import { useImportConfirm } from '@/features/tasks/import-confirm';
 import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { GlassIconButton } from '@/components/ui/glass-button';

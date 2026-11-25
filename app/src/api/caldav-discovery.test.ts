@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 
-import { validateCalDavAccount } from '@/api/tasks.native';
+import { validateCalDavAccount } from '@/api/caldav/client';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -34,12 +34,12 @@ const account = {
 
 test('discovery follows iCloud to the per-user host and lists its task calendars', async () => {
   const calls = serve({
-    'https://caldav.icloud.com': multistatus('<d:propstat><d:prop><d:current-user-principal><d:href>/1234/principal/</d:href></d:current-user-principal></d:prop></d:propstat>'),
+    'https://caldav.icloud.com': multistatus('<d:propstat><d:prop><d:current-user-principal><d:href>/1234/principal/</d:href></d:current-user-principal></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'),
     'https://caldav.icloud.com/1234/principal/': multistatus(
-      '<d:propstat><d:prop><cal:calendar-home-set><d:href>https://p42-caldav.icloud.com:443/1234/calendars/</d:href></cal:calendar-home-set></d:prop></d:propstat>'
+      '<d:propstat><d:prop><cal:calendar-home-set><d:href>https://p42-caldav.icloud.com:443/1234/calendars/</d:href></cal:calendar-home-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'
     ),
     'https://p42-caldav.icloud.com/1234/calendars/': multistatus(
-      '<d:href>/1234/calendars/tasks/</d:href><d:propstat><d:prop><d:displayname>Tasks</d:displayname><d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><cal:supported-calendar-component-set><cal:comp name="VTODO"/></cal:supported-calendar-component-set></d:prop></d:propstat>'
+      '<d:href>/1234/calendars/tasks/</d:href><d:propstat><d:prop><d:displayname>Tasks</d:displayname><d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><cal:supported-calendar-component-set><cal:comp name="VTODO"/></cal:supported-calendar-component-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'
     ),
   });
   const resolved = await validateCalDavAccount(account);
@@ -49,9 +49,9 @@ test('discovery follows iCloud to the per-user host and lists its task calendars
 
 test('a calendar home on another site is ignored, so the password never goes there', async () => {
   const calls = serve({
-    'https://dav.example.com': multistatus('<d:propstat><d:prop><d:current-user-principal><d:href>/u/me/</d:href></d:current-user-principal></d:prop></d:propstat>'),
+    'https://dav.example.com': multistatus('<d:propstat><d:prop><d:current-user-principal><d:href>/u/me/</d:href></d:current-user-principal></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'),
     'https://dav.example.com/u/me/': multistatus(
-      '<d:propstat><d:prop><cal:calendar-home-set><d:href>https://collector.evil.test/me/</d:href></cal:calendar-home-set></d:prop></d:propstat>'
+      '<d:propstat><d:prop><cal:calendar-home-set><d:href>https://collector.evil.test/me/</d:href></cal:calendar-home-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'
     ),
   });
   await expect(validateCalDavAccount({ ...account, baseUrl: 'https://dav.example.com' })).rejects.toThrow();

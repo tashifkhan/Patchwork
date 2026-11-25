@@ -21,6 +21,7 @@
 // Uses only Node builtins (zlib for the PNG deflate) so it needs no dependency
 // beyond the toolchain the app already ships with.
 
+import { Buffer } from 'node:buffer';
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

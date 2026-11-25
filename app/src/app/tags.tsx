@@ -5,8 +5,8 @@ import { Pressable } from 'react-native';
 import { KeyboardScrollView } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { matchTagIgnoringCase } from '@/lib/tags';
-import { useTagPickerStore } from '@/stores/tag-picker-store';
+import { matchTagIgnoringCase } from '@/features/tasks/tags';
+import { useTagPickerStore } from '@/features/tasks/tag-picker-store';
 import { Text, TextInput, View } from '@/tw';
 
 export default function TagPickerScreen() {

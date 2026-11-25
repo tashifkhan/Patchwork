@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
+import type { TaskRef } from '@/features/tasks/model';
+
 /** Stored separately from the in-memory list filter so widgets can read it across cold starts. */
 export const LAST_LIST_STORAGE_KEY = 'patchwork.last-list';
 
@@ -12,11 +14,10 @@ interface UiState {
    * One-shot request from Search: the Tasks screen opens this task in place
    * (Things-style card) the next time it renders, then clears it.
    */
-  openTaskUid: string | null;
-  requestOpenTask: (uid: string | null) => void;
-  /** One-shot request from My lists: Tasks opens its New list form, then clears it. */
   createListRequested: boolean;
   requestCreateList: (requested: boolean) => void;
+  openTask: TaskRef | null;
+  requestOpenTask: (ref: TaskRef | null) => void;
   setSelectedListId: (listId: string | null) => void;
   setSelectedTag: (tag: string | null) => void;
   setSelectedBoardId: (boardId: number | null) => void;
@@ -27,10 +28,10 @@ export const useUiStore = create<UiState>((set) => ({
   selectedListId: null,
   selectedTag: null,
   selectedBoardId: null,
-  openTaskUid: null,
-  requestOpenTask: (openTaskUid) => set({ openTaskUid }),
   createListRequested: false,
   requestCreateList: (createListRequested) => set({ createListRequested }),
+  openTask: null,
+  requestOpenTask: (openTask) => set({ openTask }),
   setSelectedListId: (selectedListId) => {
     set({ selectedListId });
     if (selectedListId) {
