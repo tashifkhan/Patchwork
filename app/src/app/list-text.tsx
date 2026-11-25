@@ -78,7 +78,7 @@ export default function ListTextScreen() {
         } else if (op.kind === 'update') {
           await updateTask(op.task.id, op.patch, op.task.account_id);
         } else {
-          await deleteTask(op.task.id, op.task.account_id, op.task.etag);
+          await deleteTask(op.task.id, op.task.account_id, op.task.etag, { skipBin: true });
           deleted.push(op.task);
         }
       } catch {

@@ -71,7 +71,7 @@ export default function RecycleBinScreen() {
         title="Deleted to-dos"
         footer={
           message ??
-          'Deleted to-dos stay here for 30 days. Tap one to restore it to its list. Restored to-dos get their checklist back if it is still on the server.'
+          'Deleted to-dos stay here for 30 days. Tap one to restore it to its list. On-device checklists restore with their to-do.'
         }>
         {entries.length === 0 ? (
           <View style={{ alignItems: 'center', gap: 6, paddingVertical: 24, paddingHorizontal: 16 }}>

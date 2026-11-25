@@ -31,6 +31,7 @@ import {
   createLocalTask,
   deleteLocalList,
   deleteLocalTask,
+  trashLocalTask,
   ensureDefaultLocalList,
   findKnownList,
   getLocalLists,
@@ -497,10 +498,10 @@ async function deleteMoveSource(client: CalDavClient, taskId: string, etag?: str
   }
 }
 
-export async function deleteTask(taskId: string, accountId?: string, etag?: string | null) {
+export async function deleteTask(taskId: string, accountId?: string, etag?: string | null, { skipBin = false } = {}) {
   if (isAppleTaskId(taskId)) return (await apple()).deleteAppleTask(taskId);
   if (isPendingTaskId(taskId)) return discardQueued(pendingEntryId(taskId));
-  if (isLocalTaskId(taskId)) return deleteLocalTask(taskId);
+  if (isLocalTaskId(taskId)) return skipBin ? deleteLocalTask(taskId) : trashLocalTask(taskId);
   const client = await clientForTask(taskId, accountId);
   await client.request('DELETE', client.absoluteUrl(taskId), {
     headers: etag ? { 'If-Match': etag } : undefined,
@@ -591,7 +592,7 @@ async function moveIntoApple(taskId: string, payload: TaskUpdate, accountId?: st
   const { etag: _etag, ...fields } = payload;
   const created = await (await apple()).createAppleTask({ ...taskToCreate(source), ...fields, list_id: payload.list_id! });
   try {
-    await deleteTask(taskId, accountId, source.etag);
+    await deleteTask(taskId, accountId, source.etag, { skipBin: true });
   } catch (error) {
     if (serverRejectedWrite(error)) await (await apple()).deleteAppleTask(created.id).catch(() => {});
     throw error;

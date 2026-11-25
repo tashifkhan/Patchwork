@@ -14,8 +14,10 @@ import {
 import type { Task, TaskCreate, TaskList, TaskListCreate, TaskUpdate } from '@/api/types';
 import { assignUids, type ImportPlan } from '@/lib/backup';
 import { queryKeys } from '@/lib/query-client';
-import { addToRecycleBin, removeFromRecycleBin, type BinEntry } from '@/lib/recycle-bin';
+import { addToRecycleBin, removeFromRecycleBin, splitRecycleBinChecklist, type BinEntry } from '@/lib/recycle-bin';
 import { cancelTaskReminder } from '@/lib/notifications';
+import { isLocalListId, isLocalTaskId, restoreLocalTaskTree } from './local-tasks';
+import { isAppleListId } from '@/lib/apple-reminders-ids';
 import { taskRef } from './model';
 import { updateCachedTasks } from './queries';
 import { flattenTasks } from '@/features/tasks/task-buckets';
@@ -155,8 +157,8 @@ export interface DeleteInput {
 export function useDeleteTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, accountId, etag }: DeleteInput) =>
-      deleteTask(taskId, accountId, etag),
+    mutationFn: ({ taskId, accountId, etag, skipBin }: DeleteInput) =>
+      deleteTask(taskId, accountId, etag, { skipBin }),
     onMutate: async ({ taskId, accountId }) => {
       await client.cancelQueries({ queryKey: queryKeys.tasks });
       const previous = client.getQueryData<TaskSnapshot>(queryKeys.tasks);
@@ -169,7 +171,7 @@ export function useDeleteTask() {
       return { previous, snapshot };
     },
     onSuccess: async (_data, { skipBin }, context) => {
-      if (context?.snapshot && !skipBin) await addToRecycleBin([context.snapshot]).catch(() => {});
+      if (context?.snapshot && !isLocalTaskId(context.snapshot.id) && !skipBin) await addToRecycleBin([context.snapshot]).catch(() => {});
     },
     onError: (_error, _input, context) => {
       if (context?.previous) {
@@ -203,7 +205,7 @@ export function useBulkTaskAction() {
             await updateTask(task.id, { etag: task.etag, ...input.patch(task) }, task.account_id);
           } else {
             await deleteTask(task.id, task.account_id, task.etag);
-            deleted.push(task);
+            if (!isLocalTaskId(task.id)) deleted.push(task);
             void cancelTaskReminder(taskRef(task)).catch(() => {});
           }
         } catch {
@@ -241,11 +243,29 @@ export function useRestoreTasks() {
       let message: string | undefined;
       // Parents first, so restored subtasks find them.
       const ordered = [...entries].sort((a, b) => Number(!!a.task.parent_uid) - Number(!!b.task.parent_uid));
-      for (const entry of ordered) {
+      const blocked = new Set<string>();
+      for (const [index, entry] of ordered.entries()) {
+        const destination = listId ?? entry.task.list_id;
+        const { uid, parent_uid: parentUid } = entry.task;
         try {
-          await restoreTask({ ...entry.task, list_id: listId ?? entry.task.list_id }, entry.attachmentSource);
+          if (parentUid && blocked.has(JSON.stringify([destination, parentUid]))) {
+            throw new Error('Restore the parent to-do before its checklist items.');
+          }
+          if (entry.checklist?.length && isLocalListId(destination)) {
+            await restoreLocalTaskTree(entry, listId);
+          } else {
+            if (entry.checklist?.length && isAppleListId(destination)) {
+              throw new Error('Apple Reminders does not support checklists. Choose another list.');
+            }
+            const restoredTask = await restoreTask({ ...entry.task, list_id: destination }, entry.attachmentSource);
+            if (entry.checklist?.length) {
+              const children = await splitRecycleBinChecklist(entry, restoredTask);
+              ordered.splice(index + 1, 0, ...children);
+            }
+          }
           restored.push(entry.id);
         } catch (error) {
+          blocked.add(JSON.stringify([destination, uid]));
           message ??= error instanceof Error ? error.message : undefined;
           failed += 1;
         }

@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { Task, TaskCreate, TaskList, TaskUpdate } from '@/api/types';
-import { normalizeTags } from '@/features/tasks/tags';
+import { addToRecycleBin, MAX_RECYCLE_BIN_ENTRIES, type BinEntry } from '@/lib/recycle-bin';
+import { buildTaskTree } from './model';
+import { flattenTasks } from './task-buckets';
+import { normalizeTags } from './tags';
 
 /**
  * Lists and to-dos that live only on this device, for people without a
@@ -29,6 +32,7 @@ interface LocalStore {
   lists: LocalListRecord[];
   /** Flat; children are rebuilt from `parent_uid` when read. */
   tasks: Task[];
+  restoredBinEntries?: string[];
 }
 
 let writing: Promise<unknown> = Promise.resolve();
@@ -47,11 +51,11 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
  * Unlike `readJson` this throws on a failed read: writing the fallback back
  * would wipe every on-device to-do.
  */
-function update<T>(key: string, fallback: T, change: (value: T) => T): Promise<T> {
+function update<T>(key: string, fallback: T, change: (value: T) => T | Promise<T>): Promise<T> {
   const run = writing.then(async () => {
     const raw = await AsyncStorage.getItem(key);
     const current = raw ? ({ ...fallback, ...(JSON.parse(raw) as T) }) : fallback;
-    const next = change(current);
+    const next = await change(current);
     await AsyncStorage.setItem(key, JSON.stringify(next));
     return next;
   });
@@ -142,34 +146,74 @@ export async function createLocalTask(payload: TaskCreate): Promise<Task> {
     if (!list) throw new Error('Task list not found');
     const exists = current.tasks.some((task) => task.uid === payload.uid);
     const uid = !exists && payload.uid ? payload.uid : randomUuid();
-    const task: Task = {
-      id: `${LOCAL_TASK_PREFIX}${uid}`,
-      uid,
-      list_id: payload.list_id,
-      list_name: list.name,
-      account_id: LOCAL_ACCOUNT_ID,
-      account_name: LOCAL_ACCOUNT_NAME,
-      title: payload.title,
-      description: payload.markdown ?? '',
-      markdown: payload.markdown ?? '',
-      completed: payload.completed ?? false,
-      priority: payload.priority ?? null,
-      due_at: payload.due_at ?? null,
-      reminder_at: payload.reminder_at ?? null,
-      tags: normalizeTags(payload.tags ?? []),
-      sort_order: payload.sort_order ?? null,
-      start_at: payload.start_at ?? null,
-      rrule: payload.rrule ?? null,
-      pinned: payload.pinned ?? false,
-      attachments: payload.attachments,
-      parent_uid: payload.parent_uid ?? null,
-      children: [],
-      etag: null,
-      updated_at: new Date().toISOString(),
-    };
+    const task = localTask(payload, list, uid);
     return { ...current, tasks: [...current.tasks, task] };
   });
   return store.tasks[store.tasks.length - 1];
+}
+
+function localTask(payload: TaskCreate, list: LocalListRecord, uid: string): Task {
+  return {
+    id: `${LOCAL_TASK_PREFIX}${uid}`,
+    uid,
+    list_id: payload.list_id,
+    list_name: list.name,
+    account_id: LOCAL_ACCOUNT_ID,
+    account_name: LOCAL_ACCOUNT_NAME,
+    title: payload.title,
+    description: payload.markdown ?? '',
+    markdown: payload.markdown ?? '',
+    completed: payload.completed ?? false,
+    priority: payload.priority ?? null,
+    due_at: payload.due_at ?? null,
+    reminder_at: payload.reminder_at ?? null,
+    tags: normalizeTags(payload.tags ?? []),
+    sort_order: payload.sort_order ?? null,
+    start_at: payload.start_at ?? null,
+    rrule: payload.rrule ?? null,
+    pinned: payload.pinned ?? false,
+    attachments: payload.attachments,
+    parent_uid: payload.parent_uid ?? null,
+    children: [],
+    etag: null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** Restore the root and checklist in one storage write, remapping any UID collisions. */
+export async function restoreLocalTaskTree(entry: BinEntry, destination?: string) {
+  await update(STORE_KEY, emptyStore(), (current) => {
+    const restoredEntries = current.restoredBinEntries ?? [];
+    // The bin is a separate store. A failed bin cleanup must not restore a copy.
+    if (restoredEntries.includes(entry.id)) return current;
+    const tasks = [entry.task, ...(entry.checklist ?? [])];
+    const rootListId = destination ?? entry.task.list_id;
+    const lists = new Map(current.lists.map((list) => [`local:${list.slug}`, list]));
+    if (!lists.has(rootListId)) throw new Error('Task list not found');
+    const used = new Set(current.tasks.map((task) => task.uid));
+    const uids = new Map<string, string>();
+    for (const task of tasks) {
+      let uid = task.uid;
+      while (used.has(uid)) uid = randomUuid();
+      used.add(uid);
+      uids.set(task.uid, uid);
+    }
+
+    const restored = tasks.map((task) => {
+      const listId = destination ?? (lists.has(task.list_id) ? task.list_id : rootListId);
+      const parentUid = task.parent_uid;
+      return localTask({
+        ...task,
+        list_id: listId,
+        parent_uid: parentUid ? uids.get(parentUid) ?? parentUid : null,
+      }, lists.get(listId)!, uids.get(task.uid)!);
+    });
+    return {
+      ...current,
+      tasks: [...current.tasks, ...restored],
+      restoredBinEntries: [...restoredEntries, entry.id].slice(-MAX_RECYCLE_BIN_ENTRIES),
+    };
+  });
 }
 
 export async function updateLocalTask(taskId: string, patch: TaskUpdate): Promise<Task> {
@@ -202,6 +246,17 @@ export async function deleteLocalTask(taskId: string) {
     ...current,
     tasks: current.tasks.filter((task) => task.id !== taskId),
   }));
+}
+
+/** Preserve a complete local checklist before removing it from the active list. */
+export async function trashLocalTask(taskId: string) {
+  await update(STORE_KEY, emptyStore(), async (current) => {
+    const root = flattenTasks(buildTaskTree(current.tasks)).find((task) => task.id === taskId);
+    if (!root) return current;
+    await addToRecycleBin([root], { keepChecklist: true });
+    const ids = new Set(flattenTasks([root]).map((task) => task.id));
+    return { ...current, tasks: current.tasks.filter((task) => !ids.has(task.id)) };
+  });
 }
 
 // ── Last-known server data, for offline use ────────────────────────────

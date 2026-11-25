@@ -2,7 +2,9 @@
  * Runs the real attachment code in the task repository against the Nextcloud
  * server in `.env.test`, or in CALDAV_TEST_* environment variables, which win.
  * Skipped unless PATCHWORK_LIVE=1, because it creates (and then deletes) a
- * scratch to-do and files on that server.
+ * scratch to-dos and files on that server. Set CALDAV_TEST_CALENDAR_ID (and
+ * CALDAV_TEST2_CALENDAR_ID for a second account) to the slug of an existing
+ * dedicated test calendar to avoid creating calendars.
  *
  *   PATCHWORK_LIVE=1 bun test src/features/tasks/tasks-attachments.live.test.ts
  */
@@ -15,6 +17,7 @@ import { deflateSync } from 'node:zlib';
 
 import type { OutboxAttachmentEntry, OutboxEntry, OutboxTaskEntry } from '@/features/sync/outbox';
 import { CalDavClient } from '@/api/caldav/client';
+import { ApiError } from '@/api/error';
 import { parseVtodo } from '@/api/caldav/vtodo';
 import type { Task, TaskList } from '@/api/types';
 import type { CalDavAccount } from '@/lib/credentials-types';
@@ -102,7 +105,8 @@ if (live) {
   mock.module('expo-file-system', () => ({
     Directory: TestDirectory, File: TestFile, Paths: { document: filesBase, cache: filesBase },
   }));
-  mock.module('@/lib/credentials', () => ({ getAccounts: async () => [account, ...(second && generic ? [second, generic] : [])], getJiraAccounts: async () => [] }));
+  const credentials = await import('@/lib/credentials');
+  mock.module('@/lib/credentials', () => ({ ...credentials, getAccounts: async () => [account, ...(second && generic ? [second, generic] : [])], getJiraAccounts: async () => [] }));
   mock.module('@/features/tasks/local-tasks', () => ({
     LOCAL_ACCOUNT_ID: 'local',
     isLocalListId: (id: string | null | undefined) => !!id?.startsWith('local:'),
@@ -126,6 +130,7 @@ if (live) {
       throw new Error('not in live test');
     },
     deleteLocalTask: async () => {},
+    trashLocalTask: async () => {},
     deleteLocalList: async () => {},
     renameLocalList: async () => {
       throw new Error('not in live test');
@@ -167,11 +172,53 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
   // Runs even when an assertion fails, so the server is left as it was.
   const cleanups: (() => Promise<unknown>)[] = [];
   afterAll(async () => {
-    const results = await Promise.allSettled(cleanups.map((cleanup) => cleanup()));
+    const errors: unknown[] = [];
+    for (const cleanup of cleanups.reverse()) await cleanup().catch((error: unknown) => errors.push(error));
     rmSync(filesBase, { recursive: true, force: true });
-    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
     if (errors.length) throw new AggregateError(errors, 'Could not clean up scratch attachment data');
   }, 120_000);
+
+  const calendars = new Map<string, Promise<TaskList>>();
+
+  function scratchList(owner: CalDavAccount) {
+    const existing = calendars.get(owner.id);
+    if (existing) return existing;
+    const prepared = openScratchList(owner);
+    calendars.set(owner.id, prepared);
+    return prepared;
+  }
+
+  async function openScratchList(owner: CalDavAccount): Promise<TaskList> {
+    if (owner.id === generic?.id && second) {
+      const list = await scratchList(second);
+      return { ...list, id: `${owner.id}:${list.id.split(':')[1]}`, account_id: owner.id };
+    }
+    const connection = new CalDavClient(owner);
+    const slug = owner.id === account.id ? env.CALDAV_TEST_CALENDAR_ID : env.CALDAV_TEST2_CALENDAR_ID;
+    if (slug) {
+      const list = (await connection.listTaskCalendars()).find((item) => item.id === `${owner.id}:${slug}`);
+      if (!list) throw new Error('The configured dedicated test calendar was not found.');
+      return list;
+    }
+
+    const list = await connection.createTaskCalendar({ name: `Patchwork attachment tests ${crypto.randomUUID()}` });
+    cleanups.push(() => connection.deleteTaskCalendar(list));
+    return list;
+  }
+
+  function trackScratchTask(owner: CalDavAccount, list: TaskList, uid = crypto.randomUUID()) {
+    const connection = new CalDavClient(owner);
+    const href = `${list.href.replace(/\/+$/, '')}/${uid}.ics`;
+    if (owner.serverType === 'nextcloud') cleanups.push(() => deleteScratchFolder(owner, uid));
+    cleanups.push(async () => {
+      try {
+        await connection.request('DELETE', href);
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    });
+    return uid;
+  }
 
   test(
     'upload, preview, download, edit, unlink, and recycle while retaining files',
@@ -179,11 +226,9 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
       const api = await import('@/features/tasks/repository');
       const { attachmentFileUri, attachmentPreviewUri } = await import('@/lib/attachment-urls');
 
-      // A scratch list of its own, so the test never touches real lists.
-      const list = await api.createTaskList({ name: `Patchwork attachment test ${Date.now()}`, account_id: account.id });
-      let task = await api.createTask({ list_id: list.id, title: 'Leaking sink' });
-      cleanups.push(() => client.deleteTaskCalendar(list));
-      cleanups.push(() => deleteScratchFolder(account, task.uid));
+      const list = await scratchList(account);
+      const uid = trackScratchTask(account, list);
+      let task = await api.createTask({ list_id: list.id, uid, title: 'Leaking sink' });
 
       const dir = mkdtempSync(join(filesBase, 'patchwork-attach-'));
       const file = join(dir, 'photo.png');
@@ -257,12 +302,11 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
     async () => {
       const api = await import('@/features/tasks/repository');
       const { attachmentFileUri } = await import('@/lib/attachment-urls');
-      const stamp = Date.now();
-      const from = await api.createTaskList({ name: `Patchwork move from ${stamp}`, account_id: account.id });
-      const to = await api.createTaskList({ name: `Patchwork move to ${stamp}`, account_id: second!.id });
-      let task = await api.createTask({ list_id: from.id, title: 'Moving photo' });
-      cleanups.push(() => client.deleteTaskCalendar(from), () => new CalDavClient(second!).deleteTaskCalendar(to));
-      cleanups.push(() => deleteScratchFolder(account, task.uid), () => deleteScratchFolder(second!, task.uid));
+      const from = await scratchList(account);
+      const to = await scratchList(second!);
+      const uid = trackScratchTask(account, from);
+      trackScratchTask(second!, to, uid);
+      let task = await api.createTask({ list_id: from.id, uid, title: 'Moving photo' });
 
       const dir = mkdtempSync(join(filesBase, 'patchwork-move-'));
       const file = join(dir, 'photo.png');
@@ -274,7 +318,7 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
       task = await api.updateTask(task.id, { list_id: to.id, etag: task.etag }, account.id);
       expect(task.account_id).toBe(second!.id);
       const [moved] = task.attachments!;
-      expect(moved.path).toBe(`/Tasks/${task.uid}/move.png`);
+      expect(moved.path?.split('/')).toEqual(['', 'Tasks', task.uid, expect.stringMatching(/^[\da-f-]{36}$/i), 'move.png']);
       expect(moved.file_id).not.toBe(original.file_id);
 
       const fromAccess = (await api.getAttachmentAccess(account.id))!;
@@ -290,13 +334,13 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
   test('queues a document for an offline task and sends it after the task exists', async () => {
     const api = await import('@/features/tasks/repository');
     const { useConnectivityStore } = await import('@/features/sync/connectivity');
-    const list = await api.createTaskList({ name: `Offline documents ${Date.now()}`, account_id: account.id });
-    cleanups.push(() => client.deleteTaskCalendar(list));
+    const list = await scratchList(account);
+    const uid = trackScratchTask(account, list);
     const file = documentUpload();
     let task: Task;
     useConnectivityStore.getState().setQuality('offline');
     try {
-      task = await api.createTask({ list_id: list.id, title: 'Offline document' });
+      task = await api.createTask({ list_id: list.id, uid, title: 'Offline document' });
       expect(task.id).toStartWith('outbox://');
       expect(await api.addTaskAttachment(task.id, task, file)).toBeNull();
     } finally {
@@ -308,7 +352,6 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
     expect(existsSync(fileURLToPath(queued.file.uri))).toBe(true);
     await expect(api.sendQueuedAttachment(queued)).rejects.toMatchObject({ status: 409 });
     const remote = await api.createRemoteTask(pending.payload);
-    cleanups.push(() => deleteScratchFolder(account, remote.uid));
     outbox.splice(outbox.indexOf(pending), 1);
     const { flushOutbox } = await import('@/features/sync/replay');
     expect(await flushOutbox()).toEqual({ sent: 1, failed: 0, offline: false });
@@ -322,9 +365,9 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
 
   test('replays an upload whose CalDAV write succeeded before its connection dropped', async () => {
     const api = await import('@/features/tasks/repository');
-    const list = await api.createTaskList({ name: `Attachment retry ${Date.now()}`, account_id: account.id });
-    const task = await api.createTask({ list_id: list.id, title: 'Lost response' });
-    cleanups.push(() => client.deleteTaskCalendar(list), () => deleteScratchFolder(account, task.uid));
+    const list = await scratchList(account);
+    const uid = trackScratchTask(account, list);
+    const task = await api.createTask({ list_id: list.id, uid, title: 'Lost response' });
     const fetchNormally = globalThis.fetch;
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const response = await fetchNormally(input, init);
@@ -349,10 +392,11 @@ describe.skipIf(!live)('attachments against a live Nextcloud', () => {
   test.skipIf(!generic)('moves a task out of Nextcloud with a plain link to its original file', async () => {
     const api = await import('@/features/tasks/repository');
     const { attachmentFileUri } = await import('@/lib/attachment-urls');
-    const from = await api.createTaskList({ name: `Link source ${Date.now()}`, account_id: account.id });
-    const to = await api.createTaskList({ name: `Link destination ${Date.now()}`, account_id: generic!.id });
-    let task = await api.createTask({ list_id: from.id, title: 'Move this file link' });
-    cleanups.push(() => client.deleteTaskCalendar(from), () => new CalDavClient(generic!).deleteTaskCalendar(to), () => deleteScratchFolder(account, task.uid));
+    const from = await scratchList(account);
+    const to = await scratchList(generic!);
+    const uid = trackScratchTask(account, from);
+    trackScratchTask(generic!, to, uid);
+    let task = await api.createTask({ list_id: from.id, uid, title: 'Move this file link' });
     task = (await api.addTaskAttachment(task.id, task, documentUpload(), task.etag))!;
     const original = task.attachments![0];
     const access = (await api.getAttachmentAccess(account.id))!;
