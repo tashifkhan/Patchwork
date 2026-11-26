@@ -6,26 +6,38 @@
     {
       "layers" : [
         {
-          "image-name" : "app-icon-background.svg",
-          "name" : "background",
+          "image-name" : "app-icon-check.svg",
+          "name" : "check",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
               0,
               0
             ]
-          }
+          },
+          "image-name-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "app-icon-check-dark.svg"
+            }
+          ]
         },
         {
-          "image-name" : "app-icon-symbol.svg",
-          "name" : "symbol",
+          "image-name" : "app-icon-label.svg",
+          "name" : "label",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
               0,
               0
             ]
-          }
+          },
+          "image-name-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "app-icon-label-dark.svg"
+            }
+          ]
         }
       ],
       "shadow" : {
@@ -43,5 +55,13 @@
       "watchOS"
     ],
     "squares" : "shared"
-  }
+  },
+  "fill-specializations" : [
+    {
+      "appearance" : "dark",
+      "value" : {
+        "solid" : "extended-srgb:0.13725,0.10196,0.15294,1.00000"
+      }
+    }
+  ]
 }
