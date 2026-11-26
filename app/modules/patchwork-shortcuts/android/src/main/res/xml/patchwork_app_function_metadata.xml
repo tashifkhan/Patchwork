@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The app description agents read before Patchwork's AppFunctions. Each
+    function's own details are in its KDoc in PatchworkAppFunctions.kt.
+-->
+<AppFunctionAppMetadata xmlns:appfn="http://schemas.android.com/apk/androidx.appfunctions"
+    appfn:instructions="Patchwork is a to-do list and boards app. The user's to-dos sit in lists that belong to accounts: Nextcloud or other CalDAV servers, Apple Reminders, or storage on the phone. Its functions add a to-do, list the to-dos due today or overdue, list the user's lists, and open the brain dump and voice dictation screens.
+
+Operational patterns:
+- listTaskLists returns the user's list names. Pass one of them as the list in createTask when the user names a list loosely.
+- createTask queues the to-do. Patchwork saves it when the app next opens, and its openPatchwork link saves it right away.
+
+Constraints:
+- listTodayTasks and listTaskLists answer from the last time Patchwork refreshed, given in updatedAt. Changes made in other apps since then are missing.
+- Dates are calendar days in the phone's time zone."
+    appfn:displayDescription="@string/pw_app_function_display_description" />

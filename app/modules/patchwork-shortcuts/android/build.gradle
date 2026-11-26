@@ -1,0 +1,35 @@
+buildscript {
+  dependencies {
+    // Same KSP the other Expo modules use (expo-image), picked by Expo's root
+    // project plugin to match the app's Kotlin version.
+    classpath "com.google.devtools.ksp:symbol-processing-gradle-plugin:${rootProject["kspVersion"]}"
+  }
+}
+
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+apply plugin: 'com.google.devtools.ksp'
+
+group = 'codes.tashhif.patchwork'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.patchworkshortcuts"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // ShortcutManagerCompat: pinned list and board shortcuts.
+  implementation 'androidx.core:core-ktx:1.13.1'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+  // Gemini and other assistants call Patchwork through AppFunctions (Android 16+).
+  // Needs compileSdk 37, which React Native 0.88 already sets.
+  implementation 'androidx.appfunctions:appfunctions:1.0.0'
+  ksp 'androidx.appfunctions:appfunctions-compiler:1.0.0'
+}

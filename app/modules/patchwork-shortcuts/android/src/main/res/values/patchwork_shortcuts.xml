@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher shortcuts (long-press the app icon). plugins/with-shortcuts.js writes the
+         shortcuts.xml that uses these, with this build's package name. -->
+    <string name="pw_shortcut_new_todo_short">New to-do</string>
+    <string name="pw_shortcut_new_todo_long">New to-do</string>
+    <string name="pw_shortcut_dictate_short">Dictate</string>
+    <string name="pw_shortcut_dictate_long">Dictate to-dos</string>
+    <string name="pw_shortcut_brain_dump_short">Brain dump</string>
+    <string name="pw_shortcut_brain_dump_long">Brain dump</string>
+    <string name="pw_shortcut_search_short">Search</string>
+    <string name="pw_shortcut_search_long">Search to-dos</string>
+
+    <!-- Shown to the user next to Patchwork in the system's assistant settings. -->
+    <string name="pw_app_function_display_description">Add to-dos, check what\'s due today, and open brain dump or dictation.</string>
+
+    <!-- Matches the adaptive app icon background in app.json. -->
+    <color name="pw_shortcut_background">#FAF1E6</color>
+    <color name="pw_shortcut_ink">#5B3A8C</color>
+</resources>
