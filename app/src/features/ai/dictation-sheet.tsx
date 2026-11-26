@@ -8,20 +8,15 @@ import {
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Modal, Pressable } from 'react-native';
-import Animated, {
-  FadeIn,
-  SlideInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import { useKeepAwake } from 'expo-keep-awake';
+import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 
 import { dictateTasks, dictationBlocker } from '@/features/ai/generate-tasks';
 import { ApiError } from '@/api/error';
 import type { TaskList } from '@/api/types';
+import { RecorderControls, RecordingClock, Waveform } from '@/components/brain-dump/recorder-ui';
 import { useTheme } from '@/components/theme/context';
+import { ElasticPressable } from '@/components/ui/motion';
 import { sheetOverlayStyle, useSheetPanel } from '@/components/ui/sheet-panel';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
 import { GlassPillButton } from '@/components/ui/glass-button';
@@ -66,9 +61,8 @@ export function DictationSheet({
   /** Runs right before the preview opens, e.g. to close the add dialog. */
   beforeReview?: () => void;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const panel = useSheetPanel(16);
-  const glass = useLiquidGlass();
   const recorder = useAudioRecorder(RECORDING);
   const status = useAudioRecorderState(recorder, 80);
   const setStaged = useAiStagingStore((s) => s.setStaged);
@@ -76,6 +70,7 @@ export function DictationSheet({
   const [message, setMessage] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind>('retry');
   const [doneLabel, setDoneLabel] = useState('');
+  const [paused, setPaused] = useState(false);
   const cancelled = useRef(false);
   // Loudest level heard this take; null when the platform reports no metering.
   const peakDb = useRef<number | null>(null);
@@ -91,6 +86,7 @@ export function DictationSheet({
     peakDb.current = null;
     setMessage(null);
     setErrorKind('retry');
+    setPaused(false);
     setPhase('starting');
     // No model in the ladder can hear audio: say so before recording anything.
     const blocker = dictationBlocker();
@@ -144,8 +140,21 @@ export function DictationSheet({
     await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
   }, [recorder]);
 
+  function togglePause() {
+    if (phase !== 'recording') return;
+    if (paused) {
+      recorder.record();
+      haptics.impact('light');
+    } else {
+      recorder.pause();
+      haptics.selection();
+    }
+    setPaused(!paused);
+  }
+
   async function close() {
     cancelled.current = true;
+    setPaused(false);
     await release();
     setPhase('starting');
     onClose();
@@ -155,6 +164,7 @@ export function DictationSheet({
     if (phase !== 'recording') return;
     const seconds = recorder.getStatus().durationMillis / 1000;
     await release();
+    setPaused(false);
     const uri = recorder.uri;
     if (!uri || seconds < 0.8) {
       fail('retry', 'That was too short. Tap the mic and say what you need to do.');
@@ -218,14 +228,25 @@ export function DictationSheet({
   useEffect(() => {
     finishRef.current = finish;
   });
+  // Counted in recorded time, so a pause doesn't eat into the limit.
   useEffect(() => {
-    if (phase !== 'recording') return;
-    const timer = setTimeout(() => void finishRef.current(), MAX_SECONDS * 1000);
-    return () => clearTimeout(timer);
-  }, [phase]);
+    if (phase === 'recording' && seconds >= MAX_SECONDS) void finishRef.current();
+  }, [phase, seconds]);
 
-  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   const recording = phase === 'recording';
+  const title = recording
+    ? paused
+      ? 'Paused'
+      : 'Listening…'
+    : phase === 'error'
+      ? errorKind === 'network' || errorKind === 'ai-setup'
+        ? 'Dictation unavailable'
+        : 'Dictate a to-do'
+      : 'Getting the mic ready…';
+  const subtitle =
+    phase === 'error' && message
+      ? message
+      : 'Say what you need to do. Try "Call the dentist tomorrow at 10 and buy milk on the way home."';
 
   return (
     <Modal
@@ -235,17 +256,24 @@ export function DictationSheet({
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={() => void close()}>
+      {/* Keeps the screen from dimming or locking mid-sentence. */}
+      {visible ? <KeepAwake /> : null}
       <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
         <Pressable
-          onPress={() => void close()}
+          onPress={() => {
+            // A tap outside only closes when there's nothing to lose.
+            if (phase === 'error') void close();
+          }}
           accessibilityLabel="Cancel dictation"
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'flex-end' }}>
+          style={{ flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' }}>
           <Animated.View
             entering={SlideInDown.duration(DURATION.medium4).easing(EASING.emphasizedDecelerate)}
             onStartShouldSetResponder={() => true}
             style={{
               ...panel.style,
-              minHeight: 420,
+              minHeight: 440,
+              // No scrim behind it, so a shadow keeps the sheet's edge readable.
+              boxShadow: `0 -8px 32px ${scheme === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.18)'}`,
             }}>
             {panel.background}
             <View className="items-center" style={{ paddingTop: 16, paddingBottom: 8 }}>
@@ -253,157 +281,62 @@ export function DictationSheet({
             </View>
 
             <View className="items-center px-6" style={{ gap: 6, paddingTop: 8 }}>
-              <Text style={{ fontSize: 22, fontWeight: '600', color: colors.text }}>
-                {recording
-                  ? 'Listening…'
-                  : phase === 'error'
-                    ? errorKind === 'network' || errorKind === 'ai-setup'
-                      ? 'Dictation unavailable'
-                      : 'Dictate a to-do'
-                    : 'Getting the mic ready…'}
-              </Text>
+              <Text style={{ fontSize: 22, fontWeight: '600', color: colors.text }}>{title}</Text>
               <Text style={{ fontSize: 14, lineHeight: 20, color: colors.text2, textAlign: 'center', maxWidth: 320 }}>
-                {phase === 'error' && message
-                  ? message
-                  : 'Say what you need to do. Try "Call the dentist tomorrow at 10 and buy milk on the way home."'}
+                {subtitle}
               </Text>
             </View>
 
-            <View className="items-center justify-center" style={{ height: 200 }}>
-              <MicPulse
-                level={recording ? meterToLevel(status.metering) : 0}
-                active={recording}
-                onPress={() => {
-                  if (recording) void finish();
-                  else if (phase === 'error') void start();
-                }}
-              />
-            </View>
-
-            <Text
-              style={{
-                textAlign: 'center',
-                fontSize: 16,
-                fontWeight: '600',
-                color: recording && remaining <= 30 ? colors.danger : colors.text2,
-                fontVariant: ['tabular-nums'],
-              }}>
-              {recording ? (remaining <= 30 ? `${clock} · ${remaining}s left` : clock) : ' '}
-            </Text>
-
-            {glass ? (
-              // iOS 26: glass push buttons, the accent-tinted one for the main action.
-              <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
-                <GlassPillButton label="Cancel" height={52} style={{ flex: 1 }} onPress={() => void close()} />
-                {phase === 'error' ? (
-                  <GlassPillButton
-                    prominent
-                    height={52}
-                    style={{ flex: 1 }}
-                    sf={errorKind === 'permission' ? 'gearshape' : errorKind === 'ai-setup' ? 'sparkles' : errorKind === 'network' ? 'wifi' : 'mic.fill'}
-                    label={errorKind === 'permission' ? 'Open settings' : errorKind === 'ai-setup' ? 'AI settings' : 'Try again'}
-                    onPress={() => {
-                      if (errorKind === 'permission') void Linking.openSettings();
-                      else if (errorKind === 'ai-setup') void close().then(() => router.push('/settings/ai'));
-                      else void start();
-                    }}
-                  />
-                ) : (
-                  <GlassPillButton
-                    prominent
-                    height={52}
-                    style={{ flex: 1 }}
-                    sf="sparkles"
-                    label="Done"
-                    accessibilityLabel="Done, create to-dos"
-                    disabled={!recording}
-                    onPress={() => void finish()}
-                  />
-                )}
-              </View>
+            {phase === 'error' ? (
+              // An error says what went wrong; a timer and an empty meter under it would just be noise.
+              <View style={{ height: 24 }} />
             ) : (
-            <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
-              <Pressable
-                onPress={() => void close()}
-                accessibilityRole="button"
-                android_ripple={{ color: colors.separator }}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  height: 52,
-                  borderRadius: pressed ? 14 : 26,
-                  overflow: 'hidden',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: colors.bg3,
-                })}>
-                <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>Cancel</Text>
-              </Pressable>
-              {phase === 'error' ? (
-                <Pressable
+              <View style={{ paddingHorizontal: 24, paddingTop: 28, gap: 24 }}>
+                <RecordingClock
+                  seconds={seconds}
+                  remaining={remaining}
+                  state={recording ? (paused ? 'paused' : 'recording') : 'idle'}
+                />
+                <Waveform
+                  level={recording && !paused ? meterToLevel(status.metering) : 0}
+                  tick={status.durationMillis}
+                  active={recording && !paused}
+                />
+              </View>
+            )}
+
+            {phase === 'error' ? (
+              <View className="flex-row items-center px-6" style={{ gap: 12, paddingTop: 20 }}>
+                <SheetButton label="Cancel" tone="tonal" onPress={() => void close()} />
+                <SheetButton
+                  icon={
+                    errorKind === 'permission'
+                      ? 'cog-outline'
+                      : errorKind === 'ai-setup'
+                        ? 'star-four-points-outline'
+                        : errorKind === 'network'
+                          ? 'wifi-refresh'
+                          : 'microphone'
+                  }
+                  label={errorKind === 'permission' ? 'Open settings' : errorKind === 'ai-setup' ? 'AI settings' : 'Try again'}
                   onPress={() => {
                     if (errorKind === 'permission') void Linking.openSettings();
-                    else if (errorKind === 'ai-setup') {
-                      void close().then(() => router.push('/settings/ai'));
-                    } else void start();
+                    else if (errorKind === 'ai-setup') void close().then(() => router.push('/settings/ai'));
+                    else void start();
                   }}
-                  accessibilityRole="button"
-                  android_ripple={{ color: colors.separator }}
-                  style={({ pressed }) => ({
-                    flex: 1,
-                    height: 52,
-                    borderRadius: pressed ? 14 : 26,
-                    overflow: 'hidden',
-                    flexDirection: 'row',
-                    gap: 8,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: colors.accent,
-                  })}>
-                  <MaterialCommunityIcons
-                    name={
-                      errorKind === 'permission'
-                        ? 'cog-outline'
-                        : errorKind === 'ai-setup'
-                          ? 'star-four-points-outline'
-                          : errorKind === 'network'
-                            ? 'wifi-refresh'
-                            : 'microphone'
-                    }
-                    size={20}
-                    color={colors.onAccent}
-                  />
-                  <Text style={{ fontSize: 16, fontWeight: '600', color: colors.onAccent }}>
-                    {errorKind === 'permission'
-                      ? 'Open settings'
-                      : errorKind === 'ai-setup'
-                        ? 'AI settings'
-                        : 'Try again'}
-                  </Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={() => void finish()}
-                  disabled={!recording}
-                  accessibilityRole="button"
-                  accessibilityLabel="Done, create to-dos"
-                  android_ripple={{ color: colors.separator }}
-                  style={({ pressed }) => ({
-                    flex: 1,
-                    height: 52,
-                    borderRadius: pressed ? 14 : 26,
-                    overflow: 'hidden',
-                    flexDirection: 'row',
-                    gap: 8,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: colors.accent,
-                    opacity: recording ? 1 : 0.45,
-                  })}>
-                  <MaterialCommunityIcons name="creation" size={20} color={colors.onAccent} />
-                  <Text style={{ fontSize: 16, fontWeight: '600', color: colors.onAccent }}>Done</Text>
-                </Pressable>
-              )}
-            </View>
+                />
+              </View>
+            ) : (
+              <View style={{ paddingTop: 32 }}>
+                <RecorderControls
+                  ready={recording}
+                  paused={paused}
+                  doneLabel="Done, create to-dos"
+                  onCancel={() => void close()}
+                  onDone={() => void finish()}
+                  onTogglePause={togglePause}
+                />
+              </View>
             )}
 
             <ProgressOverlay
@@ -418,77 +351,69 @@ export function DictationSheet({
   );
 }
 
-/**
- * The big mic. A soft halo breathes while recording and swells with your
- * voice; tapping it while recording is the same as Done.
- */
-export function MicPulse({
-  level,
-  active,
-  onPress,
+function KeepAwake() {
+  useKeepAwake('voice-dictation');
+  return null;
+}
+
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+const SF_FOR: Partial<Record<IconName, import('expo-symbols').SFSymbol>> = {
+  'cog-outline': 'gearshape',
+  'star-four-points-outline': 'sparkles',
+  'wifi-refresh': 'wifi',
+  microphone: 'mic.fill',
+};
+
+/** M3 Expressive medium button: 52dp, fully round, squaring off while held. */
+function SheetButton({
   label,
+  icon,
+  tone = 'filled',
+  onPress,
 }: {
-  level: number;
-  active: boolean;
+  label: string;
+  icon?: IconName;
+  tone?: 'filled' | 'tonal';
   onPress: () => void;
-  label?: string;
 }) {
   const { colors } = useTheme();
-  const voice = useSharedValue(0);
-  const breath = useSharedValue(0);
-
-  useEffect(() => {
-    voice.value = withSpring(level, { damping: 14, stiffness: 180 });
-  }, [level, voice]);
-
-  useEffect(() => {
-    breath.value = active ? withRepeat(withTiming(1, { duration: 1400 }), -1, true) : withTiming(0);
-  }, [active, breath]);
-
-  const halo = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 + breath.value * 0.08 + voice.value * 0.45 }],
-    opacity: active ? 0.35 + voice.value * 0.3 : 0,
-  }));
-  const outer = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 + breath.value * 0.04 + voice.value * 0.2 }],
-    opacity: active ? 0.5 : 0,
-  }));
-
-  return (
-    <View style={{ width: 168, height: 168, alignItems: 'center', justifyContent: 'center' }}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          { position: 'absolute', width: 168, height: 168, borderRadius: 84, backgroundColor: colors.primaryContainer },
-          halo,
-        ]}
-      />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          { position: 'absolute', width: 128, height: 128, borderRadius: 64, backgroundColor: colors.primaryContainer },
-          outer,
-        ]}
-      />
-      <Pressable
+  const glass = useLiquidGlass();
+  const filled = tone === 'filled';
+  const ink = filled ? colors.onAccent : colors.text;
+  if (glass) {
+    return (
+      <GlassPillButton
+        label={label}
+        sf={icon ? SF_FOR[icon] : undefined}
+        prominent={filled}
+        height={52}
+        style={{ flex: 1 }}
         onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={label ?? (active ? 'Stop and create to-dos' : 'Start dictating')}
-        style={({ pressed }) => ({
-          width: 96,
-          height: 96,
-          // M3 Expressive: the shape squares off slightly while pressed.
-          borderRadius: pressed ? 32 : 48,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: active ? colors.accent : colors.primaryContainer,
-        })}>
-        <MaterialCommunityIcons
-          name={active ? 'microphone' : 'microphone-outline'}
-          size={44}
-          color={active ? colors.onAccent : colors.onPrimaryContainer}
-        />
-      </Pressable>
-    </View>
+      />
+    );
+  }
+  return (
+    <ElasticPressable
+      variant="control"
+      radius={26}
+      glow={filled ? 'rgba(255,255,255,0.22)' : undefined}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      containerStyle={{ flex: 1 }}
+      style={({ pressed }) => ({
+        height: 52,
+        borderRadius: pressed ? 14 : 26,
+        overflow: 'hidden',
+        flexDirection: 'row',
+        gap: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: filled ? colors.accent : colors.bg3,
+      })}>
+      {icon ? <MaterialCommunityIcons name={icon} size={20} color={ink} /> : null}
+      <Text style={{ fontSize: 16, fontWeight: '600', color: ink }}>{label}</Text>
+    </ElasticPressable>
   );
 }

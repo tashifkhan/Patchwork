@@ -143,12 +143,15 @@ export function RecorderControls({
   onCancel,
   onDone,
   onTogglePause,
+  doneLabel = 'Done, clean it up',
 }: {
   ready: boolean;
   paused: boolean;
   onCancel: () => void;
   onDone: () => void;
   onTogglePause: () => void;
+  /** Screen reader label for the big Done button. */
+  doneLabel?: string;
 }) {
   const { colors } = useTheme();
   const glass = useLiquidGlass();
@@ -160,7 +163,7 @@ export function RecorderControls({
         <GlassIconButton
           sf="checkmark"
           icon="check"
-          label="Done, clean it up"
+          label={doneLabel}
           size={80}
           tint={ready ? colors.accent : undefined}
           onPress={() => ready && onDone()}
@@ -179,7 +182,7 @@ export function RecorderControls({
   return (
     <View className="flex-row items-center justify-center" style={{ gap: 28 }}>
       <RoundButton icon="close" label="Cancel" onPress={onCancel} />
-      <DoneButton ready={ready} paused={paused} onPress={onDone} />
+      <DoneButton ready={ready} paused={paused} label={doneLabel} onPress={onDone} />
       <RoundButton
         icon={paused ? 'microphone' : 'pause'}
         label={paused ? 'Resume' : 'Pause'}
@@ -228,7 +231,17 @@ function RoundButton({
   );
 }
 
-function DoneButton({ ready, paused, onPress }: { ready: boolean; paused: boolean; onPress: () => void }) {
+function DoneButton({
+  ready,
+  paused,
+  label,
+  onPress,
+}: {
+  ready: boolean;
+  paused: boolean;
+  label: string;
+  onPress: () => void;
+}) {
   const { colors } = useTheme();
   const radius = useSpringValue(paused ? 44 : 28, 'expand');
   const shape = useAnimatedStyle(() => ({ borderRadius: radius.get() }));
@@ -242,7 +255,7 @@ function DoneButton({ ready, paused, onPress }: { ready: boolean; paused: boolea
         onPress();
       }}
       accessibilityRole="button"
-      accessibilityLabel="Done, clean it up"
+      accessibilityLabel={label}
       style={{ width: 88, height: 88 }}>
       <Animated.View
         style={[
