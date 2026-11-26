@@ -2,6 +2,31 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.13.0] - 2026-11-26
+
+A new icon, shortcuts from the home screen, Siri and Gemini, and Jira issues that show everything Jira shows.
+
+### Added
+
+- Long-press the app icon for New to-do, Dictate, Brain dump and Search.
+- On Android, pin a list or a board to the home screen. Long-press a list for Edit list, then Add to home screen, or long-press a board card.
+- On iPhone, Siri and the Shortcuts app can add a to-do, start a brain dump, dictate, or open Today. Try "Add a to-do in Patchwork".
+- On Android 16, Gemini can add a to-do, read today's tasks and your lists, and open the brain dump or dictation. A to-do added through Gemini is saved the next time Patchwork opens.
+- Move a Jira issue to another sprint or the backlog from the Sprint row, the Move button, or by long-pressing its card on a board.
+- Jira descriptions show images, tables, panels, mentions, status lozenges and code blocks. Tap an image to see it full screen.
+
+### Changed
+
+- A new icon: a stitched patch with a check. iOS has dark and tinted versions, and Android's themed icon follows your wallpaper.
+- Dictating a to-do uses the brain dump recorder: a clock, a live waveform, pause, and the screen stays awake while you talk.
+- Android menus and dialogs follow your theme, including pure black, with rounded corners and a check next to the selected item.
+- Jira descriptions with images or tables can be edited in Patchwork. Images, tables and mentions are kept exactly as they were.
+
+### Fixed
+
+- The Android icon no longer covers the patchwork with a white square, and the themed icon is no longer a solid tile.
+- Bold text in some Jira descriptions no longer shows stray asterisks.
+
 ## [1.12.0] - 2026-11-26
 
 Calendar has its own tab. Tap the floating plus to add a task on the selected day.
