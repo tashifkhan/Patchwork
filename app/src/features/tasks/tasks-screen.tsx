@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -189,6 +189,36 @@ export default function TasksScreen() {
   const visibleOpen = selectedListId ? (listCounts[selectedListId] ?? 0) : openTotal;
   const allTags = useMemo(() => collectTags(allTasks), [allTasks]);
   const [dictating, setDictating] = useState(false);
+
+  // Deep links from home-screen shortcuts, Siri and assistants:
+  // `?dictate=1` opens dictation, `?list=<id>` opens a pinned list and
+  // `?smart=today` shows Today across every list. Each is cleared once
+  // handled, so the same link works again next time.
+  const {
+    dictate,
+    list: listParam,
+    smart: smartParam,
+  } = useLocalSearchParams<{ dictate?: string; list?: string; smart?: string }>();
+  useEffect(() => {
+    const list = listParam;
+    if (!dictate && !list && !smartParam) return;
+    // A frame's delay, as for Search's hand-over below, lets the screen settle first.
+    const frame = requestAnimationFrame(() => {
+      if (typeof list === 'string' && list) {
+        setSelectedListId(list);
+        setSelectedTag(null);
+        setSmart(null);
+      }
+      if (smartParam === 'today') {
+        setSelectedListId(null);
+        setSelectedTag(null);
+        setSmart('today');
+      }
+      if (dictate && process.env.EXPO_OS !== 'web') setDictating(true);
+      router.setParams({ dictate: undefined, list: undefined, smart: undefined });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [dictate, listParam, smartParam, setSelectedListId, setSelectedTag]);
 
   const githubQuery = useGitHubIssues();
   const toggleGitHubIssue = useToggleGitHubIssue();

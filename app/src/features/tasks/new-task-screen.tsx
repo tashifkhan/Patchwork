@@ -79,7 +79,12 @@ export default function NewTaskScreen() {
   const selectedTag = useUiStore((state) => state.selectedTag);
   const openTagPicker = useTagPickerStore((s) => s.open);
   const setStaged = useAiStagingStore((s) => s.setStaged);
-  const { draftId } = useLocalSearchParams<{ draftId?: string }>();
+  // `title` and `notes` prefill the form from a deep link (Siri, home-screen shortcuts).
+  const { draftId, title: titleParam, notes: notesParam } = useLocalSearchParams<{
+    draftId?: string;
+    title?: string;
+    notes?: string;
+  }>();
   const [handoff] = useState(() => getCreateHandoff(draftId));
   useEffect(() => {
     clearCreateHandoff(draftId);
@@ -97,8 +102,8 @@ export default function NewTaskScreen() {
         ? selectedListId
         : lists[0]?.id;
 
-  const [title, setTitle] = useState(handoff?.title ?? '');
-  const [notes, setNotes] = useState(handoff?.body ?? '');
+  const [title, setTitle] = useState(handoff?.title ?? (typeof titleParam === 'string' ? titleParam : ''));
+  const [notes, setNotes] = useState(handoff?.body ?? (typeof notesParam === 'string' ? notesParam : ''));
   const [listIdState, setListIdState] = useState<string | undefined>(undefined);
   // A GitHub repository is just another destination. When set, the same form
   // creates an issue instead of a CalDAV to-do; nothing navigates or remounts.

@@ -6,7 +6,7 @@ import { Platform, Pressable, useWindowDimensions, type FlatList, type View as R
 import { LegacyFlatList } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { jiraImageHeaders, sprintTiming } from '@/api/jira';
+import { jiraImageHeaders, sprintTiming, type JiraSprint } from '@/api/jira';
 import { SymbolView, type SFSymbol } from 'expo-symbols';
 
 import { BoardColumn } from '@/components/boards/board-column';
@@ -241,6 +241,20 @@ export default function BoardScreen() {
     } catch (error) {
       haptics.error();
       setErrorMessage(error instanceof Error ? error.message : 'Could not move the card.');
+    }
+  }
+
+  async function moveToSprint(sprint: JiraSprint | null) {
+    const current = moving;
+    setMoving(null);
+    const target = sprint ? `sprint:${sprint.id}` : 'backlog';
+    if (!current || !detail.jira || current.card.sprint?.key === target) return;
+    try {
+      await detail.jira.moveToSprint(current.card.id, sprint);
+      haptics.success();
+    } catch (error) {
+      haptics.error();
+      setErrorMessage(error instanceof Error ? error.message : 'Could not move the issue.');
     }
   }
 
@@ -552,14 +566,39 @@ export default function BoardScreen() {
         title="Move to"
         layout="stack"
         subtitle={moving ? [moving.card.key, moving.card.title].filter(Boolean).join(' · ') : undefined}
-        items={detail.columns.map((column) => ({
-          key: column.id,
-          label: column.title,
-          subtitle: `${column.cards.length} card${column.cards.length === 1 ? '' : 's'}`,
-          icon: 'view-column-outline',
-          selected: column.id === moving?.column.id,
-          onPress: () => void moveTo(column),
-        }))}
+        items={[
+          ...detail.columns.map((column) => ({
+            key: column.id,
+            label: column.title,
+            subtitle: `${column.cards.length} card${column.cards.length === 1 ? '' : 's'}`,
+            icon: 'view-column-outline' as const,
+            selected: column.id === moving?.column.id,
+            onPress: () => void moveTo(column),
+          })),
+          // Jira boards with sprints: the same sheet moves the issue between sprints and the backlog.
+          ...(detail.jira && detail.jira.sprints.length > 0 && moving?.card.sprint
+            ? [
+                ...detail.jira.sprints.map((sprint) => ({
+                  key: `sprint:${sprint.id}`,
+                  label: sprint.name,
+                  subtitle: [sprint.state === 'active' ? 'Active sprint' : 'Upcoming sprint', sprintTiming(sprint)]
+                    .filter(Boolean)
+                    .join(' · '),
+                  icon: sprint.state === 'active' ? ('run-fast' as const) : ('calendar-clock' as const),
+                  selected: moving.card.sprint?.key === `sprint:${sprint.id}`,
+                  onPress: () => void moveToSprint(sprint),
+                })),
+                {
+                  key: 'backlog',
+                  label: 'Backlog',
+                  subtitle: 'Out of every sprint',
+                  icon: 'tray-full' as const,
+                  selected: moving.card.sprint?.key === 'backlog',
+                  onPress: () => void moveToSprint(null),
+                },
+              ]
+            : []),
+        ]}
         onClose={() => setMoving(null)}
       />
 

@@ -118,6 +118,8 @@ module.exports = ({ config }) => {
       './plugins/with-android-workmanager-dedupe',
       './plugins/with-android-wallpaper-recreate',
       './plugins/with-android-local-ai',
+      // Quick actions, Siri App Shortcuts (see modules/patchwork-shortcuts).
+      './plugins/with-shortcuts',
     ],
   };
 };

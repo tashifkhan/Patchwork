@@ -1,0 +1,10 @@
+{
+  "name": "patchwork-shortcuts",
+  "version": "1.0.0",
+  "description": "Home-screen quick actions, pinned shortcuts, Siri App Shortcuts and Android AppFunctions",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "author": "Patchwork",
+  "homepage": "https://github.com/tashifkhan/patchwork",
+  "private": true
+}

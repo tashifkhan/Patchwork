@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { MenuView } from '@expo/ui/community/menu';
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { Fragment } from 'react';
@@ -17,6 +16,7 @@ import {
 } from '@/components/settings/settings-list';
 import { useTheme } from '@/components/theme/context';
 import { LoadingSpinner } from '@/components/ui/loading';
+import { MenuView } from '@/components/ui/menu';
 import { SegmentedChoice } from '@/components/ui/segmented-choice';
 import { ToggleChip } from '@/components/ui/toggle-chip';
 import { useAiCatalog, useAiKeys } from '@/features/ai/queries';
@@ -601,7 +601,7 @@ function ChainMenu({
           justifyContent: 'center',
           opacity: pressed ? 0.5 : 1,
         })}>
-        <SymbolView name="ellipsis.circle" size={22} tintColor={colors.accent} />
+        <SymbolView name={{ ios: 'ellipsis.circle', android: 'more_vert' }} size={22} tintColor={colors.accent} />
       </Pressable>
     </MenuView>
   );

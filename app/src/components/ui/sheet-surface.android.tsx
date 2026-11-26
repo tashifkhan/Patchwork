@@ -9,6 +9,7 @@ import { useCallback, useRef, type ReactNode } from 'react';
 import { useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { useComposeTheme } from '@/components/theme/compose-theme';
 import { useTheme } from '@/components/theme/context';
 import { haptics } from '@/lib/haptics';
 import { Text } from '@/tw';
@@ -58,6 +59,7 @@ export function SheetSurface({
   sheetGesturesEnabled = true,
 }: SheetSurfaceProps) {
   const { colors } = useTheme();
+  const composeTheme = useComposeTheme();
   const { width } = useWindowDimensions();
   const sheetRef = useRef<ModalBottomSheetRef>(null);
   const closedRef = useRef(false);
@@ -86,7 +88,8 @@ export function SheetSurface({
         pointerEvents="none"
         // Force the sheet to follow the in-app theme (palette / AMOLED /
         // light-in-dark-OS), not the OS-level color scheme.
-        colorScheme={colors.bg === '#000000' || isDark(colors.bg) ? 'dark' : 'light'}
+        colorScheme={composeTheme.colorScheme}
+        colorOverrides={composeTheme.colorOverrides}
         ignoreSafeAreaKeyboardInsets>
         <ModalBottomSheet
           ref={sheetRef}
@@ -150,12 +153,3 @@ export function SheetSurface({
   );
 }
 
-/** Rough luminance check so the Compose sheet matches our resolved theme. */
-function isDark(hex: string): boolean {
-  const raw = hex.replace('#', '').slice(0, 6);
-  if (raw.length !== 6) return true;
-  const n = Number.parseInt(raw, 16);
-  if (Number.isNaN(n)) return true;
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
-}

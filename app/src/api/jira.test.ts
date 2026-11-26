@@ -5,7 +5,11 @@ import type { JiraCredentials } from '@/lib/credentials-types';
 import {
   createJiraIssue,
   fetchJiraBoardDetail,
+  fetchJiraIssueSprint,
+  jiraDescriptionMedia,
   jiraSearchJql,
+  moveJiraIssuesToSprint,
+  updateJiraIssue,
   jiraViewKey,
   parseJiraViewKey,
   resolveJiraView,
@@ -192,5 +196,131 @@ describe('jira search', () => {
     expect(issues.map((issue) => issue.key)).toEqual(['SCRUM-9']);
     expect(calls).toHaveLength(2);
     expect(calls[0].path).toContain('/rest/api/3/search/jql');
+  });
+});
+
+describe('moving issues between sprints', () => {
+  test('into a sprint posts to that sprint', async () => {
+    const calls = mockJira(() => ({ status: 204 }));
+    await moveJiraIssuesToSprint(creds, ['SCRUM-4'], 15);
+    expect(calls).toEqual([{ method: 'POST', path: '/rest/agile/1.0/sprint/15/issue', body: { issues: ['SCRUM-4'] } }]);
+  });
+
+  test('null moves to the backlog', async () => {
+    const calls = mockJira(() => ({ status: 204 }));
+    await moveJiraIssuesToSprint(creds, ['SCRUM-4', 'SCRUM-5'], null);
+    expect(calls).toEqual([
+      { method: 'POST', path: '/rest/agile/1.0/backlog/issue', body: { issues: ['SCRUM-4', 'SCRUM-5'] } },
+    ]);
+  });
+
+  test('Jira refusing the move surfaces its message', async () => {
+    mockJira(() => ({ status: 400, json: { errorMessages: ['Sprint is closed'] } }));
+    await expect(moveJiraIssuesToSprint(creds, ['SCRUM-4'], 3)).rejects.toThrow('Sprint is closed');
+  });
+});
+
+describe('fetchJiraIssueSprint', () => {
+  test('the open sprint, and the board it was made on', async () => {
+    const calls = mockJira(() => ({
+      json: { fields: { sprint: { id: 15, name: 'SCRUM Sprint 15', state: 'active', originBoardId: 7 } } },
+    }));
+    expect(await fetchJiraIssueSprint(creds, 'SCRUM-4')).toEqual({
+      sprint: { id: 15, name: 'SCRUM Sprint 15', state: 'active' },
+      boardId: 7,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test('backlog issues use the board of their last closed sprint', async () => {
+    mockJira(() => ({
+      json: {
+        fields: {
+          sprint: null,
+          closedSprints: [
+            { id: 1, name: 'Old', state: 'closed', originBoardId: 3, completeDate: '2026-01-01' },
+            { id: 2, name: 'Newer', state: 'closed', originBoardId: 4, completeDate: '2026-06-01' },
+          ],
+        },
+      },
+    }));
+    expect(await fetchJiraIssueSprint(creds, 'SCRUM-4')).toEqual({ sprint: null, boardId: 4 });
+  });
+
+  test('never in a sprint: the first scrum board of its project', async () => {
+    const calls = mockJira((_method, path) =>
+      path.startsWith('/rest/agile/1.0/board?')
+        ? { json: { values: [{ id: 9, name: 'Kanban', type: 'kanban' }, { id: 11, name: 'Scrum', type: 'scrum' }] } }
+        : { json: { fields: { project: { key: 'SCRUM' } } } }
+    );
+    expect(await fetchJiraIssueSprint(creds, 'SCRUM-4')).toEqual({ sprint: null, boardId: 11 });
+    expect(calls[1].path).toBe('/rest/agile/1.0/board?projectKeyOrId=SCRUM&maxResults=50');
+  });
+});
+
+describe('updateJiraIssue', () => {
+  test('an ADF description is sent as it is', async () => {
+    const calls = mockJira(() => ({ status: 204 }));
+    const description = { type: 'doc' as const, version: 1 as const, content: [{ type: 'mediaSingle', content: [] }] };
+    await updateJiraIssue(creds, 'SCRUM-4', { description });
+    expect((calls[0].body as { fields: { description: unknown } }).fields.description).toEqual(description);
+  });
+
+  test('null clears the description', async () => {
+    const calls = mockJira(() => ({ status: 204 }));
+    await updateJiraIssue(creds, 'SCRUM-4', { description: null });
+    expect(calls[0].body).toEqual({ fields: { description: null } });
+  });
+});
+
+describe('jiraDescriptionMedia', () => {
+  const doc = {
+    type: 'doc',
+    content: [
+      { type: 'mediaSingle', content: [{ type: 'media', attrs: { id: 'uuid-a', type: 'file', alt: 'shot.png' } }] },
+      { type: 'mediaSingle', content: [{ type: 'media', attrs: { id: 'uuid-b', type: 'file' } }] },
+      { type: 'mediaSingle', content: [{ type: 'media', attrs: { type: 'external', url: 'https://x.dev/a.png' } }] },
+    ],
+  };
+  const attachments = [
+    { id: '100', filename: 'shot.png', mimeType: 'image/png', content: `${creds.site}/rest/api/3/attachment/content/100` },
+    { id: '101', filename: 'diagram.png', mimeType: 'image/png', content: `${creds.site}/rest/api/3/attachment/content/101` },
+    { id: '102', filename: 'evil.png', mimeType: 'image/png', content: 'https://elsewhere.dev/102' },
+  ];
+
+  test('matches by media id in the rendered HTML, then filename', () => {
+    const html = '<img src="/rest/api/3/attachment/content/101" data-media-services-id="uuid-b" />';
+    const media = jiraDescriptionMedia(creds, doc, attachments, html);
+    expect(media['uuid-a']?.attachmentId).toBe('100');
+    expect(media['uuid-b']?.attachmentId).toBe('101');
+    expect(media['uuid-b']?.isImage).toBe(true);
+  });
+
+  test('falls back to the order images appear in', () => {
+    const html =
+      '<img src="/rest/api/3/attachment/content/101" alt="x" /><img src="/rest/api/3/attachment/content/100" />';
+    const nodes = [
+      { type: 'media', attrs: { id: 'first', type: 'file' } },
+      { type: 'media', attrs: { id: 'second', type: 'file' } },
+    ];
+    const media = jiraDescriptionMedia(creds, { type: 'doc', content: nodes }, attachments, html);
+    expect(media.first?.attachmentId).toBe('101');
+    expect(media.second?.attachmentId).toBe('100');
+    // Counts that differ are not paired, rather than risk the wrong image.
+    expect(jiraDescriptionMedia(creds, { type: 'doc', content: [nodes[0]] }, attachments, html)).toEqual({});
+  });
+
+  test('off-site attachment URLs fall back to the site content URL, never another host', () => {
+    const media = jiraDescriptionMedia(
+      creds,
+      { type: 'doc', content: [{ type: 'media', attrs: { id: 'u', alt: 'evil.png' } }] },
+      attachments,
+      ''
+    );
+    expect(media.u?.url).toBe(`${creds.site}/rest/api/3/attachment/content/102`);
+  });
+
+  test('no media, nothing to match', () => {
+    expect(jiraDescriptionMedia(creds, { type: 'doc', content: [] }, attachments, '')).toEqual({});
   });
 });

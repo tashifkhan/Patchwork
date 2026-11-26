@@ -22,6 +22,7 @@ import { loadCustomFonts } from '@/lib/fonts';
 import { DURATION } from '@/lib/motion';
 import { loadOutbox, useOutboxStore } from '@/features/sync/outbox';
 import { flushOutbox } from '@/features/sync/replay';
+import { useShortcutActions } from '@/features/shortcuts/shortcut-actions';
 import { startNotificationResponseObserver, syncTaskReminders } from '@/lib/notifications';
 import { queryClient, queryKeys } from '@/lib/query-client';
 import { ANDROID_PUSH, sheetScreenOptions } from '@/lib/screen-options';
@@ -212,6 +213,9 @@ function NativeRuntimeCoordinator() {
 
   // Offline: keep showing the cache, and resync on our own once it's back.
   useReconnectSync();
+
+  // Quick actions, Siri and assistant requests queued while JS wasn't running.
+  useShortcutActions();
 
   // Send anything saved offline: at launch, on return to the app, and every
   // 30 seconds while something is still waiting.

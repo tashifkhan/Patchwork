@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useState } from 'react';
 import { Pressable } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
@@ -6,6 +7,7 @@ import type { BoardSummary } from '@/features/boards/model';
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { RiseIn } from '@/components/ui/motion';
+import { canAddToHomeScreen, pinBoard } from '@/features/shortcuts/pin-shortcut';
 import { haptics } from '@/lib/haptics';
 import { listTone } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
@@ -21,7 +23,8 @@ const RADIUS = 32;
 /**
  * Android: boards as a fanned stack of tonal cards, the same look as My
  * lists. Each card has the board's avatar, name and key, a star chip and an
- * arrow out. Tapping opens the board; the chip stars or unstars it.
+ * arrow out. Tapping opens the board; the chip stars or unstars it;
+ * long-pressing asks the launcher to pin the board to the home screen.
  */
 export function BoardStack({
   boards,
@@ -37,6 +40,8 @@ export function BoardStack({
   onOpen: (board: BoardSummary) => void;
   onToggleFavorite: (ref: string) => void;
 }) {
+  // Read once: whether this launcher takes pinned shortcuts doesn't change.
+  const [canPin] = useState(canAddToHomeScreen);
   return (
     <View>
       {boards.map((board, index) => (
@@ -54,6 +59,7 @@ export function BoardStack({
             recent={recents[0] === board.ref}
             onOpen={() => onOpen(board)}
             onToggleFavorite={() => onToggleFavorite(board.ref)}
+            onPin={canPin ? () => void pinBoard(board) : undefined}
           />
         </RiseIn>
       ))}
@@ -69,6 +75,7 @@ function BoardCard({
   recent,
   onOpen,
   onToggleFavorite,
+  onPin,
 }: {
   board: BoardSummary;
   index: number;
@@ -78,6 +85,8 @@ function BoardCard({
   recent: boolean;
   onOpen: () => void;
   onToggleFavorite: () => void;
+  /** Long-press: add the board to the home screen. */
+  onPin?: () => void;
 }) {
   const { colors, scheme } = useTheme();
   const dark = scheme === 'dark';
@@ -100,9 +109,18 @@ function BoardCard({
           haptics.tap();
           onOpen();
         }}
+        onLongPress={
+          onPin
+            ? () => {
+                haptics.impact('medium');
+                onPin();
+              }
+            : undefined
+        }
         onPressOut={press.release}
         accessibilityRole="button"
         accessibilityLabel={`${board.title}, ${board.subtitle}${starred ? ', starred' : ''}`}
+        accessibilityHint={onPin ? 'Long-press to add the board to the home screen' : undefined}
         style={{
           height: last ? CARD_HEIGHT - OVERLAP + 8 : CARD_HEIGHT,
           borderRadius: RADIUS,

@@ -6,6 +6,7 @@ import { useTheme } from '@/components/theme/context';
 import { Button } from '@/components/ui/button';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
+import { canAddToHomeScreen, pinList } from '@/features/shortcuts/pin-shortcut';
 import { useDeleteTaskList, useUpdateTaskList } from '@/features/tasks/mutations';
 import { useUiStore } from '@/stores/ui-store';
 import { Text, TextInput, View } from '@/tw';
@@ -22,6 +23,8 @@ export default function EditListScreen() {
   const [title, setTitle] = useState(typeof params.name === 'string' ? params.name : '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deleteVisible, setDeleteVisible] = useState(false);
+  // Android launchers that take pinned shortcuts; iOS has no equivalent.
+  const [canPin] = useState(canAddToHomeScreen);
 
   const busy = updateList.isPending || deleteList.isPending;
   const canSave = title.trim().length > 0 && Boolean(listId) && !busy;
@@ -110,6 +113,15 @@ export default function EditListScreen() {
               />
             </View>
           </View>
+          {canPin ? (
+            <Button
+              variant="tonal"
+              icon="home-plus-outline"
+              label="Add to home screen"
+              disabled={busy || !listId}
+              onPress={() => void pinList({ id: listId, name: title.trim() || (params.name ?? 'List') })}
+            />
+          ) : null}
           <Button
             variant="danger"
             label="Delete list"

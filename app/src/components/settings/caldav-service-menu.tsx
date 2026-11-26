@@ -1,9 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { MenuView } from '@expo/ui/community/menu';
 import { SymbolView } from 'expo-symbols';
 import { Platform, Text, View } from 'react-native';
 
 import { useTheme } from '@/components/theme/context';
+import { MenuView } from '@/components/ui/menu';
 
 const SERVICES = [
   { id: 'nextcloud', title: 'Nextcloud' },

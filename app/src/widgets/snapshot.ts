@@ -3,7 +3,11 @@ import { Platform } from 'react-native';
 
 import { taskLink, taskRef, type Task } from '@/features/tasks/model';
 import { bucketOf, byManualOrder, flattenTasks } from '@/features/tasks/task-buckets';
+import type { TaskList } from '@/api/types';
+import { queryClient, queryKeys } from '@/lib/query-client';
 import { LAST_LIST_STORAGE_KEY } from '@/stores/ui-store';
+
+import { setAssistantSnapshot } from '../../modules/patchwork-shortcuts/src';
 
 import ListWidget from './ListWidget';
 import LockWidget from './LockWidget';
@@ -99,6 +103,36 @@ export function buildSnapshots(inputs: SnapshotInputs): {
   };
 }
 
+/** Kotlin's `Instant.parse` wants a full UTC timestamp. */
+function isoInstant(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function pushAssistantSnapshot(tasks: Task[], today: TodayProps) {
+  const cachedLists = queryClient.getQueryData<TaskList[]>(queryKeys.taskLists);
+  const lists = new Map<string, { name: string; account: string }>();
+  for (const list of cachedLists ?? []) {
+    if (!list.is_deck) lists.set(list.id, { name: list.name, account: list.account_name ?? '' });
+  }
+  for (const task of flattenTasks(tasks)) {
+    if (!lists.has(task.list_id)) lists.set(task.list_id, { name: task.list_name, account: task.account_name ?? '' });
+  }
+  setAssistantSnapshot({
+    generatedAt: today.generatedAt,
+    dueTodayCount: today.totalToday,
+    overdueCount: today.totalOverdue,
+    today: today.tasks.map((task) => ({
+      title: task.title,
+      list: task.list_name,
+      dueAt: isoInstant(task.due_at),
+      overdue: task.bucket === 'overdue',
+    })),
+    lists: [...lists.values()],
+  });
+}
+
 /** Push fresh props to every widget kind. No-op on web. */
 export async function pushAllWidgets(tasks: Task[]): Promise<void> {
   if (!isIOS && !isAndroid) return;
@@ -109,6 +143,10 @@ export async function pushAllWidgets(tasks: Task[]): Promise<void> {
   TodayWidget.updateSnapshot(snaps.today);
   UpcomingWidget.updateSnapshot(snaps.upcoming);
   ListWidget.updateSnapshot(snaps.list);
+
+  // Android AppFunctions (Gemini) answer "what's due today" from this copy,
+  // since the tasks themselves only exist on the JS side.
+  if (isAndroid) pushAssistantSnapshot(tasks, snaps.today);
 
   // Lock Screen widgets and timelines exist only on iOS.
   if (isIOS) {

@@ -1,7 +1,7 @@
 {
   "name": "patchwork",
   "main": "./index.js",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/google": "^3.0.80",
@@ -68,6 +68,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/react": "~19.3.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~58.0.4",
@@ -77,6 +78,7 @@
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "assets:splash": "node ./scripts/generate-splash-assets.mjs",
+    "assets:icons": "node ./scripts/generate-app-icons.mjs",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "lint": "eslint . --max-warnings 0",

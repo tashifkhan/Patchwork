@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shortcut icon for Android 7.1, which has no adaptive icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:fillColor="@color/pw_shortcut_background" android:pathData="M24,0A24,24 0,1 1,24 48A24,24 0,1 1,24 0Z" />
+    <group android:scaleX="1.1" android:scaleY="1.1" android:translateX="10.8" android:translateY="10.8">
+        <path android:fillColor="@color/pw_shortcut_ink" android:pathData="M14.67,5v14H9.33V5H14.67zM15.67,19H21V5h-5.33V19zM8.33,19V5H3v14H8.33z" />
+    </group>
+</vector>

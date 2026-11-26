@@ -1,5 +1,5 @@
 import type { DeckBoard, DeckBoardDetail, DeckCard } from '@/api/types';
-import type { JiraBoard, JiraBoardDetail, JiraIssue } from '@/api/jira';
+import type { JiraBoard, JiraBoardDetail, JiraIssue, JiraSprint } from '@/api/jira';
 
 /**
  * One shape for Nextcloud Deck boards and Jira boards, so the Boards tab can
@@ -222,6 +222,32 @@ export function jiraColumns(detail: JiraBoardDetail): BoardColumnItem[] {
     title: column.name,
     cards: column.issues.map((issue) => jiraCardItem(issue, hasSprints ? jiraCardSprint(issue, detail) : undefined)),
   }));
+}
+
+/**
+ * A loaded board after `key` moved to `sprint` (null: the backlog), for an
+ * optimistic update. A board showing one sprint, or the backlog, drops the
+ * issue when it no longer belongs there; the whole-board view keeps it and
+ * regroups it.
+ */
+export function withIssueSprint(
+  detail: JiraBoardDetail,
+  key: string,
+  sprint: Pick<JiraSprint, 'id' | 'name' | 'state'> | null
+): JiraBoardDetail {
+  const view = detail.view;
+  const stays =
+    view.kind === 'board' || (view.kind === 'backlog' ? sprint == null : sprint != null && sprint.id === view.sprintId);
+  const next = sprint ? { id: sprint.id, name: sprint.name, state: sprint.state } : null;
+  return {
+    ...detail,
+    columns: detail.columns.map((column) => ({
+      ...column,
+      issues: column.issues.flatMap((issue) =>
+        issue.key !== key ? [issue] : stays ? [{ ...issue, sprint: next }] : []
+      ),
+    })),
+  };
 }
 
 /** Two-letter initials for an avatar fallback. */
