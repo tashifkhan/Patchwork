@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
@@ -19,9 +20,13 @@ import {
   jiraImageHeaders,
   jiraIssueUrl,
   updateJiraIssue,
+  type JiraBoardDetail,
   type JiraIssueDetail,
   type JiraIssuePatch,
+  type JiraIssueSprintInfo,
+  type JiraSprint,
 } from '@/api/jira';
+import { AdfViewer } from '@/components/boards/adf-viewer';
 import {
   DetailRow,
   DetailsCard,
@@ -32,6 +37,7 @@ import {
   EditorNotes,
   EditorPrimaryButton,
   EditorTitle,
+  EDITOR_TEXT_INSET,
 } from '@/components/boards/item-editor';
 import { ACTION_BAR_CLEARANCE, KeyboardScrollView } from '@/components/ui/keyboard';
 import { PickerSheet } from '@/components/boards/picker-sheet';
@@ -40,12 +46,15 @@ import { DateField } from '@/components/ui/date-field';
 import { TaskActionBar } from '@/features/tasks/task-action-bar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
+import { useTheme } from '@/components/theme/context';
+import { adfFromSegments, adfSegments } from '@/lib/adf';
+import { withIssueSprint } from '@/features/boards/model';
 import { NativeAlert } from '@/components/ui/native-alert';
 import type { JiraCredentials } from '@/lib/credentials-types';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { handleJiraError, useJiraAccounts, useJiraSessionStore } from '@/stores/jira-session-store';
-import { View } from '@/tw';
+import { Text, View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
@@ -146,29 +155,41 @@ function IssueEditor({
   const client = useQueryClient();
   const headers = useMemo(() => jiraImageHeaders(credentials), [credentials]);
   const [summary, setSummary] = useState(issue.summary);
-  const [description, setDescription] = useState(issue.description);
+  const { colors } = useTheme();
+  // The description in pieces: Markdown you can edit, and the images, tables
+  // and other rich blocks around it, which go back to Jira untouched. Frozen
+  // at open, like the other fields, so a refetch never shifts what you edit.
+  const [segments] = useState(() => adfSegments(issue.descriptionDoc));
+  const [drafts, setDrafts] = useState(() =>
+    segments.map((segment) => (segment.kind === 'text' ? segment.markdown : ''))
+  );
+  const hasRich = segments.some((segment) => segment.kind === 'rich');
   const [labels, setLabels] = useState(issue.labels);
   const [duedate, setDuedate] = useState(issue.duedate);
   const [priority, setPriority] = useState(issue.priority);
   const [picker, setPicker] = useState<'status' | 'priority' | 'assignee' | 'sprint' | null>(null);
 
-  // Sprints to move to come from the board the issue was opened on. Which
-  // sprint the issue is in comes from the issue itself, so the row shows even
-  // when the issue was opened from search or a link.
-  const hasBoard = boardId != null && Number.isFinite(boardId) && boardId > 0;
-  const sprints = useQuery({
-    queryKey: ['jira', 'sprints', credentials.id, boardId],
-    queryFn: () => fetchJiraSprints(credentials, boardId!),
-    enabled: hasBoard,
-    staleTime: 5 * 60_000,
-  });
-  const currentSprint = useQuery({
-    queryKey: ['jira', 'issue-sprint', credentials.id, issue.key],
+  // Which sprint the issue is in comes from the issue itself, so the row shows
+  // even when the issue was opened from search or a link. Sprints to move to
+  // come from the board it was opened on, else the board its sprint belongs
+  // to, else its project's first scrum board.
+  const sprintKey = ['jira', 'issue-sprint', credentials.id, issue.key] as const;
+  const sprintInfo = useQuery({
+    queryKey: sprintKey,
     queryFn: () => fetchJiraIssueSprint(credentials, issue.key),
+  });
+  const currentSprint = sprintInfo.data?.sprint;
+  const sprintBoard =
+    boardId != null && Number.isFinite(boardId) && boardId > 0 ? boardId : sprintInfo.data?.boardId;
+  const sprints = useQuery({
+    queryKey: ['jira', 'sprints', credentials.id, sprintBoard],
+    queryFn: () => fetchJiraSprints(credentials, sprintBoard!),
+    enabled: sprintBoard != null,
+    staleTime: 5 * 60_000,
   });
   const canMoveSprint = (sprints.data?.length ?? 0) > 0;
   // Boards without sprints have nothing to say here, unless the issue is in one.
-  const showSprint = canMoveSprint || currentSprint.data != null;
+  const showSprint = canMoveSprint || currentSprint != null;
   const [error, setError] = useState<string | null>(null);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const barBottom = useTabBarFabOffset();
@@ -187,7 +208,13 @@ function IssueEditor({
 
   const patch: JiraIssuePatch = {};
   if (summary.trim() !== issue.summary) patch.summary = summary;
-  if (description !== issue.description) patch.description = description;
+  const descriptionDirty = segments.some(
+    (segment, index) => segment.kind === 'text' && drafts[index] !== segment.markdown
+  );
+  if (descriptionDirty) {
+    // Only the edited text goes through Markdown; everything else is sent back as it came.
+    patch.description = adfFromSegments(segments, drafts);
+  }
   if (labels.join('\n') !== issue.labels.join('\n')) patch.labels = labels;
   if (duedate !== issue.duedate) patch.duedate = duedate;
   if (priority && priority.id !== issue.priority?.id) patch.priorityId = priority.id;
@@ -228,14 +255,52 @@ function IssueEditor({
     onError: fail,
   });
   const moveSprint = useMutation({
-    mutationFn: (sprintId: number | null) => moveJiraIssuesToSprint(credentials, [issue.key], sprintId),
-    onSuccess: () => {
-      haptics.success();
-      void client.invalidateQueries({ queryKey: ['jira', 'issue-sprint', credentials.id, issue.key] });
+    mutationFn: (sprint: JiraSprint | null) => moveJiraIssuesToSprint(credentials, [issue.key], sprint?.id ?? null),
+    // The row and any loaded board show the move straight away, like a card drag.
+    onMutate: async (sprint) => {
+      await client.cancelQueries({ queryKey: sprintKey });
+      const previous = client.getQueryData<JiraIssueSprintInfo>(sprintKey);
+      client.setQueryData<JiraIssueSprintInfo>(sprintKey, { boardId: previous?.boardId ?? sprintBoard, sprint });
+      client.setQueriesData<JiraBoardDetail>({ queryKey: ['jira', 'board', credentials.id] }, (detail) =>
+        detail?.columns ? withIssueSprint(detail, issue.key, sprint) : detail
+      );
+      return { previous };
+    },
+    onSuccess: () => haptics.success(),
+    onError: (cause, _sprint, context) => {
+      if (context?.previous) client.setQueryData(sprintKey, context.previous);
+      fail(cause);
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: sprintKey });
       refresh();
     },
-    onError: fail,
   });
+
+  function pickSprint(sprint: JiraSprint | null) {
+    setPicker(null);
+    if ((currentSprint?.id ?? null) !== (sprint?.id ?? null)) moveSprint.mutate(sprint);
+  }
+  const sprintItems = [
+    ...(sprints.data ?? []).map((sprint) => ({
+      key: `sprint:${sprint.id}`,
+      label: sprint.name,
+      subtitle: [sprint.state === 'active' ? 'Active sprint' : 'Upcoming sprint', sprintTiming(sprint)]
+        .filter(Boolean)
+        .join(' · '),
+      icon: sprint.state === 'active' ? ('run-fast' as const) : ('calendar-clock' as const),
+      selected: currentSprint?.id === sprint.id,
+      onPress: () => pickSprint(sprint),
+    })),
+    {
+      key: 'backlog',
+      label: 'Backlog',
+      subtitle: 'Out of every sprint',
+      icon: 'tray-full' as const,
+      selected: sprintInfo.data != null && currentSprint == null,
+      onPress: () => pickSprint(null),
+    },
+  ];
 
   const remove = useMutation({
     mutationFn: () => deleteJiraIssue(credentials, issue.key),
@@ -285,17 +350,46 @@ function IssueEditor({
           iconHeaders={headers}
           meta={meta}
         />
-        <EditorNotes
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Description"
-          editable={issue.descriptionEditable}
-          readOnlyNote={
-            issue.editable.description
-              ? 'This description has images or tables, so it can only be edited in Jira.'
-              : undefined
-          }
-        />
+        {issue.editable.description ? (
+          segments.map((segment, index) =>
+            segment.kind === 'rich' ? (
+              <View key={index} style={{ marginLeft: EDITOR_TEXT_INSET, marginTop: 8 }}>
+                <AdfViewer
+                  nodes={[segment.node]}
+                  media={issue.media}
+                  headers={headers}
+                  fallbackUrl={jiraIssueUrl(credentials, issue.key)}
+                />
+              </View>
+            ) : (
+              <EditorNotes
+                key={index}
+                value={drafts[index] ?? ''}
+                onChangeText={(value) =>
+                  setDrafts((current) => current.map((draft, at) => (at === index ? value : draft)))
+                }
+                placeholder={index === 0 ? 'Description' : 'Add to the description'}
+              />
+            )
+          )
+        ) : issue.descriptionDoc?.content?.length ? (
+          <View style={{ marginLeft: EDITOR_TEXT_INSET, marginTop: 6 }}>
+            <AdfViewer
+              nodes={issue.descriptionDoc.content}
+              media={issue.media}
+              headers={headers}
+              fallbackUrl={jiraIssueUrl(credentials, issue.key)}
+            />
+          </View>
+        ) : null}
+        {issue.editable.description && hasRich ? (
+          <View className="flex-row items-center" style={{ gap: 6, marginLeft: EDITOR_TEXT_INSET, marginTop: 8 }}>
+            <MaterialCommunityIcons name="lock-outline" size={14} color={colors.text3} />
+            <Text style={{ flex: 1, fontSize: 13, color: colors.text3 }}>
+              Images, tables and mentions save back as they are. Change those in Jira.
+            </Text>
+          </View>
+        ) : null}
         <EditorChips values={labels} onChange={setLabels} editable={issue.editable.labels} />
 
         <EditorHeading title="Details" />
@@ -325,15 +419,9 @@ function IssueEditor({
           />
           {showSprint ? (
             <DetailRow
-              icon={currentSprint.data ? 'run-fast' : 'tray-full'}
+              icon={currentSprint ? 'run-fast' : 'tray-full'}
               label="Sprint"
-              value={
-                moveSprint.isPending
-                  ? 'Moving…'
-                  : currentSprint.isLoading
-                    ? 'Loading…'
-                    : (currentSprint.data?.name ?? 'Backlog')
-              }
+              value={sprintInfo.isLoading ? 'Loading…' : (currentSprint?.name ?? 'Backlog')}
               loading={moveSprint.isPending}
               onPress={canMoveSprint ? () => setPicker('sprint') : undefined}
             />
@@ -393,14 +481,18 @@ function IssueEditor({
       <PickerSheet
         visible={picker === 'status'}
         title="Move to"
-        subtitle={`Now: ${issue.status.name}`}
-        items={
-          transitions.isLoading
+        subtitle={
+          canMoveSprint
+            ? `Now: ${issue.status.name} · ${currentSprint?.name ?? 'Backlog'}`
+            : `Now: ${issue.status.name}`
+        }
+        items={[
+          ...(transitions.isLoading
             ? [
                 {
                   key: 'loading',
                   label: 'Loading statuses…',
-                  icon: 'progress-clock',
+                  icon: 'progress-clock' as const,
                   onPress: () => {},
                 },
               ]
@@ -419,8 +511,10 @@ function IssueEditor({
                   setPicker(null);
                   if (option.to.id !== issue.status.id) transition.mutate(option.id);
                 },
-              }))
-        }
+              }))),
+          // Move also reaches the board's sprints and the backlog.
+          ...(canMoveSprint ? sprintItems : []),
+        ]}
         onClose={() => setPicker(null)}
       />
       <PickerSheet
@@ -455,31 +549,7 @@ function IssueEditor({
         visible={picker === 'sprint'}
         title="Sprint"
         subtitle="Move this issue to a sprint, or back to the backlog."
-        items={[
-          ...(sprints.data ?? []).map((sprint) => ({
-            key: String(sprint.id),
-            label: sprint.name,
-            subtitle: [sprint.state === 'active' ? 'Active' : 'Upcoming', sprintTiming(sprint)]
-              .filter(Boolean)
-              .join(' · '),
-            icon: sprint.state === 'active' ? ('run-fast' as const) : ('calendar-clock' as const),
-            selected: currentSprint.data?.id === sprint.id,
-            onPress: () => {
-              setPicker(null);
-              if (currentSprint.data?.id !== sprint.id) moveSprint.mutate(sprint.id);
-            },
-          })),
-          {
-            key: 'backlog',
-            label: 'Backlog',
-            icon: 'tray-full' as const,
-            selected: currentSprint.data === null,
-            onPress: () => {
-              setPicker(null);
-              if (currentSprint.data) moveSprint.mutate(null);
-            },
-          },
-        ]}
+        items={sprintItems}
         onClose={() => setPicker(null)}
       />
       <PickerSheet

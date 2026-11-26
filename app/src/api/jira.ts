@@ -1,6 +1,6 @@
 import { base64Encode } from '@/lib/base64';
 import { jiraAccountKey } from '@/lib/account-keys';
-import { adfToMarkdown, markdownToAdf } from '@/lib/adf';
+import { adfToMarkdown, markdownToAdf, type AdfDoc, type AdfNode } from '@/lib/adf';
 import type { JiraAccount, JiraCredentials } from '@/lib/credentials-types';
 
 /**
@@ -16,6 +16,8 @@ import type { JiraAccount, JiraCredentials } from '@/lib/credentials-types';
  *   GET  /rest/agile/1.0/board/{id}/issue  (or …/sprint/{sid}/issue)
  *   GET  /rest/api/3/issue/{key}/transitions, POST to apply one
  *   GET  /rest/api/3/issue/createmeta/{project}/issuetypes, POST /rest/api/3/issue
+ *   GET  /rest/agile/1.0/issue/{key}?fields=sprint,closedSprints,project
+ *   POST /rest/agile/1.0/sprint/{id}/issue, POST /rest/agile/1.0/backlog/issue
  */
 
 export const JIRA_NEW_TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
@@ -596,15 +598,49 @@ export async function moveJiraIssuesToSprint(
   }
 }
 
-/** The open sprint an issue is in, or null when it sits in the backlog. */
-export async function fetchJiraIssueSprint(creds: JiraCredentials, key: string): Promise<JiraSprint | null> {
-  const data = await new JiraClient(creds).request<{
-    fields?: { sprint?: { id: number; name: string; state: string } | null };
-  }>('GET', `/rest/agile/1.0/issue/${encodeURIComponent(key)}?fields=sprint`);
-  const sprint = data?.fields?.sprint;
-  return sprint && sprint.state !== 'closed'
-    ? { id: sprint.id, name: sprint.name, state: sprint.state === 'active' ? 'active' : 'future' }
-    : null;
+export interface JiraIssueSprintInfo {
+  /** The open sprint the issue is in; null when it sits in the backlog. */
+  sprint: JiraSprint | null;
+  /**
+   * A board whose sprints the issue can move between: the board its sprint
+   * was made on, else the first scrum board of its project. Undefined when
+   * neither exists.
+   */
+  boardId?: number;
+}
+
+type ApiAgileSprint = { id: number; name: string; state: string; originBoardId?: number; endDate?: string; completeDate?: string };
+
+/** Which open sprint an issue is in, and which board's sprints it can move to. */
+export async function fetchJiraIssueSprint(creds: JiraCredentials, key: string): Promise<JiraIssueSprintInfo> {
+  const client = new JiraClient(creds);
+  const data = await client.request<{
+    fields?: {
+      sprint?: ApiAgileSprint | null;
+      closedSprints?: ApiAgileSprint[] | null;
+      project?: { key?: string } | null;
+    };
+  }>('GET', `/rest/agile/1.0/issue/${encodeURIComponent(key)}?fields=sprint,closedSprints,project`);
+  const raw = data?.fields?.sprint;
+  const sprint: JiraSprint | null =
+    raw && raw.state !== 'closed'
+      ? { id: raw.id, name: raw.name, state: raw.state === 'active' ? 'active' : 'future' }
+      : null;
+  const closed = [...(data?.fields?.closedSprints ?? [])].sort((a, b) =>
+    (b.completeDate ?? b.endDate ?? '').localeCompare(a.completeDate ?? a.endDate ?? '')
+  );
+  let boardId = raw?.originBoardId ?? closed.find((entry) => entry.originBoardId)?.originBoardId;
+  const project = data?.fields?.project?.key;
+  if (boardId == null && project) {
+    const boards = await client
+      .request<{ values?: ApiBoard[] }>(
+        'GET',
+        `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(project)}&maxResults=50`
+      )
+      .catch(() => undefined);
+    boardId = (boards?.values ?? []).find((board) => boardHasSprints(board))?.id;
+  }
+  return { sprint, boardId };
 }
 
 /** "5 days left", "Ends today", "Starts Mon 10 Nov" for a sprint chip or subtitle. */
@@ -763,10 +799,12 @@ export interface JiraIssueDetail {
   id: string;
   key: string;
   summary: string;
-  /** Description as Markdown (converted from Jira's document format). */
+  /** Description as Markdown (converted from Jira's document format), for search and previews. */
   description: string;
-  /** False when the description holds things Markdown can't (images, tables). */
-  descriptionEditable: boolean;
+  /** The description as Jira stores it (ADF), or null when there is none. */
+  descriptionDoc: AdfNode | null;
+  /** Images and files in the description, by ADF media id. */
+  media: Record<string, JiraMedia>;
   status: { id: string; name: string; category: string };
   type?: { name: string; iconUrl?: string };
   priority?: { id: string; name: string; iconUrl?: string };
@@ -809,21 +847,25 @@ export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promi
       duedate?: string | null;
       created?: string;
       updated?: string;
+      attachment?: ApiAttachment[];
     };
+    renderedFields?: { description?: string | null };
     editmeta?: { fields?: Record<string, unknown> };
   }>(
     'GET',
-    `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,issuetype,priority,assignee,reporter,labels,duedate,created,updated&expand=editmeta`
+    `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,issuetype,priority,assignee,reporter,labels,duedate,created,updated,attachment&expand=editmeta,renderedFields`
   );
   const f = raw.fields ?? {};
-  const { markdown, lossless } = adfToMarkdown(f.description);
+  const { markdown } = adfToMarkdown(f.description);
+  const doc = f.description && typeof f.description === 'object' ? (f.description as AdfNode) : null;
   const meta = raw.editmeta?.fields ?? {};
   return {
     id: raw.id,
     key: raw.key,
     summary: f.summary ?? raw.key,
     description: markdown,
-    descriptionEditable: lossless && 'description' in meta,
+    descriptionDoc: doc,
+    media: jiraDescriptionMedia(creds, doc, f.attachment ?? [], raw.renderedFields?.description ?? ''),
     status: { id: f.status?.id ?? '', name: f.status?.name ?? '', category: f.status?.statusCategory?.key ?? 'new' },
     type: f.issuetype?.name ? { name: f.issuetype.name, iconUrl: f.issuetype.iconUrl } : undefined,
     priority: f.priority?.id
@@ -847,8 +889,11 @@ export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promi
 
 export interface JiraIssuePatch {
   summary?: string;
-  /** Markdown; empty clears the description. */
-  description?: string;
+  /**
+   * Markdown, or a whole ADF document (descriptions with images and tables
+   * keep those nodes as they were). Empty text or null clears it.
+   */
+  description?: string | AdfDoc | null;
   duedate?: string | null;
   labels?: string[];
   priorityId?: string;
@@ -862,7 +907,9 @@ export async function updateJiraIssue(creds: JiraCredentials, key: string, patch
     if (!summary) throw new JiraError('An issue needs a summary.');
     fields.summary = summary;
   }
-  if (patch.description !== undefined) fields.description = markdownToAdf(patch.description);
+  if (patch.description !== undefined) {
+    fields.description = typeof patch.description === 'string' ? markdownToAdf(patch.description) : patch.description;
+  }
   if (patch.duedate !== undefined) fields.duedate = patch.duedate;
   if (patch.labels !== undefined) {
     // Jira labels cannot contain spaces.
@@ -871,6 +918,110 @@ export async function updateJiraIssue(creds: JiraCredentials, key: string, patch
   if (patch.priorityId !== undefined) fields.priority = { id: patch.priorityId };
   if (Object.keys(fields).length === 0) return;
   await new JiraClient(creds).request('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields });
+}
+
+// ── Attachments ────────────────────────────────────────────────────────
+
+interface ApiAttachment {
+  id?: string | number;
+  filename?: string;
+  mimeType?: string;
+  size?: number;
+  content?: string;
+  thumbnail?: string;
+}
+
+/** An image or file from a description, loadable with `jiraImageHeaders`. */
+export interface JiraMedia {
+  attachmentId: string;
+  filename: string;
+  mimeType?: string;
+  size?: number;
+  /** The full file, on the Jira site. */
+  url: string;
+  /** A small preview Jira renders, for images. */
+  thumbnailUrl?: string;
+  isImage: boolean;
+}
+
+const IMAGE_FILE = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|svg)$/i;
+
+/**
+ * Match the description's ADF media nodes to the issue's attachments. ADF
+ * names media by a Media Services id, which the attachment list does not
+ * carry. The rendered HTML does: by `data-media-services-id` when present,
+ * else the `alt` filename, else the order the images appear in. Only URLs on
+ * the Jira site are kept, so the auth header never goes anywhere else.
+ */
+export function jiraDescriptionMedia(
+  creds: Pick<JiraCredentials, 'site'>,
+  doc: AdfNode | null,
+  attachments: ApiAttachment[],
+  renderedHtml: string
+): Record<string, JiraMedia> {
+  const nodes: { id: string; alt?: string }[] = [];
+  const walk = (node: AdfNode) => {
+    if ((node.type === 'media' || node.type === 'mediaInline') && node.attrs?.type !== 'external') {
+      const id = node.attrs?.id;
+      if (typeof id === 'string' && id) {
+        nodes.push({ id, alt: typeof node.attrs?.alt === 'string' ? node.attrs.alt : undefined });
+      }
+    }
+    node.content?.forEach(walk);
+  };
+  if (doc) walk(doc);
+  if (nodes.length === 0) return {};
+
+  const onSite = (url: string | undefined) => {
+    if (!url) return undefined;
+    const absolute = url.startsWith('/') ? `${creds.site}${url}` : url;
+    return absolute.startsWith(`${creds.site}/`) ? absolute : undefined;
+  };
+  const byId = new Map<string, JiraMedia>();
+  for (const raw of attachments) {
+    const id = raw.id != null ? String(raw.id) : '';
+    const url = onSite(raw.content) ?? (id ? `${creds.site}/rest/api/3/attachment/content/${id}` : undefined);
+    if (!id || !url) continue;
+    const filename = raw.filename ?? 'Attachment';
+    byId.set(id, {
+      attachmentId: id,
+      filename,
+      mimeType: raw.mimeType,
+      size: raw.size,
+      url,
+      thumbnailUrl: onSite(raw.thumbnail),
+      isImage: raw.mimeType ? raw.mimeType.startsWith('image/') : IMAGE_FILE.test(filename),
+    });
+  }
+
+  // Attachment ids in the rendered description, in document order.
+  const rendered: { attachmentId: string; mediaId?: string }[] = [];
+  for (const tag of renderedHtml.match(/<(?:img|a)\b[^>]*>/gi) ?? []) {
+    const attachmentId = /\/(?:rest\/api\/\d+\/attachment\/(?:content|thumbnail)|secure\/(?:attachment|thumbnail))\/(\d+)/.exec(tag)?.[1];
+    if (!attachmentId) continue;
+    const mediaId = /data-media-services-id="([^"]+)"/.exec(tag)?.[1];
+    if (!rendered.some((entry) => entry.attachmentId === attachmentId)) rendered.push({ attachmentId, mediaId });
+  }
+
+  const result: Record<string, JiraMedia> = {};
+  const used = new Set<string>();
+  const take = (mediaId: string, attachment: JiraMedia | undefined) => {
+    if (!attachment || used.has(attachment.attachmentId) || result[mediaId]) return;
+    result[mediaId] = attachment;
+    used.add(attachment.attachmentId);
+  };
+  for (const entry of rendered) if (entry.mediaId) take(entry.mediaId, byId.get(entry.attachmentId));
+  for (const node of nodes) {
+    if (result[node.id] || !node.alt) continue;
+    take(node.id, [...byId.values()].find((candidate) => candidate.filename === node.alt && !used.has(candidate.attachmentId)));
+  }
+  // Same number of unmatched media nodes and rendered attachments: pair them in order.
+  const left = nodes.filter((node) => !result[node.id]);
+  const unmatched = rendered.filter((entry) => !used.has(entry.attachmentId));
+  if (left.length > 0 && left.length === unmatched.length) {
+    left.forEach((node, index) => take(node.id, byId.get(unmatched[index].attachmentId)));
+  }
+  return result;
 }
 
 export interface JiraTransition {

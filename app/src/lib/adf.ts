@@ -6,9 +6,11 @@ import { Lexer, type Token, type Tokens } from 'marked';
  * people actually write: paragraphs, headings, lists, task lists, quotes,
  * code, rules, links and inline marks.
  *
- * Anything else (images, tables, panels, expand blocks) cannot survive the
- * round trip. `adfToMarkdown` reports it as `lossless: false`, and the editor
- * then keeps the description read-only, so saving never deletes it.
+ * Anything else (images, tables, panels, expand blocks, mentions) cannot
+ * survive a trip through Markdown. `adfSegments` splits a description into
+ * runs of top-level blocks that do survive it, which the editor edits as
+ * Markdown, and the blocks that don't, which it shows as they are and sends
+ * back untouched (`adfFromSegments`).
  */
 
 export interface AdfNode {
@@ -39,7 +41,9 @@ const LOSSLESS_BLOCKS = new Set([
   'codeBlock',
   'rule',
 ]);
-const LOSSLESS_INLINE = new Set(['text', 'hardBreak', 'mention', 'emoji', 'inlineCard', 'date', 'status']);
+// Mentions, emoji, smart links, dates and status lozenges come out as their
+// text, but that text cannot turn back into the node, so they are lossy too.
+const LOSSLESS_INLINE = new Set(['text', 'hardBreak']);
 const LOSSLESS_MARKS = new Set(['strong', 'em', 'code', 'link', 'strike']);
 
 export function adfToMarkdown(doc: unknown): { markdown: string; lossless: boolean } {
@@ -111,7 +115,7 @@ function listItem(item: AdfNode, marker: string, state: { lossless: boolean }, i
 }
 
 function inline(nodes: AdfNode[], state: { lossless: boolean }): string {
-  return nodes
+  return mergeText(nodes)
     .map((node) => {
       if (!LOSSLESS_INLINE.has(node.type)) state.lossless = false;
       switch (node.type) {
@@ -138,19 +142,58 @@ function inline(nodes: AdfNode[], state: { lossless: boolean }): string {
     .join('');
 }
 
+const WRAP_MARKS = new Set(['strong', 'em', 'strike']);
+
 function marked(node: AdfNode, state: { lossless: boolean }): string {
   let text = node.text ?? '';
   const marks = node.marks ?? [];
+  for (const mark of marks) if (!LOSSLESS_MARKS.has(mark.type)) state.lossless = false;
+  // `** **` and `**word **` are not emphasis in Markdown, so the asterisks
+  // showed up as text. Whitespace at the edges goes outside the markers, and
+  // text that is only whitespace gets none.
+  let lead = '';
+  let trail = '';
+  if (marks.every((mark) => WRAP_MARKS.has(mark.type))) {
+    if (!text.trim()) return text;
+    lead = /^\s*/.exec(text)?.[0] ?? '';
+    trail = /\s*$/.exec(text)?.[0] ?? '';
+    text = text.slice(lead.length, text.length - trail.length);
+  }
   if (marks.some((mark) => mark.type === 'code')) text = `\`${text}\``;
   for (const mark of marks) {
-    if (!LOSSLESS_MARKS.has(mark.type)) state.lossless = false;
     if (mark.type === 'strong') text = `**${text}**`;
     else if (mark.type === 'em') text = `*${text}*`;
     else if (mark.type === 'strike') text = `~~${text}~~`;
   }
   const link = marks.find((mark) => mark.type === 'link');
   if (link && typeof link.attrs?.href === 'string') text = `[${text}](${link.attrs.href})`;
-  return text;
+  return lead + text + trail;
+}
+
+function marksKey(node: AdfNode): string {
+  return JSON.stringify(
+    [...(node.marks ?? [])]
+      .map((mark) => ({ type: mark.type, ...(mark.attrs && Object.keys(mark.attrs).length ? { attrs: mark.attrs } : {}) }))
+      .sort((a, b) => a.type.localeCompare(b.type))
+  );
+}
+
+/**
+ * Join neighbouring text nodes that carry the same marks. Jira splits bold
+ * runs ("** **" then "**Wants to…**"); written out one by one they became
+ * `** ****Wants to…**`, which Markdown shows as literal asterisks.
+ */
+function mergeText(nodes: AdfNode[]): AdfNode[] {
+  const out: AdfNode[] = [];
+  for (const node of nodes) {
+    const last = out[out.length - 1];
+    if (node.type === 'text' && last?.type === 'text' && marksKey(last) === marksKey(node)) {
+      out[out.length - 1] = { ...last, text: (last.text ?? '') + (node.text ?? '') };
+    } else {
+      out.push(node);
+    }
+  }
+  return out;
 }
 
 // ── Markdown → ADF ─────────────────────────────────────────────────────
@@ -301,4 +344,107 @@ let counter = 0;
 function localId(): string {
   counter += 1;
   return `pw-${Date.now().toString(36)}-${counter}`;
+}
+
+// ── Editing around what Markdown can't hold ────────────────────────────
+
+/**
+ * One piece of a description. `text` is a run of top-level blocks that
+ * survive Markdown and back unchanged, edited as `markdown`; `nodes` are the
+ * originals, sent back as they were when the text is not edited. `rich` is
+ * a block that would not survive (an image, a table, a panel, a paragraph
+ * with a mention), shown as it is and always sent back untouched.
+ */
+export type AdfSegment = { kind: 'text'; markdown: string; nodes: AdfNode[] } | { kind: 'rich'; node: AdfNode };
+
+/**
+ * Split a description for editing. There is always a text segment last, so
+ * people can add to a description that ends in an image or a table.
+ */
+export function adfSegments(doc: unknown): AdfSegment[] {
+  const content = doc && typeof doc === 'object' ? ((doc as AdfNode).content ?? []) : [];
+  const segments: AdfSegment[] = [];
+  let run: AdfNode[] = [];
+  const flush = () => {
+    if (run.length === 0) return;
+    segments.push({ kind: 'text', markdown: adfToMarkdown({ type: 'doc', content: run }).markdown, nodes: run });
+    run = [];
+  };
+  for (const node of content) {
+    if (survivesMarkdown(node)) {
+      run.push(node);
+    } else {
+      flush();
+      segments.push({ kind: 'rich', node });
+    }
+  }
+  flush();
+  if (segments[segments.length - 1]?.kind !== 'text') segments.push({ kind: 'text', markdown: '', nodes: [] });
+  return segments;
+}
+
+/**
+ * The description to save. `texts[i]` is the edited Markdown for segment
+ * `i` (rich segments ignore theirs). Unedited text keeps its original nodes,
+ * so only what someone actually changed goes through Markdown. Null clears
+ * the field.
+ */
+export function adfFromSegments(segments: AdfSegment[], texts: (string | undefined)[]): AdfDoc | null {
+  const content = segments.flatMap((segment, index): AdfNode[] => {
+    if (segment.kind === 'rich') return [segment.node];
+    const text = texts[index] ?? segment.markdown;
+    if (text === segment.markdown) return segment.nodes;
+    return markdownToAdf(text)?.content ?? [];
+  });
+  return content.some((node) => !isEmptyParagraph(node)) ? { type: 'doc', version: 1, content } : null;
+}
+
+/** True when a top-level block comes back the same after Markdown and back. */
+export function survivesMarkdown(node: AdfNode): boolean {
+  if (isEmptyParagraph(node)) return true;
+  const { markdown, lossless } = adfToMarkdown({ type: 'doc', content: [node] });
+  if (!lossless || !markdown) return false;
+  const back = markdownToAdf(markdown)?.content ?? [];
+  return JSON.stringify(normalize([node])) === JSON.stringify(normalize(back));
+}
+
+function isEmptyParagraph(node: AdfNode): boolean {
+  return node.type === 'paragraph' && (node.content ?? []).every((child) => child.type === 'text' && !child.text?.trim());
+}
+
+/** A comparable form: no local ids or default attrs, merged text, sorted marks, trimmed block edges. */
+function normalize(nodes: AdfNode[]): unknown[] {
+  return mergeText(nodes.flatMap(hoistWhitespace))
+    .filter((node) => !(node.type === 'text' && !node.text))
+    .map((node, index, all) => {
+      const attrs = { ...(node.attrs ?? {}) };
+      delete attrs.localId;
+      if (node.type === 'orderedList' && Number(attrs.order ?? 1) === 1) delete attrs.order;
+      if (node.type === 'codeBlock' && !attrs.language) delete attrs.language;
+      let text = node.text;
+      if (text != null && index === 0) text = text.trimStart();
+      if (text != null && index === all.length - 1) text = text.trimEnd();
+      return {
+        type: node.type,
+        ...(Object.keys(attrs).length ? { attrs } : {}),
+        ...(text != null ? { text } : {}),
+        ...(node.marks?.length ? { marks: marksKey(node) } : {}),
+        ...(node.content ? { content: normalize(node.content) } : {}),
+      };
+    });
+}
+
+/** Whitespace at the edge of bold/italic/strike text, moved outside it (as `marked` writes it). */
+function hoistWhitespace(node: AdfNode): AdfNode[] {
+  const marks = node.marks ?? [];
+  if (node.type !== 'text' || !marks.length || !marks.every((mark) => WRAP_MARKS.has(mark.type))) return [node];
+  const text = node.text ?? '';
+  if (!text.trim()) return [{ type: 'text', text }];
+  const lead = /^\s*/.exec(text)?.[0] ?? '';
+  const trail = /\s*$/.exec(text)?.[0] ?? '';
+  return [
+    ...(lead ? [{ type: 'text', text: lead }] : []),
+    { ...node, text: text.slice(lead.length, text.length - trail.length) },
+    ...(trail ? [{ type: 'text', text: trail }] : []),
+  ];
 }

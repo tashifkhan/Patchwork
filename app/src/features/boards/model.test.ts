@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { JiraBoardDetail } from '@/api/jira';
+
 import {
   activeFilterCount,
   checklistItems,
@@ -9,6 +11,7 @@ import {
   EMPTY_FILTERS,
   filterFacets,
   groupBySprint,
+  withIssueSprint,
   type BoardColumnItem,
   type CardSprint,
 } from './model';
@@ -122,4 +125,40 @@ test('search matches title, key, labels and subtasks', () => {
   expect(searchColumns(columns, 'auth')[0].cards.map((c) => c.id)).toEqual(['2']);
   expect(searchColumns(columns, 'ui wire')[0].cards.map((c) => c.id)).toEqual(['1']);
   expect(searchColumns(columns, '  ')[0].cards).toHaveLength(2);
+});
+
+describe('withIssueSprint', () => {
+  const issue = (key: string, sprint: { id: number; name: string; state: 'active' | 'future' } | null) => ({
+    id: key,
+    key,
+    summary: key,
+    statusId: '1',
+    statusName: 'To Do',
+    statusCategory: 'new',
+    labels: [],
+    sprint,
+  });
+  const s15 = { id: 15, name: 'Sprint 15', state: 'active' as const };
+  const s16 = { id: 16, name: 'Sprint 16', state: 'future' as const };
+  const detail = (view: JiraBoardDetail['view']): JiraBoardDetail => ({
+    board: { id: 7, accountId: 'a', name: 'B', type: 'scrum' },
+    view,
+    sprints: [s15, s16],
+    columns: [{ name: 'To Do', statusIds: ['1'], issues: [issue('A-1', s15), issue('A-2', s15)] }],
+  });
+
+  test('the whole board keeps the issue and regroups it', () => {
+    const next = withIssueSprint(detail({ kind: 'board' }), 'A-1', s16);
+    expect(next.columns[0].issues.map((entry) => entry.sprint?.id)).toEqual([16, 15]);
+  });
+
+  test('a sprint view drops an issue moved out of it', () => {
+    const next = withIssueSprint(detail({ kind: 'sprint', sprintId: 15 }), 'A-1', null);
+    expect(next.columns[0].issues.map((entry) => entry.key)).toEqual(['A-2']);
+  });
+
+  test('the backlog view keeps an issue moved to the backlog', () => {
+    const next = withIssueSprint(detail({ kind: 'backlog' }), 'A-1', null);
+    expect(next.columns[0].issues[0].sprint).toBeNull();
+  });
 });

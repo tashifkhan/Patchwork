@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react';
 import {
   fetchJiraBoardDetail,
   fetchJiraBoards,
+  moveJiraIssuesToSprint,
   rankJiraIssue,
   transitionJiraIssue,
   jiraViewKey,
@@ -20,6 +21,7 @@ import {
   jiraColumns,
   parseBoardRef,
   parseJiraBoardId,
+  withIssueSprint,
   type BoardColumnItem,
   type BoardSummary,
 } from '@/features/boards/model';
@@ -140,6 +142,8 @@ export interface BoardDetailState {
     /** True while a newly picked sprint loads over the previous one. */
     switching: boolean;
     setView: (view: JiraBoardView) => void;
+    /** Move an issue into an open sprint, or to the backlog (null). */
+    moveToSprint: (key: string, sprint: JiraSprint | null) => Promise<void>;
   };
 }
 
@@ -219,6 +223,28 @@ export function useBoardDetail(ref: string): BoardDetailState {
     onSettled: () => client.invalidateQueries({ queryKey: jiraKey }),
   });
 
+  const jiraSprintMove = useMutation({
+    mutationFn: async (input: { key: string; sprint: JiraSprint | null }) => {
+      if (!credentials) return;
+      await moveJiraIssuesToSprint(credentials, [input.key], input.sprint?.id ?? null);
+    },
+    onMutate: async (input) => {
+      await client.cancelQueries({ queryKey: jiraKey });
+      const previous = client.getQueryData<JiraBoardDetail>(jiraKey);
+      if (previous) client.setQueryData(jiraKey, withIssueSprint(previous, input.key, input.sprint));
+      return { previous };
+    },
+    onError: (error, _input, context) => {
+      handleJiraError(error, jiraAccountId);
+      if (context?.previous) client.setQueryData(jiraKey, context.previous);
+    },
+    onSettled: (_result, _error, input) => {
+      // Every view of this board (other sprints, the backlog) and the issue's own Sprint row.
+      void client.invalidateQueries({ queryKey: ['jira', 'board', jiraAccountId ?? '', jiraId ?? -1] });
+      void client.invalidateQueries({ queryKey: ['jira', 'issue-sprint', jiraAccountId ?? '', input.key] });
+    },
+  });
+
   const jiraCreate = useMutation({
     mutationFn: async (input: { columnId: string; title: string }) => {
       const detail = client.getQueryData<JiraBoardDetail>(jiraKey);
@@ -256,6 +282,9 @@ export function useBoardDetail(ref: string): BoardDetailState {
             sprints: jiraDetail.data.sprints,
             switching: jiraDetail.isPlaceholderData,
             setView: (view: JiraBoardView) => setSavedView(ref, jiraViewKey(view)),
+            moveToSprint: async (key: string, sprint: JiraSprint | null) => {
+              await jiraSprintMove.mutateAsync({ key, sprint });
+            },
           }
         : undefined,
       isLoading: jiraBoards.isLoading || jiraDetail.isLoading,
