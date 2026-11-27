@@ -53,6 +53,12 @@ const TONES: Record<Mode, Record<keyof SurfaceLadder, number>> = {
 const MAX_NEUTRAL_CHROMA = 6;
 /** M3's secondary palette chroma: a calm version of the accent hue. */
 const SECONDARY_CHROMA = 16;
+/**
+ * Dark containers sit on a near-black surface, where M3's chroma reads as a
+ * bright slab. They stay soft: enough hue to read as the palette, no more.
+ */
+const DARK_PRIMARY_CONTAINER_CHROMA = 20;
+const DARK_SECONDARY_CHROMA = 10;
 
 function hct(hex: string) {
   return Hct.fromInt(argbFromHex(hex));
@@ -82,8 +88,15 @@ function tonalContainers(accent: string, dark: boolean) {
   const color = hct(accent);
   // A grey accent (Monochrome) has no real hue, so it keeps its own low
   // chroma rather than being boosted into an arbitrary colour.
-  const primary = TonalPalette.fromHueAndChroma(color.hue, color.chroma < 8 ? color.chroma : Math.max(color.chroma, 36));
-  const secondary = TonalPalette.fromHueAndChroma(color.hue, Math.min(color.chroma, SECONDARY_CHROMA));
+  const lightChroma = color.chroma < 8 ? color.chroma : Math.max(color.chroma, 36);
+  const primary = TonalPalette.fromHueAndChroma(
+    color.hue,
+    dark ? Math.min(color.chroma, DARK_PRIMARY_CONTAINER_CHROMA) : lightChroma,
+  );
+  const secondary = TonalPalette.fromHueAndChroma(
+    color.hue,
+    Math.min(color.chroma, dark ? DARK_SECONDARY_CHROMA : SECONDARY_CHROMA),
+  );
   const [container, onContainer] = dark ? [30, 90] : [90, 10];
   return {
     primaryContainer: hexFromArgb(primary.tone(container)),

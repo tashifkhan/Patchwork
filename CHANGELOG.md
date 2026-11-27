@@ -2,6 +2,12 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.14.1] - 2026-11-27
+
+### Changed
+
+- Dark mode colours on Android are calmer. On fixed palettes like Paper, Ocean and Forest, the Today, Scheduled, All and Overdue tiles, list colours and accent backgrounds are soft tints instead of bright fills. Light mode is unchanged.
+
 ## [1.14.0] - 2026-11-27
 
 Calendar events from the + button, a week view on tablets, and Jira fields you can actually change.
