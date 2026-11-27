@@ -28,6 +28,22 @@ material you, so it wears whatever colours your wallpaper has.
   <img src="screenshots/android/07-search.jpg" width="200" alt="Search with lists and tags">
   <img src="screenshots/android/08-ai-providers.jpg" width="200" alt="AI import provider list">
 </p>
+<p align="center">
+  <img src="screenshots/android/09-calendar.jpg" width="200" alt="Calendar day view with to-dos as time blocks">
+</p>
+
+### tablets and foldables
+
+unfold it and the week shows up as columns, the board fits every list, and forms go two-up. these are from a pixel 9 pro fold.
+
+<p align="center">
+  <img src="screenshots/tablet/calendar.jpg" width="420" alt="Calendar week view with to-dos across seven days">
+  <img src="screenshots/tablet/board.jpg" width="420" alt="Deck board with all three columns side by side">
+</p>
+<p align="center">
+  <img src="screenshots/tablet/card.jpg" width="420" alt="Deck card with the description and details side by side">
+  <img src="screenshots/tablet/create.jpg" width="420" alt="Create task in two columns">
+</p>
 
 ### ios
 
