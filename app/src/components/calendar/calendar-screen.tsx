@@ -24,18 +24,22 @@ import { M3MonthCard, type DayMark } from '@/components/calendar/m3-month';
 import { useTheme } from '@/components/theme/context';
 import { TaskCheckbox } from '@/features/tasks/task-checkbox';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
-import { Fab } from '@/components/ui/fab';
+import { FabMenu } from '@/components/ui/fab-menu';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { RiseIn } from '@/components/ui/motion';
 import { haptics } from '@/lib/haptics';
 import { expandLayout, PAISA } from '@/lib/motion';
 import { listTone } from '@/lib/smart-lists';
 import { useTabBarContentPadding } from '@/lib/tab-bar';
-import { mixHex, withAlpha } from '@/lib/theme';
+import { withAlpha } from '@/lib/theme';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { formatBlock, formatTime, minuteOfDay, placeBlocks } from '@/lib/time-block';
 import { dayKey } from '@/stores/pomodoro-store';
 import { Text, View } from '@/tw';
 
-import { type DayItem, keyToDate, useCalendarModel, weekOf } from './use-calendar-model';
+import { eventTone } from './calendar-tones';
+import { type CalendarModel, type DayItem, keyToDate, useCalendarModel, weekOf } from './use-calendar-model';
+import { WeekCalendar } from './week-calendar';
 
 const HOUR = 64;
 const LABEL_WIDTH = 56;
@@ -57,10 +61,16 @@ const hourLabel = new Intl.DateTimeFormat(undefined, { hour: 'numeric' });
  * name. The header stays put; only the hours scroll, opening on the now line.
  */
 export function CalendarScreen() {
+  const model = useCalendarModel();
+  const { twoPane } = useAdaptiveLayout();
+  // Tablets, unfolded foldables and landscape get the whole week as columns.
+  return twoPane ? <WeekCalendar model={model} /> : <DayCalendar model={model} />;
+}
+
+function DayCalendar({ model }: { model: CalendarModel }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const model = useCalendarModel();
-  const timelineBottom = useTabBarContentPadding(model.canCreate ? 84 : 24);
+  const timelineBottom = useTabBarContentPadding(model.createItems.length ? 84 : 24);
   const { now, todayKey, selected, setSelected, selectedDate, mondayFirst, byDay, dayItems } = model;
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const [showMonth, setShowMonth] = useState(false);
@@ -218,7 +228,13 @@ export function CalendarScreen() {
           style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: 1, backgroundColor: colors.separator }, hairline]}
         />
       </View>
-      {model.canCreate ? <Fab accessibilityLabel="Add task" onPress={() => model.create()} /> : null}
+      {model.createItems.length ? <FabMenu items={model.createItems} accessibilityLabel="Add task or event" /> : null}
+      <NativeAlert
+        visible={model.eventError != null}
+        title="New event"
+        message={model.eventError ?? ''}
+        onDismiss={model.clearEventError}
+      />
     </View>
   );
 }
@@ -677,16 +693,4 @@ function FocusButton({ ink, running, onPress }: { ink: string; running: boolean;
       </Pressable>
     </Animated.View>
   );
-}
-
-/**
- * A phone calendar event's colours: a soft wash of its calendar's colour, so
- * events read as "from your calendar" next to the to-dos' list tones.
- */
-function eventTone(colors: ReturnType<typeof useTheme>['colors'], dark: boolean, color: string | null) {
-  const base = color && /^#[0-9a-f]{6}/i.test(color) ? color.slice(0, 7) : colors.gray;
-  return {
-    fill: mixHex(colors.bg2, base, dark ? 0.32 : 0.22),
-    ink: dark ? mixHex(base, '#FFFFFF', 0.55) : mixHex(base, '#000000', 0.5),
-  };
 }

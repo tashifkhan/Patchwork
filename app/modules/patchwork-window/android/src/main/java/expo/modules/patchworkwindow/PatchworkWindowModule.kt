@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.activity.BackEventCompat
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
@@ -17,6 +20,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowLayoutInfo
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Job
@@ -37,11 +41,37 @@ private const val TIMER_NOTIFICATION_ID = 4107
 class PatchworkWindowModule : Module() {
   private var job: Job? = null
   private var latest: Map<String, Any?>? = null
+  /** Back callbacks JS has claimed, by id. The newest one gets the gesture. */
+  private val backCallbacks = mutableMapOf<Int, OnBackPressedCallback>()
 
   override fun definition() = ModuleDefinition {
     Name("PatchworkWindow")
 
-    Events("onFoldChange")
+    Events("onFoldChange", "onBackGesture")
+
+    // Predictive back for in-app surfaces (menus, sheets). While claimed, the
+    // system back gesture goes to this callback instead of React Native's,
+    // and JS gets its progress so the surface can shrink with the swipe.
+    // Progress events need Android 14+ and enableOnBackInvokedCallback; older
+    // releases only send "invoked".
+    AsyncFunction("claimBack") { id: Int ->
+      val activity = appContext.currentActivity as? ComponentActivity ?: return@AsyncFunction false
+      backCallbacks.remove(id)?.remove()
+      val callback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackStarted(backEvent: BackEventCompat) = sendBack(id, "started", backEvent)
+        override fun handleOnBackProgressed(backEvent: BackEventCompat) = sendBack(id, "progress", backEvent)
+        override fun handleOnBackCancelled() = sendBack(id, "cancelled", null)
+        override fun handleOnBackPressed() = sendBack(id, "invoked", null)
+      }
+      activity.onBackPressedDispatcher.addCallback(activity, callback)
+      backCallbacks[id] = callback
+      true
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("releaseBack") { id: Int ->
+      backCallbacks.remove(id)?.remove()
+      null
+    }.runOnQueue(Queues.MAIN)
 
     Function("getFold") { latest }
 
@@ -68,7 +98,11 @@ class PatchworkWindowModule : Module() {
 
     OnActivityEntersForeground { if (job == null) start() }
 
-    OnDestroy { job?.cancel() }
+    OnDestroy {
+      job?.cancel()
+      backCallbacks.values.forEach { it.remove() }
+      backCallbacks.clear()
+    }
   }
 
   private fun showTimer(options: Map<String, Any?>) {
@@ -128,6 +162,18 @@ class PatchworkWindowModule : Module() {
     } catch (_: SecurityException) {
       // POST_NOTIFICATIONS not granted: the in-app timer still runs.
     }
+  }
+
+  private fun sendBack(id: Int, phase: String, event: BackEventCompat?) {
+    sendEvent(
+      "onBackGesture",
+      mapOf(
+        "id" to id,
+        "phase" to phase,
+        "progress" to (event?.progress ?: 0f).toDouble(),
+        "edge" to if (event?.swipeEdge == BackEventCompat.EDGE_RIGHT) "right" else "left"
+      )
+    )
   }
 
   private fun ensureTimerChannel(context: Context) {

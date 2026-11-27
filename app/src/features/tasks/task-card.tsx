@@ -260,11 +260,14 @@ export function TaskCard({
         paddingBottom: 10,
         borderRadius: 28,
         borderCurve: 'continuous',
-        backgroundColor: colors.bg3,
+        // Android lifts the open card by tone (containerHigh); iOS keeps its shadow.
+        backgroundColor: Platform.OS === 'android' ? colors.surfaceContainerHigh : colors.bg3,
         boxShadow:
-          scheme === 'dark'
-            ? '0 10px 28px rgba(0,0,0,0.55)'
-            : '0 10px 30px rgba(20,20,40,0.14), 0 2px 6px rgba(20,20,40,0.06)',
+          Platform.OS === 'android'
+            ? undefined
+            : scheme === 'dark'
+              ? '0 10px 28px rgba(0,0,0,0.55)'
+              : '0 10px 30px rgba(20,20,40,0.14), 0 2px 6px rgba(20,20,40,0.06)',
       }}>
       {/* Plain view that fills the card, used only to measure it. Layout-animated
           views don't fire onLayout reliably, so this does it for them. */}

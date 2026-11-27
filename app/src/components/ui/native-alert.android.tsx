@@ -34,7 +34,7 @@ export function NativeAlert({
           // dialogs stay neutral instead of picking up a palette wash.
           tonalElevation={0}
           colors={{
-            containerColor: colors.bg3,
+            containerColor: colors.surfaceContainerHigh,
             titleContentColor: colors.text,
             textContentColor: colors.text2,
           }}>

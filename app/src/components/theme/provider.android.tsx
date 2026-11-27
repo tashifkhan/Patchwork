@@ -3,13 +3,8 @@ import { useMemo, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 
 import { PAPER_PALETTE, paletteById } from '@/lib/palettes';
-import {
-  colorsFromPalette,
-  highContrastColors,
-  materialColors,
-  pureBlackColors,
-  type MaterialPalette,
-} from '@/lib/theme';
+import { highContrastColors, materialColors, type MaterialPalette } from '@/lib/theme';
+import { tonalColorsFromPalette, tonalPureBlack } from '@/lib/tonal-surfaces';
 import { useSettingsStore } from '@/stores/settings-store';
 
 import { ThemeShell, useEffectiveScheme } from './shell';
@@ -41,9 +36,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Dynamic wallpaper or free accent still use Material You tonal mapping.
     let base =
       !wallpaper && palette
-        ? colorsFromPalette(palette, scheme)
+        ? tonalColorsFromPalette(palette, scheme)
         : materialColors(material as unknown as MaterialPalette, scheme);
-    if (scheme === 'dark' && pureBlack) base = pureBlackColors(base);
+    // Surfaces are tones of one neutral palette (Material 3 tone-based
+    // surfaces); pure black moves that ladder down to #000.
+    if (scheme === 'dark' && pureBlack) base = tonalPureBlack(base);
     if (highContrast) base = highContrastColors(base, scheme);
     return base;
   }, [material, scheme, pureBlack, highContrast, wallpaper, palette]);

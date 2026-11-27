@@ -3,15 +3,18 @@ import { Image } from 'expo-image';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Platform } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import {
   defaultIssueType,
   fetchJiraBoardDetail,
+  fetchJiraComponents,
   fetchJiraIssueTypes,
   fetchJiraPriorities,
   sprintTiming,
   jiraImageHeaders,
   type JiraBoard,
+  type JiraUser,
 } from '@/api/jira';
 import {
   DetailRow,
@@ -31,8 +34,9 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { SheetSurface } from '@/components/ui/sheet-surface';
-import { Switch } from '@/components/ui/switch';
+import { useTheme } from '@/components/theme/context';
 import { jiraAccountLabel, useJiraBoards } from '@/features/boards/use-board-detail';
+import { useJiraPeople } from '@/features/boards/use-jira-people';
 import { queryKeys } from '@/lib/query-client';
 import { haptics } from '@/lib/haptics';
 import { createJiraIssueOrQueue } from '@/features/sync/replay';
@@ -42,12 +46,15 @@ import { View } from '@/tw';
 
 const IOS = Platform.OS === 'ios';
 
-type Picker = 'board' | 'column' | 'sprint' | 'type' | 'priority' | null;
+type Picker = 'board' | 'column' | 'sprint' | 'type' | 'priority' | 'assignee' | 'reporter' | 'components' | null;
+
+/** Lists longer than this get a search field in their picker. */
+const SEARCH_FROM = 6;
 
 /**
  * New Jira issue, laid out like the New To-Do sheet: summary, Markdown
- * description and labels, then board, column, type, priority, due date and
- * assignee in one details card. Opened from a board's + button or from a
+ * description and labels, then board, column, sprint, type, components,
+ * priority, due date, assignee and reporter in one details card. Opened from a board's + button or from a
  * column's quick add with "More details".
  */
 export default function NewIssueScreen() {
@@ -83,7 +90,11 @@ export default function NewIssueScreen() {
   const [description, setDescription] = useState('');
   const [labels, setLabels] = useState<string[]>([]);
   const [duedate, setDuedate] = useState<string | null>(null);
-  const [assignToMe, setAssignToMe] = useState(true);
+  // 'me' until changed; null is unassigned.
+  const [assignee, setAssignee] = useState<JiraUser | 'me' | null>('me');
+  // Undefined: Jira's default, the connected user.
+  const [reporter, setReporter] = useState<JiraUser | undefined>();
+  const [componentIds, setComponentIds] = useState<string[]>([]);
   const [columnName, setColumnName] = useState<string | undefined>(params.column);
   const [typeId, setTypeId] = useState<string | undefined>();
   const [priorityId, setPriorityId] = useState<string | undefined>();
@@ -92,6 +103,7 @@ export default function NewIssueScreen() {
     params.sprint === 'backlog' ? null : params.sprint ? Number(params.sprint) : undefined
   );
   const [picker, setPicker] = useState<Picker>(null);
+  const { colors } = useTheme();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -115,6 +127,18 @@ export default function NewIssueScreen() {
   });
 
   const columns = detail.data?.columns ?? [];
+  const components = useQuery({
+    queryKey: ['jira', 'components', credentials?.id, board?.projectKey],
+    queryFn: () => fetchJiraComponents(credentials!, board!.projectKey!),
+    enabled: credentials != null && !!board?.projectKey,
+    staleTime: 10 * 60_000,
+  });
+  const assignees = useJiraPeople(
+    credentials,
+    { kind: 'assignable', projectKey: board?.projectKey },
+    picker === 'assignee'
+  );
+  const reporters = useJiraPeople(credentials, { kind: 'anyone' }, picker === 'reporter');
   const sprints = detail.data?.sprints ?? [];
   // A chosen sprint, else the sprint the board shows, else (the All view)
   // the active sprint, where Jira's own board puts new work.
@@ -140,7 +164,9 @@ export default function NewIssueScreen() {
         description,
         labels,
         duedate,
-        assignToMe,
+        assigneeId: assignee === 'me' ? credentials.account.accountId : (assignee?.accountId ?? null),
+        reporterId: reporter && reporter.accountId !== credentials.account.accountId ? reporter.accountId : undefined,
+        componentIds: componentIds.filter((id) => components.data?.some((component) => component.id === id)),
         issueTypeId: type?.id,
         priorityId,
         column,
@@ -279,6 +305,21 @@ export default function NewIssueScreen() {
             leading={type?.iconUrl ? <Icon url={type.iconUrl} headers={headers} /> : null}
             onPress={(types.data?.length ?? 0) > 1 ? () => setPicker('type') : undefined}
           />
+          {(components.data?.length ?? 0) > 0 ? (
+            <DetailRow
+              icon="puzzle-outline"
+              label="Components"
+              value={
+                componentIds.length
+                  ? (components.data ?? [])
+                      .filter((component) => componentIds.includes(component.id))
+                      .map((component) => component.name)
+                      .join(', ')
+                  : 'None'
+              }
+              onPress={() => setPicker('components')}
+            />
+          ) : null}
           <DetailRow
             icon="signal-cellular-2"
             label="Priority"
@@ -295,10 +336,26 @@ export default function NewIssueScreen() {
             />
           </View>
           <DetailRow
-            icon="account-check-outline"
-            label="Assign to me"
-            value={credentials.account.displayName}
-            trailing={<Switch value={assignToMe} onValueChange={setAssignToMe} />}
+            icon="account-outline"
+            label="Assignee"
+            value={
+              assignee === 'me'
+                ? `${credentials.account.displayName} (you)`
+                : (assignee?.displayName ?? 'Unassigned')
+            }
+            leading={
+              assignee && assignee !== 'me' && assignee.avatarUrl ? (
+                <Icon url={assignee.avatarUrl} headers={headers} round />
+              ) : null
+            }
+            onPress={() => setPicker('assignee')}
+          />
+          <DetailRow
+            icon="pencil-outline"
+            label="Reporter"
+            value={reporter ? reporter.displayName : `${credentials.account.displayName} (you)`}
+            leading={reporter?.avatarUrl ? <Icon url={reporter.avatarUrl} headers={headers} round /> : null}
+            onPress={() => setPicker('reporter')}
           />
         </DetailsCard>
 
@@ -317,6 +374,7 @@ export default function NewIssueScreen() {
       <PickerSheet
         visible={picker === 'board'}
         title="Board"
+        search={creatable.length > SEARCH_FROM ? { placeholder: 'Search boards', emptyText: 'No board by that name.' } : undefined}
         items={creatable.map((candidate) => {
           const label = boardLabel(candidate);
           return {
@@ -336,6 +394,9 @@ export default function NewIssueScreen() {
               setSprintChoice(undefined);
               setTypeId(undefined);
               setPriorityId(undefined);
+              setComponentIds([]);
+              // Who can be assigned depends on the project.
+              if (assignee !== 'me') setAssignee('me');
               setPicker(null);
             },
           };
@@ -345,6 +406,7 @@ export default function NewIssueScreen() {
       <PickerSheet
         visible={picker === 'sprint'}
         title="Sprint"
+        search={sprints.length > SEARCH_FROM ? { placeholder: 'Search sprints', emptyText: 'No sprint by that name.' } : undefined}
         items={[
           ...sprints.map((candidate) => ({
             key: String(candidate.id),
@@ -435,6 +497,122 @@ export default function NewIssueScreen() {
         ]}
         onClose={() => setPicker(null)}
       />
+      <PickerSheet
+        visible={picker === 'components'}
+        title="Components"
+        subtitle="Pick any number."
+        doneLabel="Done"
+        search={
+          (components.data?.length ?? 0) > SEARCH_FROM
+            ? { placeholder: 'Search components', emptyText: 'No component by that name.' }
+            : undefined
+        }
+        items={(components.data ?? []).map((component) => {
+          const on = componentIds.includes(component.id);
+          return {
+            key: component.id,
+            label: component.name,
+            subtitle: component.description,
+            icon: on ? ('checkbox-marked' as const) : ('checkbox-blank-outline' as const),
+            selected: on,
+            onPress: () =>
+              setComponentIds((current) => (on ? current.filter((id) => id !== component.id) : [...current, component.id])),
+          };
+        })}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'assignee'}
+        title="Assignee"
+        search={{
+          placeholder: 'Search people',
+          onChange: assignees.setQuery,
+          loading: assignees.loading,
+          emptyText: 'No one by that name can be assigned in this project.',
+        }}
+        items={[
+          ...(assignees.query.trim()
+            ? []
+            : [
+                {
+                  key: 'me',
+                  label: 'Assign to me',
+                  subtitle: credentials.account.displayName,
+                  icon: 'account-check-outline' as const,
+                  selected: assignee === 'me',
+                  onPress: () => {
+                    setAssignee('me');
+                    setPicker(null);
+                  },
+                },
+                {
+                  key: 'none',
+                  label: 'Unassigned',
+                  icon: 'account-off-outline' as const,
+                  selected: assignee === null,
+                  onPress: () => {
+                    setAssignee(null);
+                    setPicker(null);
+                  },
+                },
+              ]),
+          ...assignees.users
+            .filter((user) => assignees.query.trim() || user.accountId !== credentials.account.accountId)
+            .map((user) => ({
+              key: user.accountId,
+              label: user.displayName,
+              subtitle: user.email,
+              leading: <PersonIcon user={user} headers={headers} color={colors.text2} />,
+              selected: assignee !== 'me' && assignee?.accountId === user.accountId,
+              onPress: () => {
+                setAssignee(user.accountId === credentials.account.accountId ? 'me' : user);
+                setPicker(null);
+              },
+            })),
+        ]}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'reporter'}
+        title="Reporter"
+        search={{
+          placeholder: 'Search people',
+          onChange: reporters.setQuery,
+          loading: reporters.loading,
+          emptyText: 'No one by that name on this Jira site.',
+        }}
+        items={[
+          ...(reporters.query.trim()
+            ? []
+            : [
+                {
+                  key: 'me',
+                  label: 'You',
+                  subtitle: credentials.account.displayName,
+                  icon: 'account-check-outline' as const,
+                  selected: !reporter,
+                  onPress: () => {
+                    setReporter(undefined);
+                    setPicker(null);
+                  },
+                },
+              ]),
+          ...reporters.users
+            .filter((user) => user.accountId !== credentials.account.accountId)
+            .map((user) => ({
+              key: user.accountId,
+              label: user.displayName,
+              subtitle: user.email,
+              leading: <PersonIcon user={user} headers={headers} color={colors.text2} />,
+              selected: reporter?.accountId === user.accountId,
+              onPress: () => {
+                setReporter(user);
+                setPicker(null);
+              },
+            })),
+        ]}
+        onClose={() => setPicker(null)}
+      />
       <NativeAlert
         visible={error != null}
         title="Could not create"
@@ -445,11 +623,28 @@ export default function NewIssueScreen() {
   );
 }
 
-function Icon({ url, headers }: { url: string; headers?: Record<string, string> }) {
+function PersonIcon({ user, headers, color }: { user: JiraUser; headers?: Record<string, string>; color: string }) {
+  return (
+    <View style={{ width: 40, alignItems: 'center' }}>
+      {user.avatarUrl ? (
+        <Image
+          source={{ uri: user.avatarUrl, headers }}
+          style={{ width: 32, height: 32, borderRadius: 16 }}
+          contentFit="cover"
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <MaterialCommunityIcons name="account-circle-outline" size={28} color={color} />
+      )}
+    </View>
+  );
+}
+
+function Icon({ url, headers, round }: { url: string; headers?: Record<string, string>; round?: boolean }) {
   return (
     <Image
       source={{ uri: url, headers }}
-      style={{ width: 20, height: 20, borderRadius: 4 }}
+      style={{ width: 20, height: 20, borderRadius: round ? 10 : 4 }}
       contentFit="contain"
       accessibilityIgnoresInvertColors
     />

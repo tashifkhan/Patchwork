@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -41,6 +41,9 @@ const SF_FOR: Record<string, SFSymbol> = {
   'table-column-plus-after': 'rectangle.badge.plus',
   'open-in-new': 'arrow.up.right.square',
 };
+
+/** Set when the Jira card first shows, so it stays up until the app restarts or it's dismissed. */
+let jiraPromoThisVisit = false;
 
 function needsCalDavAccount(error: unknown) {
   if (!(error instanceof ApiError)) return false;
@@ -98,7 +101,26 @@ export default function BoardsScreen() {
   const deckUnreachable = IOS && !!summaries.deckError && !deckNeedsAccount;
   const noBoards = summaries.boards.length === 0;
 
-  const jiraConnect = jiraState.status === 'disconnected' ? (
+  // The Jira card shows on one visit only: it stays up for the visit it first
+  // appears on (or until dismissed), and later visits skip it.
+  const hydrated = useSettingsStore((s) => s.hydrated);
+  const promoSeen = useSettingsStore((s) => s.jiraPromoSeen);
+  const setExtras = useSettingsStore((s) => s.setExtras);
+  const [promoDismissed, setPromoDismissed] = useState(false);
+  const showJiraPromo =
+    hydrated && jiraState.status === 'disconnected' && !promoDismissed && (!promoSeen || jiraPromoThisVisit);
+  useEffect(() => {
+    if (!showJiraPromo || promoSeen) return;
+    jiraPromoThisVisit = true;
+    setExtras({ jiraPromoSeen: true });
+  }, [showJiraPromo, promoSeen, setExtras]);
+
+  // Closed error cards stay closed for this visit, unless the error changes.
+  const [dismissedErrors, setDismissedErrors] = useState<ReadonlySet<string>>(() => new Set());
+  const dismissError = (key: string) => setDismissedErrors((prev) => new Set(prev).add(key));
+  const [tokenDismissed, setTokenDismissed] = useState(false);
+
+  const jiraConnect = showJiraPromo ? (
     <View style={{ paddingTop: 8 }}>
       <StatusBanner
         tone="info"
@@ -107,6 +129,10 @@ export default function BoardsScreen() {
         title="Bring in your Jira boards"
         body="Sprints and issues show up here next to your Deck boards."
         primary={{ label: 'Connect', onPress: () => router.push('/settings/jira') }}
+        onDismiss={() => {
+          jiraPromoThisVisit = false;
+          setPromoDismissed(true);
+        }}
       />
     </View>
   ) : null;
@@ -287,7 +313,7 @@ export default function BoardsScreen() {
         }>
         {header}
 
-        {jiraState.status === 'connected' && Object.keys(jiraState.expired).length > 0 ? (
+        {jiraState.status === 'connected' && Object.keys(jiraState.expired).length > 0 && !tokenDismissed ? (
           <StatusBanner
             tone="warning"
             icon="jira"
@@ -299,17 +325,18 @@ export default function BoardsScreen() {
             }
             body="Its boards stay hidden until you paste a fresh token."
             primary={{ label: 'Fix', onPress: () => router.push('/settings/jira') }}
+            onDismiss={() => setTokenDismissed(true)}
           />
         ) : null}
         {summaries.jiraError && jiraState.status === 'connected' ? (
-          <SyncErrorBanner error={summaries.jiraError} source="Jira boards" retrying={retrying} onRetry={retry} />
+          <SyncErrorBanner error={summaries.jiraError} source="Jira boards" retrying={retrying} onRetry={retry} dismissed={dismissedErrors} onDismiss={dismissError} />
         ) : null}
         {/* iOS folds this into the empty state when there is nothing else on screen. */}
         {summaries.deckError && !deckNeedsAccount && !(IOS && noBoards) ? (
-          <SyncErrorBanner error={summaries.deckError} source="Deck boards" retrying={retrying} onRetry={retry} />
+          <SyncErrorBanner error={summaries.deckError} source="Deck boards" retrying={retrying} onRetry={retry} dismissed={dismissedErrors} onDismiss={dismissError} />
         ) : null}
         {deckWarnings.length > 0 && !summaries.deckError ? (
-          <SyncErrorBanner error={deckWarnings[0]} source="Deck boards" retrying={retrying} onRetry={retry} />
+          <SyncErrorBanner error={deckWarnings[0]} source="Deck boards" retrying={retrying} onRetry={retry} dismissed={dismissedErrors} onDismiss={dismissError} />
         ) : null}
 
         {noBoards ? (
@@ -524,14 +551,22 @@ function SyncErrorBanner({
   source,
   retrying,
   onRetry,
+  dismissed,
+  onDismiss,
 }: {
   error: unknown;
   source: string;
   retrying: boolean;
   onRetry: () => void;
+  /** Keys of cards closed this visit. */
+  dismissed: ReadonlySet<string>;
+  onDismiss: (key: string) => void;
 }) {
   const copy = describeSyncError(error, source);
   const auth = copy.kind === 'auth';
+  // A different error gets a new key, so it shows even after the last one was closed.
+  const key = `${source}\n${copy.title}\n${copy.detail ?? ''}`;
+  if (dismissed.has(key)) return null;
   return (
     <StatusBanner
       tone={copy.kind === 'other' || auth ? 'error' : 'warning'}
@@ -545,6 +580,7 @@ function SyncErrorBanner({
           ? { label: 'Settings', onPress: () => router.push('/settings') }
           : { label: 'Retry', onPress: onRetry, busy: retrying }
       }
+      onDismiss={() => onDismiss(key)}
     />
   );
 }

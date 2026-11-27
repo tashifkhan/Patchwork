@@ -564,7 +564,7 @@ function M3SearchBar({
           paddingLeft: 16,
           paddingRight: 4,
           gap: 12,
-          backgroundColor: colors.bg3,
+          backgroundColor: Platform.OS === 'android' ? colors.surfaceContainerHigh : colors.bg3,
         }}>
         <MaterialCommunityIcons name="magnify" size={24} color={colors.text} />
         <TextInput
@@ -648,7 +648,7 @@ function GroupCard({ children }: { children: React.ReactNode }) {
   return (
     <View
       style={{
-        backgroundColor: colors.bg2,
+        backgroundColor: Platform.OS === 'android' ? colors.surfaceContainerLow : colors.bg2,
         borderRadius: 24,
         borderCurve: 'continuous',
         overflow: 'hidden',
@@ -764,7 +764,7 @@ function ResultRowView({
       <View
         className="flex-row items-center gap-3 px-3.5 py-3.5"
         style={{
-          backgroundColor: colors.bg2,
+          backgroundColor: Platform.OS === 'android' ? colors.surfaceContainerLow : colors.bg2,
           borderTopLeftRadius: isFirst ? 20 : 0,
           borderTopRightRadius: isFirst ? 20 : 0,
           borderBottomLeftRadius: isLast ? 20 : 0,

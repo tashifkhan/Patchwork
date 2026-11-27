@@ -77,6 +77,10 @@ export function NavigationRail({ state, emitter, navigateToTab }: RailProps) {
             {({ pressed }) => (
               <>
                 <View
+                  // Never flattened away: a transparent indicator would have no
+                  // native view, and the one Fabric creates mid tab switch can
+                  // lose its corner radius and draw as a square.
+                  collapsable={false}
                   style={{
                     width: 56,
                     height: 32,
@@ -86,7 +90,7 @@ export function NavigationRail({ state, emitter, navigateToTab }: RailProps) {
                     backgroundColor: focused
                       ? colors.selectionBg
                       : pressed
-                        ? colors.bg3
+                        ? colors.surfaceContainerHigh
                         : 'transparent',
                   }}>
                   <MaterialCommunityIcons

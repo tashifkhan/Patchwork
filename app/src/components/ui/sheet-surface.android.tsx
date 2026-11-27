@@ -99,7 +99,7 @@ export function SheetSurface({
           sheetGesturesEnabled={sheetGesturesEnabled}
           // One step below the bg3 fields and rows that sheets put on top, so
           // they stand out from the sheet instead of matching it.
-          containerColor={colors.bg2}
+          containerColor={colors.surfaceContainerLow}
           contentColor={colors.text}
           // M3 scrim: 32% black over the screen behind the sheet.
           scrimColor="rgba(0,0,0,0.32)"

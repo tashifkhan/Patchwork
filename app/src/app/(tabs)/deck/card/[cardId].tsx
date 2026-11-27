@@ -10,7 +10,6 @@ import {
   EDITOR_CONTENT,
   EditorHeading,
   EditorNotes,
-  EditorPrimaryButton,
   EditorTitle,
 } from '@/components/boards/item-editor';
 import { CardPage } from '@/components/boards/card-page';
@@ -22,6 +21,7 @@ import { TaskActionBar } from '@/features/tasks/task-action-bar';
 import { LoadingState } from '@/components/ui/loading';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { useDeckBoard, useDeleteDeckCard, useUpdateDeckCard } from '@/features/boards/queries';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { useStackBack } from '@/hooks/use-stack-back';
 import { haptics } from '@/lib/haptics';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
@@ -90,6 +90,8 @@ function CardEditor({
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const barBottom = useTabBarFabOffset();
+  // iPad and other wide windows: the details sit beside the notes.
+  const wide = useAdaptiveLayout().twoPane;
   // Back to this card's board, even when nothing is under it in the stack.
   const goBack = useStackBack(`/deck/board/deck:${boardId}`);
 
@@ -230,40 +232,30 @@ function CardEditor({
         bottomOffset={ACTION_BAR_CLEARANCE}
         className="bg-sf-bg flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }}>
-        <EditorTitle value={title} onChangeText={setTitle} placeholder="Card title" />
-        <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
-
-        <EditorHeading title="Details" />
-        <DetailsCard>
-          <DetailRow
-            icon="view-column-outline"
-            label="Column"
-            value={column?.title ?? 'Column'}
-            onPress={() => setColumnOpen(true)}
-          />
-          <View style={{ paddingVertical: 12 }}>
-            <DateField label="Due date" iconName="flag-outline" value={duedate} onChange={setDuedate} />
+        contentContainerStyle={
+          wide
+            ? { ...EDITOR_CONTENT, paddingHorizontal: 32, paddingBottom: barBottom + 96, width: '100%', maxWidth: 1120, alignSelf: 'center' }
+            : { ...EDITOR_CONTENT, paddingBottom: barBottom + 96 }
+        }>
+        <View style={wide ? { flexDirection: 'row', alignItems: 'flex-start', gap: 32 } : null}>
+          <View style={wide ? { flex: 1 } : null}>
+            <EditorTitle value={title} onChangeText={setTitle} placeholder="Card title" />
+            <EditorNotes value={description} onChangeText={setDescription} placeholder="Description" />
           </View>
-          <MoveToTasks
-            boardId={boardId}
-            stackId={stackId}
-            cardId={cardId}
-            title={title.trim() || (card.title ?? 'Untitled')}
-            description={description}
-            duedate={duedate}
-          />
-        </DetailsCard>
 
-        {!IOS ? (
-          <EditorPrimaryButton
-            label="Save changes"
-            busyLabel="Saving…"
-            busy={updateCard.isPending}
-            disabled={!canSave}
-            onPress={save}
-          />
-        ) : null}
+          <View style={wide ? { width: 360, paddingTop: 8 } : null}>
+            <EditorHeading title="Details" />
+            <DetailsCard>
+              <DetailRow
+                icon="view-column-outline"
+                label="Column"
+                value={column?.title ?? 'Column'}
+                onPress={() => setColumnOpen(true)}
+              />
+              {details}
+            </DetailsCard>
+          </View>
+        </View>
       </KeyboardScrollView>
 
       <TaskActionBar
@@ -272,39 +264,7 @@ function CardEditor({
         onDelete={() => setDeleteVisible(true)}
         deleteLabel="Delete card"
       />
-
-      <PickerSheet
-        visible={columnOpen}
-        title="Column"
-        items={columns.map((stack) => ({
-          key: String(stack.id),
-          label: stack.title ?? 'Column',
-          subtitle: `${stack.cards?.length ?? 0} cards`,
-          icon: 'view-column-outline' as const,
-          selected: stack.id === targetStackId,
-          onPress: () => {
-            haptics.selection();
-            setTargetStackId(stack.id);
-            setColumnOpen(false);
-          },
-        }))}
-        onClose={() => setColumnOpen(false)}
-      />
-      <NativeAlert
-        visible={deleteVisible}
-        title="Delete card?"
-        message={`"${card.title ?? 'Untitled'}" is removed from Deck.`}
-        confirmLabel="Delete"
-        dismissLabel="Cancel"
-        onDismiss={() => setDeleteVisible(false)}
-        onConfirm={confirmDelete}
-      />
-      <NativeAlert
-        visible={errorMessage != null}
-        title="Deck"
-        message={errorMessage ?? ''}
-        onDismiss={() => setErrorMessage(null)}
-      />
+      {sheets}
     </>
   );
 }

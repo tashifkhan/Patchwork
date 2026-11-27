@@ -49,11 +49,74 @@ export interface ThemeColors {
   primaryContainer: string;
   /** Content on primaryContainer. */
   onPrimaryContainer: string;
+
+  /**
+   * Material 3 tone-based surfaces. On Android each is a fixed tone of the
+   * neutral palette, and a component picks the role for how far it sits above
+   * the screen instead of adding a shadow. iOS fills them from its own three
+   * grays (see `withLegacyLadder`) so shared code can read them; its look
+   * doesn't change.
+   */
+  surface: string;
+  surfaceDim: string;
+  surfaceBright: string;
+  surfaceContainerLowest: string;
+  surfaceContainerLow: string;
+  surfaceContainer: string;
+  surfaceContainerHigh: string;
+  surfaceContainerHighest: string;
+}
+
+/** The surface roles only. */
+export type SurfaceLadder = Pick<
+  ThemeColors,
+  | 'surface'
+  | 'surfaceDim'
+  | 'surfaceBright'
+  | 'surfaceContainerLowest'
+  | 'surfaceContainerLow'
+  | 'surfaceContainer'
+  | 'surfaceContainerHigh'
+  | 'surfaceContainerHighest'
+>;
+
+type BaseColors = Omit<ThemeColors, keyof SurfaceLadder>;
+
+/**
+ * Fills the surface roles from the three hand-picked grays, for iOS and any
+ * path without a tonal palette. Nothing that reads bg/bg2/bg3 changes.
+ */
+export function withLegacyLadder(c: BaseColors): ThemeColors {
+  return {
+    ...c,
+    surface: c.bg,
+    surfaceDim: c.bg,
+    surfaceBright: c.bg3,
+    surfaceContainerLowest: c.bg,
+    surfaceContainerLow: c.bg2,
+    surfaceContainer: c.bg2,
+    surfaceContainerHigh: c.bg3,
+    surfaceContainerHighest: c.bg3,
+  };
+}
+
+/**
+ * Android: the old names point at roles, so screens not yet moved to roles
+ * still land on the ladder. bg is the screen, bg2 a container, bg3 one step up.
+ */
+export function withLadder(c: BaseColors | ThemeColors, ladder: SurfaceLadder): ThemeColors {
+  return {
+    ...c,
+    ...ladder,
+    bg: ladder.surface,
+    bg2: ladder.surfaceContainer,
+    bg3: ladder.surfaceContainerHigh,
+  };
 }
 
 // Apple system colors (resolved values, not platformColor) so they render
 // correctly regardless of how the CSS layer resolves color-scheme.
-const APPLE_LIGHT: ThemeColors = {
+const APPLE_LIGHT: ThemeColors = withLegacyLadder({
   accent: '#007AFF',
   green: '#34C759',
   red: '#FF3B30',
@@ -76,9 +139,9 @@ const APPLE_LIGHT: ThemeColors = {
   danger: '#FF3B30',
   primaryContainer: '#D6E4FF',
   onPrimaryContainer: '#003A8C',
-};
+});
 
-const APPLE_DARK: ThemeColors = {
+const APPLE_DARK: ThemeColors = withLegacyLadder({
   accent: '#0A84FF',
   green: '#30D158',
   red: '#FF453A',
@@ -101,7 +164,7 @@ const APPLE_DARK: ThemeColors = {
   danger: '#FF453A',
   primaryContainer: '#003A8C',
   onPrimaryContainer: '#D6E4FF',
-};
+});
 
 function withAccent(base: ThemeColors, accent?: string | null): ThemeColors {
   if (!accent) return base;
@@ -149,7 +212,7 @@ export function colorsFromPalette(palette: ColorPalette, scheme: SchemeName): Th
   const primaryContainer = mixHex(bg, accent, dark ? 0.22 : 0.14);
   const selectionBg = mixHex(bg2, accent, dark ? 0.26 : 0.14);
   const onAccent = (dark ? palette.onPrimaryDark : palette.onPrimaryLight) ?? (isLightColor(accent) ? '#1C1B1F' : '#FFFFFF');
-  return {
+  return withLegacyLadder({
     accent,
     green: dark ? '#7FD98C' : '#2E7D32',
     red: dark ? '#FFB4AB' : '#BA1A1A',
@@ -174,10 +237,13 @@ export function colorsFromPalette(palette: ColorPalette, scheme: SchemeName): Th
     onPrimaryContainer: dark
       ? mixHex(accent, '#FFFFFF', 0.28)
       : mixHex(accent, '#000000', 0.42),
-  };
+  });
 }
 
 /**
+ * iOS pure black. Android builds its own from the tonal ladder
+ * (`tonalPureBlack` in `tonal-surfaces.ts`).
+ *
  * Pure-black AMOLED surfaces (mirrors Paisa `toAmoled`). Floors base surfaces
  * to black while keeping subtle step elevation so cards stay legible.
  */
@@ -185,7 +251,7 @@ export function pureBlackColors(c: ThemeColors): ThemeColors {
   const bg = '#000000';
   const bg2 = '#0D0D0D';
   const bg3 = '#1A1A1A';
-  return {
+  return withLegacyLadder({
     ...c,
     bg,
     bg2,
@@ -194,7 +260,7 @@ export function pureBlackColors(c: ThemeColors): ThemeColors {
     // Re-tint containers from pure black so they don't keep a muddy palette wash.
     primaryContainer: mixHex(bg, c.accent, 0.2),
     selectionBg: mixHex(bg2, c.accent, 0.24),
-  };
+  });
 }
 
 /**
@@ -239,6 +305,11 @@ export interface MaterialPalette {
   outline: string;
   outlineVariant: string;
   background: string;
+  surface: string;
+  surfaceDim: string;
+  surfaceBright: string;
+  surfaceContainerLowest: string;
+  surfaceContainerLow: string;
   surfaceContainer: string;
   surfaceContainerHigh: string;
   surfaceContainerHighest: string;
@@ -261,7 +332,18 @@ export function materialColors(raw: MaterialPalette, scheme: SchemeName): ThemeC
     scheme
   );
   const selection = tonalContainer(m.secondaryContainer, m.primary, m.surfaceContainer, scheme);
-  return {
+  // Compose already computes every surface role from the wallpaper palette.
+  const ladder: SurfaceLadder = {
+    surface: m.surface,
+    surfaceDim: m.surfaceDim,
+    surfaceBright: m.surfaceBright,
+    surfaceContainerLowest: m.surfaceContainerLowest,
+    surfaceContainerLow: m.surfaceContainerLow,
+    surfaceContainer: m.surfaceContainer,
+    surfaceContainerHigh: m.surfaceContainerHigh,
+    surfaceContainerHighest: m.surfaceContainerHighest,
+  };
+  return withLadder({
     accent: m.primary,
     green: dark ? '#7FD98C' : '#2E7D32',
     red: m.error,
@@ -286,7 +368,7 @@ export function materialColors(raw: MaterialPalette, scheme: SchemeName): ThemeC
     onPrimaryContainer: primaryContainer.replaced
       ? primaryContainer.content
       : (m.onPrimaryContainer ?? m.onSecondaryContainer),
-  };
+  }, ladder);
 }
 
 /**
@@ -357,6 +439,14 @@ export function themeVariables(c: ThemeColors): Record<`--${string}`, string> {
     'sf-on-accent': c.onAccent,
     'sf-selection': c.selectionBg,
     'sf-on-selection': c.onSelectionBg,
+    'sf-surface': c.surface,
+    'sf-surface-dim': c.surfaceDim,
+    'sf-surface-bright': c.surfaceBright,
+    'sf-container-lowest': c.surfaceContainerLowest,
+    'sf-container-low': c.surfaceContainerLow,
+    'sf-container': c.surfaceContainer,
+    'sf-container-high': c.surfaceContainerHigh,
+    'sf-container-highest': c.surfaceContainerHighest,
   };
 
   const out: Record<`--${string}`, string> = {};

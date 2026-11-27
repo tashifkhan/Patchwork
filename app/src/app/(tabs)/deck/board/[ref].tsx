@@ -57,8 +57,11 @@ const SF_FOR: Record<string, SFSymbol> = {
 
 const SIDE = 16;
 /** Column width bounds when several columns share a wide window. */
-const MIN_WIDE_COLUMN = 300;
+// 220 lets a three-column board fit on an unfolded Fold (852dp) beside the rail.
+const MIN_WIDE_COLUMN = 220;
 const MAX_WIDE_COLUMN = 400;
+/** When every column fits, they may grow this wide so the board fills the screen. */
+const MAX_FILL_COLUMN = 560;
 
 /**
  * One board as horizontal columns, like the Jira app's Board view. Swipe
@@ -127,9 +130,12 @@ export default function BoardScreen() {
         )
       )
     : 1;
+  // When the whole board fits, the columns share the width (up to a readable
+  // cap) instead of leaving a gap on the right.
+  const allFit = (visibleColumns.length || 1) <= fitCount;
   const columnWidth = wideBoard
     ? Math.min(
-        MAX_WIDE_COLUMN,
+        allFit ? MAX_FILL_COLUMN : MAX_WIDE_COLUMN,
         Math.floor((boardWidth - SIDE * 2 - GAP * (fitCount - 1)) / fitCount)
       )
     : Math.min(boardWidth - SIDE * 2 - 40, 420);

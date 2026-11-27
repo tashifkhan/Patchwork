@@ -28,11 +28,22 @@ export interface TimerNotification {
   timeoutAt?: number | null;
 }
 
+export interface BackGestureEvent {
+  id: number;
+  phase: 'started' | 'progress' | 'cancelled' | 'invoked';
+  /** 0 to 1 across the swipe. */
+  progress: number;
+  edge: 'left' | 'right';
+}
+
 type NativeModule = {
+  claimBack?(id: number): Promise<boolean>;
+  releaseBack?(id: number): Promise<void>;
   getFold(): FoldInfo | null;
   showTimerNotification?(options: TimerNotification): void;
   hideTimerNotification?(): void;
   addListener(event: 'onFoldChange', listener: (e: { fold: FoldInfo | null }) => void): EventSubscription;
+  addListener(event: 'onBackGesture', listener: (e: BackGestureEvent) => void): EventSubscription;
 };
 
 // Optional so a dev client built before this module existed keeps running;
@@ -60,4 +71,25 @@ export function hideTimerNotification() {
   try {
     native?.hideTimerNotification?.();
   } catch {}
+}
+
+/**
+ * Android: takes the system back gesture for `id` until released, reporting
+ * its progress through `addBackGestureListener`. Resolves false when the
+ * running build has no support, so the caller can fall back to BackHandler.
+ */
+export async function claimBack(id: number): Promise<boolean> {
+  try {
+    return (await native?.claimBack?.(id)) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export function releaseBack(id: number) {
+  native?.releaseBack?.(id).catch(() => {});
+}
+
+export function addBackGestureListener(listener: (e: BackGestureEvent) => void): EventSubscription | null {
+  return native?.addListener('onBackGesture', listener) ?? null;
 }

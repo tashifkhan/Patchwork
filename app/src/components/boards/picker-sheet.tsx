@@ -1,7 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { ReactNode } from 'react';
-import { Modal, Platform, Pressable } from 'react-native';
+import { type ReactNode, useState } from 'react';
+import { ActivityIndicator, Modal, Platform, Pressable, TextInput, useWindowDimensions } from 'react-native';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, SlideInDown, useAnimatedStyle } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/components/theme/context';
 import { PressGlow, useElasticPress } from '@/components/ui/elastic';
@@ -25,9 +27,24 @@ export interface PickerSheetItem {
   onPress: () => void;
 }
 
+export interface PickerSheetSearch {
+  placeholder?: string;
+  /**
+   * Set to search somewhere else (Jira's user search): the sheet shows
+   * `items` as given and reports what was typed. Left out, the sheet filters
+   * `items` by label and subtitle itself.
+   */
+  onChange?: (query: string) => void;
+  /** Results are on their way. */
+  loading?: boolean;
+  /** Shown when nothing matches. */
+  emptyText?: string;
+}
+
 /**
  * Material 3 bottom sheet with one row per choice: used to switch boards and
- * to move a card to another column.
+ * to move a card to another column. With `search`, a field at the top narrows
+ * the choices, and the sheet rides above the keyboard.
  */
 export function PickerSheet({
   visible,
@@ -36,6 +53,8 @@ export function PickerSheet({
   items,
   onClose,
   layout = 'rows',
+  search,
+  doneLabel,
 }: {
   visible: boolean;
   title: string;
@@ -47,10 +66,34 @@ export function PickerSheet({
    * lists and the Boards tab. iOS keeps plain rows either way.
    */
   layout?: 'rows' | 'stack';
+  search?: PickerSheetSearch;
+  /** A button in the header that closes the sheet, for picking several things. */
+  doneLabel?: string;
 }) {
   const { colors } = useTheme();
-  const stacked = layout === 'stack' && Platform.OS === 'android';
+  const stacked = layout === 'stack' && Platform.OS === 'android' && !search;
   const panel = useSheetPanel(12);
+  const [query, setQuery] = useState('');
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const { height: keyboard } = useReanimatedKeyboardAnimation();
+  // `keyboard` is negative while it is up. The sheet sits on top of it and
+  // never grows past the status bar.
+  const lift = useAnimatedStyle(() => ({ paddingBottom: -keyboard.value }));
+  const cap = useAnimatedStyle(() => ({
+    maxHeight: Math.min(windowHeight * 0.8, windowHeight + keyboard.value - insets.top - 24),
+  }));
+
+  const needle = query.trim().toLowerCase();
+  const shown =
+    search && !search.onChange && needle
+      ? items.filter((item) => `${item.label} ${item.subtitle ?? ''}`.toLowerCase().includes(needle))
+      : items;
+  function close() {
+    setQuery('');
+    search?.onChange?.('');
+    onClose();
+  }
 
   return (
     <Modal
@@ -59,49 +102,129 @@ export function PickerSheet({
       animationType="none"
       statusBarTranslucent
       navigationBarTranslucent
-      onRequestClose={onClose}>
+      onRequestClose={close}
+      // Each opening starts with an empty search, however the last one closed.
+      onShow={() => {
+        setQuery('');
+        search?.onChange?.('');
+      }}>
       <Animated.View entering={FadeIn.duration(DURATION.short4)} style={sheetOverlayStyle()}>
-        <Pressable
-          onPress={onClose}
+        <AnimatedPressable
+          onPress={close}
           accessibilityLabel="Close"
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'flex-end' }}>
+          style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'flex-end' }, search ? lift : null]}>
           <Animated.View
             entering={SlideInDown.duration(DURATION.medium4).easing(EASING.emphasizedDecelerate)}
             onStartShouldSetResponder={() => true}
-            style={{
-              ...panel.style,
-              maxHeight: '80%',
-            }}>
+            style={[
+              {
+                ...panel.style,
+                maxHeight: '80%',
+              },
+              search ? cap : null,
+            ]}>
             {panel.background}
             <View className="items-center" style={{ paddingTop: 16, paddingBottom: 8 }}>
               <View style={{ width: 32, height: 4, borderRadius: 2, backgroundColor: colors.gray }} />
             </View>
-            <View className="px-6 pb-2">
-              <Text numberOfLines={2} style={{ fontSize: 22, fontWeight: '600', color: colors.text }}>
-                {title}
-              </Text>
-              {subtitle ? (
-                <Text numberOfLines={2} style={{ fontSize: 14, color: colors.text2, marginTop: 2 }}>
-                  {subtitle}
+            <View className="px-6 pb-2" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={2} style={{ fontSize: 22, fontWeight: '600', color: colors.text }}>
+                  {title}
                 </Text>
+                {subtitle ? (
+                  <Text numberOfLines={2} style={{ fontSize: 14, color: colors.text2, marginTop: 2 }}>
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+              {doneLabel ? (
+                <Pressable
+                  onPress={() => {
+                    haptics.tap();
+                    close();
+                  }}
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    height: 36,
+                    paddingHorizontal: 16,
+                    borderRadius: pressed ? 10 : 18,
+                    justifyContent: 'center',
+                    backgroundColor: colors.accent,
+                  })}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: colors.onAccent }}>{doneLabel}</Text>
+                </Pressable>
               ) : null}
             </View>
+            {search ? (
+              <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    height: 48,
+                    borderRadius: 24,
+                    paddingHorizontal: 16,
+                    backgroundColor: Platform.OS === 'android' ? colors.surfaceContainerHighest : colors.bg3,
+                  }}>
+                  <MaterialCommunityIcons name="magnify" size={22} color={colors.text2} />
+                  <TextInput
+                    value={query}
+                    onChangeText={(value) => {
+                      setQuery(value);
+                      search.onChange?.(value);
+                    }}
+                    placeholder={search.placeholder ?? 'Search'}
+                    placeholderTextColor={colors.text3}
+                    accessibilityLabel={search.placeholder ?? 'Search'}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                    style={{ flex: 1, fontSize: 16, color: colors.text, paddingVertical: 0 }}
+                  />
+                  {search.loading ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : query ? (
+                    <Pressable
+                      onPress={() => {
+                        setQuery('');
+                        search.onChange?.('');
+                      }}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear search">
+                      <MaterialCommunityIcons name="close-circle" size={20} color={colors.text3} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
             {stacked ? (
               <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8 }}>
-                {items.map((item, index) => (
+                {shown.map((item, index) => (
                   <RiseIn
                     key={item.key}
                     index={index}
                     rise={36}
                     fromScale={0.94}
                     style={{ marginTop: index === 0 ? 0 : -STACK_OVERLAP, zIndex: index }}>
-                    <StackCard item={item} index={index} last={index === items.length - 1} />
+                    <StackCard item={item} index={index} last={index === shown.length - 1} />
                   </RiseIn>
                 ))}
               </ScrollView>
             ) : (
-            <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4 }}>
-              {items.map((item) => (
+            <ScrollView
+              style={{ flexGrow: 0 }}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4 }}>
+              {search && shown.length === 0 ? (
+                <Text style={{ fontSize: 15, color: colors.text2, paddingHorizontal: 12, paddingVertical: 20 }}>
+                  {search.loading ? 'Searching…' : (search.emptyText ?? 'Nothing matches.')}
+                </Text>
+              ) : null}
+              {shown.map((item) => (
                 <Pressable
                   key={item.key}
                   onPress={() => {
@@ -153,11 +276,13 @@ export function PickerSheet({
             </ScrollView>
             )}
           </Animated.View>
-        </Pressable>
+        </AnimatedPressable>
       </Animated.View>
     </Modal>
   );
 }
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const STACK_HEIGHT = 128;
 /** How much of each card the next one covers, as in My lists. */

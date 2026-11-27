@@ -738,6 +738,11 @@ export interface JiraIssueCreate {
   duedate?: string | null;
   /** Assign to the connected user (default true), so it shows on "assigned to me" boards. */
   assignToMe?: boolean;
+  /** Someone else to assign, or null for nobody. Overrides `assignToMe` when set. */
+  assigneeId?: string | null;
+  /** Reporter, when it should not be the connected user. */
+  reporterId?: string;
+  componentIds?: string[];
   column?: JiraColumn;
   firstColumn?: JiraColumn;
   sprintId?: number;
@@ -767,18 +772,27 @@ export async function createJiraIssue(creds: JiraCredentials, input: JiraIssueCr
     ...(labels.length ? { labels } : {}),
     ...(input.priorityId ? { priority: { id: input.priorityId } } : {}),
     ...(input.duedate ? { duedate: input.duedate } : {}),
+    ...(input.componentIds?.length ? { components: input.componentIds.map((id) => ({ id })) } : {}),
   };
-  const assign = input.assignToMe !== false;
+  // Explicit choice first, then the "assign to me" switch.
+  const assigneeId =
+    input.assigneeId !== undefined ? input.assigneeId : input.assignToMe !== false ? creds.account.accountId : null;
+  const people: Record<string, unknown> = {
+    ...(assigneeId ? { assignee: { accountId: assigneeId } } : {}),
+    ...(input.reporterId ? { reporter: { accountId: input.reporterId } } : {}),
+  };
   let created: { id: string; key: string };
   try {
-    created = await client.request('POST', '/rest/api/3/issue', {
-      fields: assign ? { ...fields, assignee: { accountId: creds.account.accountId } } : fields,
-    });
+    created = await client.request('POST', '/rest/api/3/issue', { fields: { ...fields, ...people } });
   } catch (error) {
-    // Some projects don't let you set the assignee (or priority) on create.
-    if (!(error instanceof JiraError) || error.status !== 400 || !assign) throw error;
+    // Some projects don't put assignee or reporter on the create screen. Create
+    // without them, then set each one on its own.
+    if (!(error instanceof JiraError) || error.status !== 400 || Object.keys(people).length === 0) throw error;
     created = await client.request('POST', '/rest/api/3/issue', { fields });
-    await assignJiraIssue(creds, created.key, creds.account.accountId).catch(() => {});
+    if (assigneeId) await assignJiraIssue(creds, created.key, assigneeId).catch(() => {});
+    if (input.reporterId) {
+      await updateJiraIssue(creds, created.key, { reporterId: input.reporterId }).catch(() => {});
+    }
   }
   if (input.sprintId != null) {
     await client.request('POST', `/rest/agile/1.0/sprint/${input.sprintId}/issue`, {
@@ -811,11 +825,22 @@ export interface JiraIssueDetail {
   assignee?: { accountId: string; displayName: string; avatarUrl?: string };
   reporter?: { accountId: string; displayName: string; avatarUrl?: string };
   labels: string[];
+  components: JiraComponent[];
+  /** The project the issue lives in, for its components and people. */
+  projectKey?: string;
   duedate: string | null;
   created?: string;
   updated?: string;
   /** Fields this user may change, from Jira's edit metadata. */
-  editable: { summary: boolean; description: boolean; duedate: boolean; labels: boolean; priority: boolean };
+  editable: {
+    summary: boolean;
+    description: boolean;
+    duedate: boolean;
+    labels: boolean;
+    priority: boolean;
+    components: boolean;
+    reporter: boolean;
+  };
 }
 
 interface ApiUser {
@@ -844,6 +869,8 @@ export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promi
       assignee?: ApiUser | null;
       reporter?: ApiUser | null;
       labels?: string[];
+      components?: { id?: string; name?: string; description?: string }[];
+      project?: { key?: string };
       duedate?: string | null;
       created?: string;
       updated?: string;
@@ -853,7 +880,7 @@ export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promi
     editmeta?: { fields?: Record<string, unknown> };
   }>(
     'GET',
-    `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,issuetype,priority,assignee,reporter,labels,duedate,created,updated,attachment&expand=editmeta,renderedFields`
+    `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,issuetype,priority,assignee,reporter,labels,components,project,duedate,created,updated,attachment&expand=editmeta,renderedFields`
   );
   const f = raw.fields ?? {};
   const { markdown } = adfToMarkdown(f.description);
@@ -874,6 +901,10 @@ export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promi
     assignee: toUser(f.assignee),
     reporter: toUser(f.reporter),
     labels: f.labels ?? [],
+    components: (f.components ?? [])
+      .filter((component) => component.id)
+      .map((component) => ({ id: component.id!, name: component.name ?? '', description: component.description })),
+    projectKey: f.project?.key,
     duedate: f.duedate ?? null,
     created: f.created,
     updated: f.updated,
@@ -883,6 +914,8 @@ export async function fetchJiraIssue(creds: JiraCredentials, key: string): Promi
       duedate: 'duedate' in meta,
       labels: 'labels' in meta,
       priority: 'priority' in meta,
+      components: 'components' in meta,
+      reporter: 'reporter' in meta,
     },
   };
 }
@@ -897,6 +930,8 @@ export interface JiraIssuePatch {
   duedate?: string | null;
   labels?: string[];
   priorityId?: string;
+  componentIds?: string[];
+  reporterId?: string;
 }
 
 /** Save edited fields. Only the fields present in `patch` are sent. */
@@ -916,6 +951,8 @@ export async function updateJiraIssue(creds: JiraCredentials, key: string, patch
     fields.labels = [...new Set(patch.labels.map((label) => label.trim().replace(/\s+/g, '-')).filter(Boolean))];
   }
   if (patch.priorityId !== undefined) fields.priority = { id: patch.priorityId };
+  if (patch.componentIds !== undefined) fields.components = patch.componentIds.map((id) => ({ id }));
+  if (patch.reporterId !== undefined) fields.reporter = { accountId: patch.reporterId };
   if (Object.keys(fields).length === 0) return;
   await new JiraClient(creds).request('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields });
 }
@@ -1067,9 +1104,88 @@ export async function fetchJiraPriorities(
   return Array.isArray(data) ? data.map(({ id, name, iconUrl }) => ({ id, name, iconUrl })) : [];
 }
 
-/** Assign an issue to the connected user, or unassign it (null). */
+/** Assign an issue to anyone (by account id), or unassign it (null). */
 export async function assignJiraIssue(creds: JiraCredentials, key: string, accountId: string | null): Promise<void> {
   await new JiraClient(creds).request('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, {
     accountId,
   });
+}
+
+// ── People and components ─────────────────────────────────────────────
+
+export interface JiraUser {
+  accountId: string;
+  displayName: string;
+  avatarUrl?: string;
+  email?: string;
+}
+
+interface ApiSearchUser extends ApiUser {
+  accountType?: string;
+  active?: boolean;
+  emailAddress?: string;
+}
+
+function toUsers(raw: ApiSearchUser[] | undefined): JiraUser[] {
+  return (raw ?? [])
+    // Apps and bots ("app", "customer") can't be assignees or reporters.
+    .filter((user) => user.accountId && user.active !== false && (user.accountType ?? 'atlassian') === 'atlassian')
+    .map((user) => ({
+      accountId: user.accountId!,
+      displayName: user.displayName ?? 'Someone',
+      avatarUrl: avatar(user.avatarUrls),
+      email: user.emailAddress || undefined,
+    }));
+}
+
+/**
+ * People who can be assigned: to an existing issue (`issueKey`), or to new
+ * issues in a project (`projectKey`). An empty query lists the first few.
+ */
+export async function searchJiraAssignableUsers(
+  creds: JiraCredentials,
+  scope: { issueKey?: string; projectKey?: string },
+  query: string,
+  signal?: AbortSignal
+): Promise<JiraUser[]> {
+  const params = new URLSearchParams({ query: query.trim(), maxResults: '30' });
+  if (scope.issueKey) params.set('issueKey', scope.issueKey);
+  else if (scope.projectKey) params.set('project', scope.projectKey);
+  const data = await new JiraClient(creds).request<ApiSearchUser[]>(
+    'GET',
+    `/rest/api/3/user/assignable/search?${params.toString()}`,
+    undefined,
+    signal
+  );
+  return toUsers(data);
+}
+
+/** Anyone on the site, by name or email, for the reporter. */
+export async function searchJiraUsers(creds: JiraCredentials, query: string, signal?: AbortSignal): Promise<JiraUser[]> {
+  const params = new URLSearchParams({ query: query.trim(), maxResults: '30' });
+  const data = await new JiraClient(creds).request<ApiSearchUser[]>(
+    'GET',
+    `/rest/api/3/user/search?${params.toString()}`,
+    undefined,
+    signal
+  );
+  return toUsers(data);
+}
+
+export interface JiraComponent {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** A project's components, by name. */
+export async function fetchJiraComponents(creds: JiraCredentials, projectKey: string): Promise<JiraComponent[]> {
+  const data = await new JiraClient(creds).request<{ id?: string; name?: string; description?: string }[]>(
+    'GET',
+    `/rest/api/3/project/${encodeURIComponent(projectKey)}/components`
+  );
+  return (Array.isArray(data) ? data : [])
+    .filter((component) => component.id && component.name)
+    .map((component) => ({ id: component.id!, name: component.name!, description: component.description || undefined }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

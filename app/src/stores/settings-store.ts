@@ -46,6 +46,8 @@ export interface ExtraPreferences {
   searchTab: boolean;
   /** First-run intro finished or skipped. Installs from before it existed count as done. */
   onboarded: boolean;
+  /** The Boards tab's "Bring in your Jira boards" card has been shown once; it doesn't come back. */
+  jiraPromoSeen: boolean;
   /** Draw events from the phone's own calendars (Google, iCloud, Outlook...) in the Calendar view. */
   deviceEvents: boolean;
   /** Phone calendars the user hid from the Calendar view, by id. */
@@ -71,6 +73,7 @@ export const DEFAULT_EXTRAS: ExtraPreferences = {
   floatingTabFrosted: true,
   searchTab: true,
   onboarded: false,
+  jiraPromoSeen: false,
   deviceEvents: false,
   hiddenEventCalendars: [],
   appleReminders: false,

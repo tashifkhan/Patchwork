@@ -9,7 +9,9 @@ import { Platform } from 'react-native';
 import {
   applyJiraTransition,
   assignJiraIssue,
+  boardHasSprints,
   deleteJiraIssue,
+  fetchJiraComponents,
   fetchJiraIssue,
   fetchJiraPriorities,
   fetchJiraIssueSprint,
@@ -20,11 +22,14 @@ import {
   jiraImageHeaders,
   jiraIssueUrl,
   updateJiraIssue,
+  type JiraBoard,
   type JiraBoardDetail,
+  type JiraComponent,
   type JiraIssueDetail,
   type JiraIssuePatch,
   type JiraIssueSprintInfo,
   type JiraSprint,
+  type JiraUser,
 } from '@/api/jira';
 import { AdfViewer } from '@/components/boards/adf-viewer';
 import {
@@ -49,6 +54,8 @@ import { LoadingState } from '@/components/ui/loading';
 import { useTheme } from '@/components/theme/context';
 import { adfFromSegments, adfSegments } from '@/lib/adf';
 import { withIssueSprint } from '@/features/boards/model';
+import { useJiraBoards } from '@/features/boards/use-board-detail';
+import { useJiraPeople } from '@/features/boards/use-jira-people';
 import { NativeAlert } from '@/components/ui/native-alert';
 import type { JiraCredentials } from '@/lib/credentials-types';
 import { haptics } from '@/lib/haptics';
@@ -62,8 +69,9 @@ const issueKey = (accountId: string, key: string) => ['jira', 'issue', accountId
 
 /**
  * A Jira issue, opened from a board and edited in the app. Laid out like the
- * New To-Do sheet. Summary, description, labels, priority and due date save
- * together; status and assignee apply straight away, as they do in Jira.
+ * New To-Do sheet. Summary, description, labels, components, priority and due
+ * date save together; status, assignee, reporter and sprint apply straight
+ * away, as they do in Jira.
  */
 export default function JiraIssueScreen() {
   const { key = '', account, board } = useLocalSearchParams<{
@@ -167,7 +175,19 @@ function IssueEditor({
   const [labels, setLabels] = useState(issue.labels);
   const [duedate, setDuedate] = useState(issue.duedate);
   const [priority, setPriority] = useState(issue.priority);
-  const [picker, setPicker] = useState<'status' | 'priority' | 'assignee' | 'sprint' | null>(null);
+  const [components, setComponents] = useState<JiraComponent[]>(issue.components);
+  const [picker, setPicker] = useState<
+    'status' | 'priority' | 'assignee' | 'reporter' | 'components' | 'board' | 'sprint' | null
+  >(null);
+  const assignees = useJiraPeople(credentials, { kind: 'assignable', issueKey: issue.key }, picker === 'assignee');
+  const reporters = useJiraPeople(credentials, { kind: 'anyone' }, picker === 'reporter');
+  const projectComponents = useQuery({
+    queryKey: ['jira', 'components', credentials.id, issue.projectKey],
+    queryFn: () => fetchJiraComponents(credentials, issue.projectKey!),
+    enabled: !!issue.projectKey && (picker === 'components' || issue.editable.components),
+    staleTime: 10 * 60_000,
+  });
+  const canEditComponents = issue.editable.components && (projectComponents.data?.length ?? 0) > 0;
 
   // Which sprint the issue is in comes from the issue itself, so the row shows
   // even when the issue was opened from search or a link. Sprints to move to
@@ -179,8 +199,28 @@ function IssueEditor({
     queryFn: () => fetchJiraIssueSprint(credentials, issue.key),
   });
   const currentSprint = sprintInfo.data?.sprint;
+  // Any scrum board on this Jira login can supply sprints; the issue's own
+  // project comes first. Picking one only changes where the sprint list
+  // comes from, since an issue isn't stored on a board.
+  const jira = useJiraBoards();
+  const sprintBoards = useMemo(
+    () =>
+      (jira.data ?? [])
+        .filter((candidate) => candidate.accountId === credentials.id && boardHasSprints(candidate))
+        .sort(
+          (a, b) =>
+            Number(b.projectKey === issue.projectKey) - Number(a.projectKey === issue.projectKey) ||
+            a.name.localeCompare(b.name)
+        ),
+    [jira.data, credentials.id, issue.projectKey]
+  );
+  const [boardChoice, setBoardChoice] = useState<number | null>(null);
   const sprintBoard =
-    boardId != null && Number.isFinite(boardId) && boardId > 0 ? boardId : sprintInfo.data?.boardId;
+    boardChoice ??
+    (boardId != null && Number.isFinite(boardId) && boardId > 0 ? boardId : sprintInfo.data?.boardId) ??
+    // Unprompted, only a board of the issue's own project; others are a pick away.
+    sprintBoards.find((candidate) => candidate.projectKey === issue.projectKey)?.id;
+  const sprintBoardInfo: JiraBoard | undefined = sprintBoards.find((candidate) => candidate.id === sprintBoard);
   const sprints = useQuery({
     queryKey: ['jira', 'sprints', credentials.id, sprintBoard],
     queryFn: () => fetchJiraSprints(credentials, sprintBoard!),
@@ -218,6 +258,10 @@ function IssueEditor({
   if (labels.join('\n') !== issue.labels.join('\n')) patch.labels = labels;
   if (duedate !== issue.duedate) patch.duedate = duedate;
   if (priority && priority.id !== issue.priority?.id) patch.priorityId = priority.id;
+  const componentKey = (list: JiraComponent[]) => list.map((component) => component.id).sort().join(',');
+  if (componentKey(components) !== componentKey(issue.components)) {
+    patch.componentIds = components.map((component) => component.id);
+  }
   const dirty = Object.keys(patch).length > 0;
 
   function refresh() {
@@ -252,6 +296,14 @@ function IssueEditor({
   const assign = useMutation({
     mutationFn: (accountId: string | null) => assignJiraIssue(credentials, issue.key, accountId),
     onSuccess: refresh,
+    onError: fail,
+  });
+  const changeReporter = useMutation({
+    mutationFn: (accountId: string) => updateJiraIssue(credentials, issue.key, { reporterId: accountId }),
+    onSuccess: () => {
+      haptics.success();
+      refresh();
+    },
     onError: fail,
   });
   const moveSprint = useMutation({
@@ -316,6 +368,27 @@ function IssueEditor({
   const canSave = dirty && summary.trim().length > 0 && !save.isPending;
   const meta = [issue.key, issue.type?.name].filter(Boolean).join(' · ');
   const mine = issue.assignee?.accountId === credentials.account.accountId;
+  const me = credentials.account.accountId;
+
+  /** One person in a picker, with their Jira avatar. */
+  function personItem(user: JiraUser, selected: boolean, onPick: () => void) {
+    return {
+      key: user.accountId,
+      label: user.accountId === me ? `${user.displayName} (you)` : user.displayName,
+      subtitle: user.email,
+      leading: (
+        <View style={{ width: 40, alignItems: 'center' }}>
+          {user.avatarUrl ? (
+            <Avatar url={user.avatarUrl} headers={headers} size={32} />
+          ) : (
+            <MaterialCommunityIcons name="account-circle-outline" size={28} color={colors.text2} />
+          )}
+        </View>
+      ),
+      selected,
+      onPress: onPick,
+    };
+  }
 
   return (
     <>
@@ -417,6 +490,14 @@ function IssueEditor({
             loading={assign.isPending}
             onPress={() => setPicker('assignee')}
           />
+          {sprintBoards.length > 1 ? (
+            <DetailRow
+              icon="view-dashboard-outline"
+              label="Sprint board"
+              value={sprintBoardInfo?.name ?? (jira.isLoading ? 'Loading…' : 'Choose a board')}
+              onPress={() => setPicker('board')}
+            />
+          ) : null}
           {showSprint ? (
             <DetailRow
               icon={currentSprint ? 'run-fast' : 'tray-full'}
@@ -424,6 +505,14 @@ function IssueEditor({
               value={sprintInfo.isLoading ? 'Loading…' : (currentSprint?.name ?? 'Backlog')}
               loading={moveSprint.isPending}
               onPress={canMoveSprint ? () => setPicker('sprint') : undefined}
+            />
+          ) : null}
+          {canEditComponents || components.length > 0 ? (
+            <DetailRow
+              icon="puzzle-outline"
+              label="Components"
+              value={components.length ? components.map((component) => component.name).join(', ') : 'None'}
+              onPress={canEditComponents ? () => setPicker('components') : undefined}
             />
           ) : null}
           <DetailRow
@@ -447,10 +536,14 @@ function IssueEditor({
             <DetailRow
               icon="pencil-outline"
               label="Reporter"
-              value={issue.reporter.displayName}
+              value={
+                issue.reporter.accountId === me ? `${issue.reporter.displayName} (you)` : issue.reporter.displayName
+              }
               leading={
                 issue.reporter.avatarUrl ? <Avatar url={issue.reporter.avatarUrl} headers={headers} /> : null
               }
+              loading={changeReporter.isPending}
+              onPress={issue.editable.reporter ? () => setPicker('reporter') : undefined}
             />
           ) : null}
         </DetailsCard>
@@ -520,36 +613,127 @@ function IssueEditor({
       <PickerSheet
         visible={picker === 'assignee'}
         title="Assignee"
+        search={{
+          placeholder: 'Search people',
+          onChange: assignees.setQuery,
+          loading: assignees.loading,
+          emptyText: 'No one by that name can be assigned here.',
+        }}
         items={[
-          {
-            key: 'me',
-            label: `Assign to me`,
-            subtitle: credentials.account.displayName,
-            icon: 'account-check-outline',
-            selected: mine,
-            onPress: () => {
-              setPicker(null);
-              if (!mine) assign.mutate(credentials.account.accountId);
-            },
-          },
-          {
-            key: 'none',
-            label: 'Unassigned',
-            icon: 'account-off-outline',
-            selected: !issue.assignee,
-            onPress: () => {
-              setPicker(null);
-              if (issue.assignee) assign.mutate(null);
-            },
-          },
+          ...(assignees.query.trim()
+            ? []
+            : [
+                {
+                  key: 'me',
+                  label: 'Assign to me',
+                  subtitle: credentials.account.displayName,
+                  icon: 'account-check-outline' as const,
+                  selected: mine,
+                  onPress: () => {
+                    setPicker(null);
+                    if (!mine) assign.mutate(me);
+                  },
+                },
+                {
+                  key: 'none',
+                  label: 'Unassigned',
+                  icon: 'account-off-outline' as const,
+                  selected: !issue.assignee,
+                  onPress: () => {
+                    setPicker(null);
+                    if (issue.assignee) assign.mutate(null);
+                  },
+                },
+              ]),
+          ...assignees.users
+            .filter((user) => assignees.query.trim() || user.accountId !== me)
+            .map((user) =>
+              personItem(user, user.accountId === issue.assignee?.accountId, () => {
+                setPicker(null);
+                if (user.accountId !== issue.assignee?.accountId) assign.mutate(user.accountId);
+              })
+            ),
         ]}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'reporter'}
+        title="Reporter"
+        search={{
+          placeholder: 'Search people',
+          onChange: reporters.setQuery,
+          loading: reporters.loading,
+          emptyText: 'No one by that name on this Jira site.',
+        }}
+        items={reporters.users.map((user) =>
+          personItem(user, user.accountId === issue.reporter?.accountId, () => {
+            setPicker(null);
+            if (user.accountId !== issue.reporter?.accountId) changeReporter.mutate(user.accountId);
+          })
+        )}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'components'}
+        title="Components"
+        subtitle="Pick any number. They save with your other changes."
+        doneLabel="Done"
+        search={
+          (projectComponents.data?.length ?? 0) > 6
+            ? { placeholder: 'Search components', emptyText: 'No component by that name.' }
+            : undefined
+        }
+        items={(projectComponents.data ?? []).map((component) => {
+          const on = components.some((picked) => picked.id === component.id);
+          return {
+            key: component.id,
+            label: component.name,
+            subtitle: component.description,
+            icon: on ? ('checkbox-marked' as const) : ('checkbox-blank-outline' as const),
+            selected: on,
+            onPress: () =>
+              setComponents((current) =>
+                on ? current.filter((picked) => picked.id !== component.id) : [...current, component]
+              ),
+          };
+        })}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'board'}
+        title="Sprint board"
+        subtitle="Which board's sprints to choose from."
+        search={sprintBoards.length > 6 ? { placeholder: 'Search boards', emptyText: 'No board by that name.' } : undefined}
+        items={sprintBoards.map((candidate) => ({
+          key: String(candidate.id),
+          label: candidate.name,
+          subtitle: [candidate.projectName ?? candidate.projectKey, candidate.projectKey === issue.projectKey ? "This issue's project" : undefined]
+            .filter(Boolean)
+            .join(' · '),
+          icon: 'view-dashboard-outline' as const,
+          selected: candidate.id === sprintBoard,
+          onPress: () => {
+            setBoardChoice(candidate.id);
+            // Straight on to its sprints.
+            setPicker('sprint');
+          },
+        }))}
         onClose={() => setPicker(null)}
       />
       <PickerSheet
         visible={picker === 'sprint'}
         title="Sprint"
-        subtitle="Move this issue to a sprint, or back to the backlog."
-        items={sprintItems}
+        subtitle={
+          sprintBoardInfo
+            ? `From ${sprintBoardInfo.name}. Move this issue to a sprint, or back to the backlog.`
+            : 'Move this issue to a sprint, or back to the backlog.'
+        }
+        search={sprintItems.length > 6 ? { placeholder: 'Search sprints', emptyText: 'No sprint by that name.' } : undefined}
+        items={
+          sprints.isLoading
+            ? [{ key: 'loading', label: 'Loading sprints…', icon: 'progress-clock' as const, onPress: () => {} }]
+            : sprintItems
+        }
         onClose={() => setPicker(null)}
       />
       <PickerSheet
@@ -607,15 +791,17 @@ function Avatar({
   url,
   headers,
   square,
+  size = 22,
 }: {
   url: string;
   headers: Record<string, string>;
   square?: boolean;
+  size?: number;
 }) {
   return (
     <Image
       source={{ uri: url, headers }}
-      style={{ width: 22, height: 22, borderRadius: square ? 4 : 11 }}
+      style={{ width: size, height: size, borderRadius: square ? 4 : size / 2 }}
       contentFit="cover"
       accessibilityIgnoresInvertColors
     />
