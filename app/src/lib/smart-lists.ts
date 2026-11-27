@@ -151,9 +151,13 @@ export function containerTone(role: string, dark: boolean, step = 0): Tone {
   if (!hsl) return { fill: role, ink: dark ? '#FFFFFF' : '#000000' };
   const [h, s] = hsl;
   const sat = s < 6 ? s : Math.min(75, Math.max(28, s));
-  return dark
-    ? { fill: hslToHex(h, sat * 0.6, step ? 33 : 26), ink: hslToHex(h, Math.min(sat, 70), 90) }
-    : { fill: hslToHex(h, sat, step ? 81 : 89), ink: hslToHex(h, Math.min(sat, 60), 14) };
+  if (dark) {
+    // On a near-black surface a saturated fill reads as a slab, so dark
+    // containers are a muted tint of their role.
+    const muted = s < 6 ? s : Math.min(34, Math.max(16, s * 0.5));
+    return { fill: hslToHex(h, muted * 0.7, step ? 28 : 22), ink: hslToHex(h, Math.min(muted * 1.6, 50), 88) };
+  }
+  return { fill: hslToHex(h, sat, step ? 81 : 89), ink: hslToHex(h, Math.min(sat, 60), 14) };
 }
 
 /** Smart tiles on M3 roles: Today primary, Scheduled tertiary, All secondary, Overdue error. */
