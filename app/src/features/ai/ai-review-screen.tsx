@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { Stack, router } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
+import { GlassView } from 'expo-glass-effect';
 import { Pressable, type TextInput as RNTextInput } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +13,7 @@ import { createTaskWithChecklist, type TaskCreationProgress } from '@/features/t
 import { StagedTaskCard } from '@/features/ai/staged-task-card';
 import { FIELD_CLEARANCE, KeyboardScrollView, useKeyboardLift } from '@/components/ui/keyboard';
 import { useTheme } from '@/components/theme/context';
+import { useLiquidGlass } from '@/components/ui/glass-surface';
 import { NativeAlert } from '@/components/ui/native-alert';
 import { ProgressOverlay } from '@/components/ui/progress-overlay';
 import { useTaskLists, useTasks } from '@/features/tasks/queries';
@@ -24,7 +26,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { Text, TextInput, View } from '@/tw';
 
 export default function AiReviewScreen() {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const refineRef = useRef<RNTextInput>(null);
   const queryClient = useQueryClient();
   const importProgressRef = useRef(new Map<string, TaskCreationProgress>());
@@ -39,6 +41,7 @@ export default function AiReviewScreen() {
   const availableTags = useMemo(() => collectAllTags(tasksQuery.data ?? []), [tasksQuery.data]);
   const insets = useSafeAreaInsets();
   const lift = useKeyboardLift(insets.bottom + 16);
+  const glass = useLiquidGlass();
   const lists = (listsQuery.data ?? []).filter((list) => !list.is_deck);
   const aiDefaultListId = useSettingsStore((s) => s.aiDefaultListId);
   const fallbackListId = lists.some((list) => list.id === aiDefaultListId)
@@ -294,6 +297,35 @@ export default function AiReviewScreen() {
           },
           lift.style,
         ]}>
+        {glass ? (
+          // iOS 26: a prominent Liquid Glass button in the accent, like the
+          // + button, floating over the list instead of a flat slab.
+          <Pressable
+            onPress={handleCreateAll}
+            disabled={creating || refining || count === 0}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${count} to-dos`}
+            style={{ opacity: creating || refining || count === 0 ? 0.5 : 1 }}>
+            <GlassView
+              isInteractive
+              glassEffectStyle="regular"
+              tintColor={colors.accent}
+              colorScheme={scheme}
+              style={{
+                height: 56,
+                borderRadius: 28,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}>
+              <MaterialCommunityIcons name="plus" size={22} color="#FFFFFF" />
+              <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '600' }}>
+                Add {count} to-do{count === 1 ? '' : 's'}
+              </Text>
+            </GlassView>
+          </Pressable>
+        ) : (
         <Pressable
           onPress={handleCreateAll}
           disabled={creating || refining || count === 0}
@@ -317,6 +349,7 @@ export default function AiReviewScreen() {
             Add {count} to-do{count === 1 ? '' : 's'}
           </Text>
         </Pressable>
+        )}
       </Animated.View>
 
       <ProgressOverlay

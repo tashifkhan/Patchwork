@@ -4,8 +4,8 @@ import {
   LoadingIndicator,
 } from '@expo/ui/jetpack-compose';
 import { fillMaxWidth, size } from '@expo/ui/jetpack-compose/modifiers';
-import { useEffect } from 'react';
-import { type StyleProp, type ViewStyle } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { type HostInstance, type StyleProp, useWindowDimensions, type ViewStyle } from 'react-native';
 import Animated, { FadeIn, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import { useTheme } from '@/components/theme/context';
@@ -44,8 +44,27 @@ export function LoadingState({
   }, [scale]);
   const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
+  // A full-screen state sits under a header and over the tab bar, so the
+  // middle of its box is lower than the middle of the screen. Shift the
+  // content so it lands on the screen's centre instead.
+  const box = useRef<HostInstance>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const [shift, setShift] = useState(0);
+  function centreOnScreen() {
+    if (!fullScreen) return;
+    box.current?.measureInWindow((_x, y, _w, h) => {
+      if (!h) return;
+      const offset = windowHeight / 2 - (y + h / 2);
+      // Never push the content out of its own box.
+      const limit = h / 4;
+      setShift(Math.max(-limit, Math.min(limit, Math.round(offset))));
+    });
+  }
+
   return (
     <Animated.View
+      ref={box}
+      onLayout={centreOnScreen}
       entering={FadeIn.duration(DURATION.medium2).easing(EASING.emphasizedDecelerate)}
       style={[
         {
@@ -56,33 +75,34 @@ export function LoadingState({
           justifyContent: 'center',
           paddingHorizontal: 32,
           paddingVertical: fullScreen ? 0 : 48,
-          gap: 20,
           backgroundColor: fullScreen ? colors.bg : 'transparent',
         },
         style,
       ]}>
-      <Animated.View style={popStyle}>
-        <Host style={{ width: indicator, height: indicator }}>
-          <LoadingIndicator color={colors.accent} modifiers={[size(indicator, indicator)]} />
-        </Host>
-      </Animated.View>
+      <View style={{ alignItems: 'center', gap: 20, width: '100%', transform: [{ translateY: shift }] }}>
+        <Animated.View style={popStyle}>
+          <Host style={{ width: indicator, height: indicator }}>
+            <LoadingIndicator color={colors.accent} modifiers={[size(indicator, indicator)]} />
+          </Host>
+        </Animated.View>
 
-      <View className="items-center gap-1.5" style={{ maxWidth: 280 }}>
-        {message ? (
-          <Text
-            className="text-sf-text text-center"
-            style={{ fontSize: fullScreen ? 20 : 17, fontWeight: '700', letterSpacing: -0.2 }}>
-            {message}
-          </Text>
-        ) : null}
-        {subtitle ? (
-          <Text className="text-sf-text-2 text-center text-sm" style={{ lineHeight: 20 }}>
-            {subtitle}
-          </Text>
-        ) : null}
+        <View className="items-center gap-1.5" style={{ maxWidth: 280 }}>
+          {message ? (
+            <Text
+              className="text-sf-text text-center"
+              style={{ fontSize: fullScreen ? 20 : 17, fontWeight: '700', letterSpacing: -0.2 }}>
+              {message}
+            </Text>
+          ) : null}
+          {subtitle ? (
+            <Text className="text-sf-text-2 text-center text-sm" style={{ lineHeight: 20 }}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+
+        {bar ? <LoadingBar style={{ width: '64%', maxWidth: 240 }} /> : null}
       </View>
-
-      {bar ? <LoadingBar style={{ width: '64%', maxWidth: 240 }} /> : null}
     </Animated.View>
   );
 }

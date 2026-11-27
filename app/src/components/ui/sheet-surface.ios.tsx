@@ -1,4 +1,3 @@
-import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Stack } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { View } from 'react-native';
@@ -10,17 +9,18 @@ import { Text } from '@/tw';
 import type { SheetSurfaceProps } from './sheet-surface';
 
 /**
- * iOS sheet surface. The host `Stack.Screen` sets
- * `contentStyle.backgroundColor` to `transparent`; the system form-sheet glass
- * follows the OS appearance, which looks wrong when the app theme is overriding
- * the system (e.g. system dark, app light). We render our own liquid-glass
- * backdrop and pin `colorScheme` to the active app theme so the material
- * matches the rest of the UI.
+ * iOS sheet surface: a solid sheet, not Liquid Glass. The host `Stack.Screen`
+ * sets `contentStyle.backgroundColor` to `transparent`, so this view paints
+ * the whole sheet, under the native header too, and the system glass never
+ * shows through. The colour is what iOS uses for an elevated sheet:
+ * systemBackground in light, secondarySystemBackground in dark, the same as
+ * the in-app picker sheets (`useSheetPanel`).
  *
  * The sheet title is handed to the native header rather than drawn in the body.
  */
 export function SheetSurface({ children, title, subtitle, bottomInset }: SheetSurfaceProps) {
   const { colors, scheme } = useTheme();
+  const background = scheme === 'dark' ? colors.bg2 : colors.bg;
   const insets = useSafeAreaInsets();
   const padBottom = bottomInset ?? Math.max(insets.bottom, 12);
   // The sheet's native header is translucent and floats over the body, so
@@ -47,12 +47,5 @@ export function SheetSurface({ children, title, subtitle, bottomInset }: SheetSu
     </View>
   );
 
-  if (isLiquidGlassAvailable()) {
-    return (
-      <GlassView glassEffectStyle="regular" colorScheme={scheme} style={{ flex: 1 }}>
-        {body}
-      </GlassView>
-    );
-  }
-  return <View style={{ flex: 1, backgroundColor: colors.bg2 }}>{body}</View>;
+  return <View style={{ flex: 1, backgroundColor: background }}>{body}</View>;
 }

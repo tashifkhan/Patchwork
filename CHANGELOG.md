@@ -2,6 +2,30 @@
 
 All notable changes to Patchwork. Versions follow semver, and each section is the source for that tag's GitHub release body.
 
+## [1.14.0] - 2026-11-27
+
+Calendar events from the + button, a week view on tablets, and Jira fields you can actually change.
+
+### Added
+
+- The + on the Calendar tab opens a menu with Task and Event. Event opens your phone's calendar form on the selected day, starting at the next whole hour today or 9 am on other days.
+- Create a list wherever you pick one. The list picker in Move, the new to-do form, brain dump and the recycle bin ends with a New list row. On Android, the category chips in the new to-do form have a New category chip too.
+- Tablets and unfolded foldables get a week view: seven day columns with to-dos and events on the hours, and the month beside it when there's room.
+- Change the assignee and reporter on a Jira issue by searching for people. Components, boards and sprints come from Jira in lists you can search, on an existing issue and when you create one.
+- On Android, a back swipe while the + menu is open shrinks it toward the button. Finish the swipe to close it, or let go to keep it open.
+
+### Changed
+
+- Android surfaces follow Material 3's tone-based colors. Every palette gets the same ladder of backgrounds and containers from its own hue, and pure black shifts the whole ladder darker.
+- On wide screens, Create task uses two columns with Create in the top bar, the card page puts the description and details side by side, and a board fits three columns on an unfolded Fold.
+- iOS bottom sheets are solid instead of Liquid Glass. The GitHub issue toolbar and the AI review's Add button now use glass, like the other floating controls.
+- The Jira card on Boards has an X and only shows once. The "Can't reach Jira boards", "Can't reach Deck boards" and "Jira needs a new API token" cards can be closed too, and come back on your next visit if the problem is still there.
+
+### Fixed
+
+- The Android loading spinner sits in the middle of the screen, not a header's height below it.
+- The selected tab in the navigation rail no longer turns into a square after switching tabs.
+
 ## [1.13.0] - 2026-11-26
 
 A new icon, shortcuts from the home screen, Siri and Gemini, and Jira issues that show everything Jira shows.

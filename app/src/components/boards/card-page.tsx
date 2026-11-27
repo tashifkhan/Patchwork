@@ -15,6 +15,7 @@ import { RiseIn } from '@/components/ui/motion';
 import { checklistItems, initials, nameColor } from '@/features/boards/model';
 import { formatRelativeDue } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { useTabBarFabOffset } from '@/lib/tab-bar';
 import { mixHex, withAlpha } from '@/lib/theme';
 import { Text, View } from '@/tw';
@@ -64,8 +65,14 @@ export function CardPage({
   const insets = useSafeAreaInsets();
   // Once the header scrolls away, the status bar frosts over the page.
   const [scrolled, setScrolled] = useState(false);
+  // The wide action bar sits under the details column, at its width.
+  const [detailsWidth, setDetailsWidth] = useState(DETAILS_WIDTH);
   // Above the floating navbar when it's on, like the other action bars.
   const barBottom = useTabBarFabOffset();
+  // Tablets and unfolded foldables: a centred page with the details beside
+  // the description, instead of one column stretched edge to edge.
+  const wide = useAdaptiveLayout().twoPane;
+  const page = wide ? ({ width: '100%', maxWidth: WIDE_PAGE, alignSelf: 'center' } as const) : null;
   const tone = columnTone(colors, dark, columnIndex);
   // A quiet tint of the column's colour: full tone in light mode, a low wash
   // over the surface in dark mode so the header doesn't shout.
@@ -89,17 +96,19 @@ export function CardPage({
           if (next !== scrolled) setScrolled(next);
         }}
         bottomOffset={ACTION_BAR_CLEARANCE}
-        contentContainerStyle={{ paddingBottom: barBottom + 100 }}>
+        contentContainerStyle={{ paddingBottom: barBottom + 100, paddingHorizontal: wide ? 24 : 0 }}>
         <Animated.View
           style={[
-            {
-              paddingTop: insets.top + 6,
-              paddingHorizontal: 20,
-              paddingBottom: 22,
-              borderBottomLeftRadius: 32,
-              borderBottomRightRadius: 32,
-              gap: 16,
-            },
+            wide
+              ? { ...page, maxWidth: WIDE_PAGE, marginTop: insets.top + 12, paddingTop: 16, paddingHorizontal: 28, paddingBottom: 26, borderRadius: 32, gap: 16 }
+              : {
+                  paddingTop: insets.top + 6,
+                  paddingHorizontal: 20,
+                  paddingBottom: 22,
+                  borderBottomLeftRadius: 32,
+                  borderBottomRightRadius: 32,
+                  gap: 16,
+                },
             headerStyle,
           ]}>
           <View className="flex-row items-center" style={{ gap: 8 }}>
@@ -138,7 +147,7 @@ export function CardPage({
               placeholder="Card title"
               placeholderTextColor={withAlpha(colors.text, 0.4)}
               accessibilityLabel="Title"
-              style={{ fontSize: 30, lineHeight: 36, fontWeight: '800', letterSpacing: -0.6, color: colors.text, padding: 0 }}
+              style={{ fontSize: wide ? 34 : 30, lineHeight: wide ? 40 : 36, fontWeight: '800', letterSpacing: -0.6, color: colors.text, padding: 0 }}
             />
           </RiseIn>
 
@@ -216,14 +225,21 @@ export function CardPage({
           </View>
         </Animated.View>
 
-        <View style={{ paddingHorizontal: 20, paddingTop: 22, gap: 22 }}>
-          <View style={{ gap: 8 }}>
+        <View
+          style={
+            wide
+              ? { ...page, flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 4, paddingTop: 24, gap: 24 }
+              : { paddingHorizontal: 20, paddingTop: 22, gap: 22 }
+          }>
+          <View style={{ gap: 8, flex: wide ? 3 : undefined }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text2, letterSpacing: 0.4 }}>DESCRIPTION</Text>
             <View style={{ borderRadius: 24, backgroundColor: colors.bg2, paddingHorizontal: 16, paddingVertical: 10 }}>
-              <MarkdownNotes value={description} onChangeText={onDescription} placeholder="Add a description or a checklist (- [ ] item)" inputStyle={{ minHeight: 44 }} />
+              <MarkdownNotes value={description} onChangeText={onDescription} placeholder="Add a description or a checklist (- [ ] item)" inputStyle={{ minHeight: wide ? 160 : 44 }} />
             </View>
           </View>
-          <View style={{ gap: 8 }}>
+          <View
+            onLayout={wide ? (e) => setDetailsWidth(e.nativeEvent.layout.width) : undefined}
+            style={{ gap: 8, flex: wide ? 2 : undefined, maxWidth: wide ? DETAILS_WIDTH : undefined }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text2, letterSpacing: 0.4 }}>DETAILS</Text>
             <View style={{ borderRadius: 24, backgroundColor: colors.bg2, paddingHorizontal: 16, paddingVertical: 4 }}>{details}</View>
           </View>
@@ -245,28 +261,36 @@ export function CardPage({
         }}
       />
 
-      {/* One bar for the card's actions; Save fills in once something changed. */}
+      {/* One bar for the card's actions; Save fills in once something changed.
+          Wide: a compact bar under the details column, not one across the screen. */}
       <View
-        style={{
-          position: 'absolute',
-          left: 16,
-          right: 16,
-          bottom: barBottom,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          padding: 8,
-          borderRadius: 36,
-          backgroundColor: colors.bg3,
-          boxShadow: `0 8px 24px ${withAlpha('#000000', dark ? 0.5 : 0.14)}`,
-        }}>
-        <BarIcon icon="trash-can-outline" label="Delete card" color={colors.red} onPress={onDelete} />
-        <BarIcon icon="arrow-right" label="Move to another column" color={colors.text} onPress={onMove} />
-        <SaveButton dirty={dirty} disabled={!canSave} saving={saving} onPress={onSave} />
+        pointerEvents="box-none"
+        style={{ position: 'absolute', left: wide ? 24 : 16, right: wide ? 24 : 16, bottom: barBottom }}>
+        <View pointerEvents="box-none" style={wide ? { ...page, alignItems: 'flex-end', paddingRight: 4 } : null}>
+          <View
+            style={{
+              width: wide ? detailsWidth : undefined,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              padding: 8,
+              borderRadius: 36,
+              backgroundColor: colors.bg3,
+              boxShadow: `0 8px 24px ${withAlpha('#000000', dark ? 0.5 : 0.14)}`,
+            }}>
+            <BarIcon icon="trash-can-outline" label="Delete card" color={colors.red} onPress={onDelete} />
+            <BarIcon icon="arrow-right" label="Move to another column" color={colors.text} onPress={onMove} />
+            <SaveButton dirty={dirty} disabled={!canSave} saving={saving} onPress={onSave} />
+          </View>
+        </View>
       </View>
     </View>
   );
 }
+
+/** Widest the page grows on a tablet, and the details column's width. */
+const WIDE_PAGE = 1120;
+const DETAILS_WIDTH = 380;
 
 function Pill({ bg, children }: { bg: string; children: ReactNode }) {
   return (

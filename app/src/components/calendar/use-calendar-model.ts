@@ -1,13 +1,16 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
 import type { Task } from '@/api/types';
+import type { FabMenuItem } from '@/components/ui/fab-menu';
 import { useDeviceEvents } from '@/hooks/use-device-events';
 import { useTaskLists, useTasks } from '@/features/tasks/queries';
 import { useUpdateTask } from '@/features/tasks/mutations';
 import { taskRef } from '@/features/tasks/model';
-import { type DeviceEvent, openDeviceEvent } from '@/lib/device-events';
+import { createDeviceEvent, type DeviceEvent, openDeviceEvent } from '@/lib/device-events';
+import { canUseCalendar } from '@/lib/calendar';
 import { playSound } from '@/lib/feedback';
 import { haptics } from '@/lib/haptics';
 import { nextDue } from '@/lib/recurrence';
@@ -106,6 +109,8 @@ function shiftTask(task: Task, due: string): Task {
  * Everything both calendar screens share: to-dos by day (with repeats drawn
  * ahead), the selected day, list colours, the clock, and the actions.
  */
+export type CalendarModel = ReturnType<typeof useCalendarModel>;
+
 export function useCalendarModel() {
   const mondayFirst = useSettingsStore((s) => s.weekStartsMonday);
   const tasksQuery = useTasks();
@@ -113,6 +118,8 @@ export function useCalendarModel() {
   const updateTask = useUpdateTask();
   const selectedListId = useUiStore((s) => s.selectedListId);
   const runningUid = usePomodoroStore((s) => (s.phase === 'idle' ? null : s.taskUid));
+  const queryClient = useQueryClient();
+  const [eventError, setEventError] = useState<string | null>(null);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -199,14 +206,17 @@ export function useCalendarModel() {
     router.push('/pomodoro');
   }
 
-  /** New to-do on the selected day; with an hour, as an hour-long block from then. */
-  function create(hour?: number) {
+  /**
+   * New to-do on the selected day, or on `day` (a tap in the week grid); with
+   * an hour, as an hour-long block from then.
+   */
+  function create(hour?: number, day: Date = selectedDate) {
     if (!targetList) return;
     let start: string | null = null;
-    let due = atDay(selectedDate);
+    let due = atDay(day);
     if (hour != null) {
       haptics.impact('medium');
-      const begin = new Date(selectedDate);
+      const begin = new Date(day);
       begin.setHours(hour, 0, 0, 0);
       start = begin.toISOString();
       due = new Date(begin.getTime() + 60 * 60_000).toISOString();
@@ -229,6 +239,38 @@ export function useCalendarModel() {
     router.push({ pathname: '/new-task', params: { draftId } });
   }
 
+  /**
+   * New event in the phone's calendar through the system form, on the selected
+   * day: from the next whole hour today, else 9 am, for an hour.
+   */
+  async function createEvent() {
+    const start = new Date(selectedDate);
+    if (selected === todayKey) start.setHours(now.getHours() + 1, 0, 0, 0);
+    else start.setHours(9, 0, 0, 0);
+    const end = new Date(start.getTime() + 60 * 60_000);
+    try {
+      const opened = await createDeviceEvent(start, end);
+      if (!opened) {
+        setEventError('Patchwork needs calendar access to add events. Allow it in Settings, then try again.');
+        return;
+      }
+      // The form returns once it is saved or cancelled; redraw either way.
+      await queryClient.invalidateQueries({ queryKey: ['device-events'] });
+    } catch (error) {
+      setEventError(error instanceof Error && error.message ? error.message : 'Could not open the calendar.');
+    }
+  }
+
+  /** What the + button offers: a to-do when there is a list, an event when the phone has calendars. */
+  const createItems: FabMenuItem[] = [
+    ...(canUseCalendar()
+      ? [{ key: 'event', label: 'Event', icon: 'calendar-plus' as const, sf: 'calendar.badge.plus' as const, onPress: () => void createEvent() }]
+      : []),
+    ...(targetList
+      ? [{ key: 'task', label: 'Task', icon: 'checkbox-marked-circle-plus-outline' as const, sf: 'checklist' as const, onPress: () => create() }]
+      : []),
+  ];
+
   return {
     now,
     todayKey,
@@ -245,5 +287,9 @@ export function useCalendarModel() {
     open,
     focus,
     create,
+    createEvent,
+    createItems,
+    eventError,
+    clearEventError: () => setEventError(null),
   };
 }

@@ -33,16 +33,18 @@ function composeTheme(colors: ThemeColors): ComposeTheme {
     onSecondaryContainer: colors.onSelectionBg,
     tertiaryContainer: colors.selectionBg,
     onTertiaryContainer: colors.onSelectionBg,
-    background: colors.bg,
+    background: colors.surface,
     onBackground: colors.text,
-    surface: colors.bg,
+    surface: colors.surface,
     onSurface: colors.text,
     onSurfaceVariant: colors.text2,
-    surfaceContainerLowest: colors.bg,
-    surfaceContainerLow: colors.bg2,
-    surfaceContainer: colors.bg3,
-    surfaceContainerHigh: colors.bg3,
-    surfaceContainerHighest: colors.bg3,
+    surfaceDim: colors.surfaceDim,
+    surfaceBright: colors.surfaceBright,
+    surfaceContainerLowest: colors.surfaceContainerLowest,
+    surfaceContainerLow: colors.surfaceContainerLow,
+    surfaceContainer: colors.surfaceContainer,
+    surfaceContainerHigh: colors.surfaceContainerHigh,
+    surfaceContainerHighest: colors.surfaceContainerHighest,
     error: colors.danger,
     outlineVariant: colors.separator,
   };
@@ -51,7 +53,7 @@ function composeTheme(colors: ThemeColors): ComposeTheme {
   for (const [role, value] of Object.entries(roles)) {
     if (value?.startsWith('#')) colorOverrides[role as keyof MaterialColors] = value as `#${string}`;
   }
-  return { colorScheme: isDark(colors.bg) ? 'dark' : 'light', colorOverrides };
+  return { colorScheme: isDark(colors.surface) ? 'dark' : 'light', colorOverrides };
 }
 
 /** Rough luminance check on a `#rrggbb` color. */

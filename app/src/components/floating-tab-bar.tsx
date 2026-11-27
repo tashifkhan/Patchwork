@@ -30,7 +30,6 @@ import { PressGlow, useElasticPress } from '@/components/ui/elastic';
 import { CAN_FROST, Frost, useFrostTarget } from '@/components/ui/frost';
 import { haptics } from '@/lib/haptics';
 import { EXPRESSIVE } from '@/lib/motion';
-import { mixHex } from '@/lib/theme';
 import {
   FLOATING_TAB_BAR_HEIGHT,
   FLOATING_TAB_BAR_MARGIN,
@@ -204,10 +203,10 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
       ],
     };
   }, [searchFocused]);
-  // Paisa: a little of the accent over a raised surface, so the bar belongs
-  // to the palette without turning into a tinted slab. The selected tab's
-  // pill is the stronger tonal fill; the other icons are muted.
-  const surface = mixHex(colors.bg3, colors.accent, isDark ? 0.1 : 0.08);
+  // M3 tone-based surfaces: the bar is surfaceContainer, which already
+  // carries the palette's hue. The selected tab's pill is the tonal fill;
+  // the other icons are muted.
+  const surface = colors.surfaceContainer;
   const selectionFill = colors.selectionBg;
   const onSelection = colors.onSelectionBg;
   const inactive = colors.text2;
@@ -277,7 +276,8 @@ export function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBar
       } as const)
     : ({
         backgroundColor: surface,
-        boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.45)' : `0 8px 24px ${alpha(colors.accent, 0.24)}`,
+        // It floats over scrolling content, so it keeps a soft neutral shadow.
+        boxShadow: isDark ? '0 6px 20px rgba(0,0,0,0.45)' : '0 6px 20px rgba(0,0,0,0.12)',
       } as const);
   const frost = frosted ? <Frost tint={surface} strength={isDark ? 0.55 : 0.6} intensity={70} /> : null;
   // White light on dark themes, the accent on light ones, where white wouldn't show.

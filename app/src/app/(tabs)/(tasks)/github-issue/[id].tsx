@@ -6,6 +6,12 @@ import { Linking, Platform, Pressable, RefreshControl } from 'react-native';
 import Animated, { SlideInDown } from 'react-native-reanimated';
 
 import { KeyboardScrollView } from '@/components/ui/keyboard';
+import {
+  TOOLBAR_GLASS,
+  ToolbarIconButton,
+  ToolbarPrimaryButton,
+  ToolbarSurface,
+} from '@/components/ui/floating-toolbar';
 import type { GitHubIssue } from '@/api/types';
 import { useTheme } from '@/components/theme/context';
 import { LiveMarkdownInput } from '@/components/ui/live-markdown-input';
@@ -303,6 +309,34 @@ function IssueDocument({
           .stiffness(SPRING.spatial.stiffness)}
         pointerEvents="box-none"
         style={{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center' }}>
+        {TOOLBAR_GLASS ? (
+          // iOS 26: the same Liquid Glass bar as an open to-do.
+          <ToolbarSurface>
+            {!issue.readOnly ? (
+              <ToolbarPrimaryButton
+                icon={issue.completed ? 'restore' : 'check'}
+                sf={issue.completed ? 'arrow.uturn.backward' : 'checkmark'}
+                label={
+                  toggleIssue.isPending
+                    ? issue.completed
+                      ? 'Reopening…'
+                      : 'Closing…'
+                    : issue.completed
+                      ? 'Reopen'
+                      : 'Close issue'
+                }
+                disabled={toggleIssue.isPending}
+                onPress={toggle}
+              />
+            ) : null}
+            <ToolbarIconButton
+              icon="open-in-new"
+              sf="arrow.up.right.square"
+              label="Open on GitHub"
+              onPress={openOnGitHub}
+            />
+          </ToolbarSurface>
+        ) : (
         <View
           className="flex-row items-center"
           style={{
@@ -365,6 +399,7 @@ function IssueDocument({
             />
           </Pressable>
         </View>
+        )}
       </Animated.View>
 
       <NativeAlert

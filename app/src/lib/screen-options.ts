@@ -88,8 +88,9 @@ export function themedStackScreenOptions(colors: ThemeColors, background: string
 /**
  * Platform-aware defaults for sheet screens.
  *
- * - iOS: system `formSheet` with liquid-glass-friendly transparent content and
- *   grabber. Detents come from `detents` (0–1).
+ * - iOS: system `formSheet` with a grabber. The content is transparent here
+ *   and `SheetSurface` paints it solid, so the theme picks the colour rather
+ *   than the system glass. Detents come from `detents` (0–1).
  * - Android: transparent host route so `@expo/ui/jetpack-compose`
  *   `ModalBottomSheet` (in `SheetSurface`) owns the Material 3 sheet, scrim,
  *   drag handle, and dismiss gestures — matching Paisa's Compose bottomsheet.

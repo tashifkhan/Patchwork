@@ -127,7 +127,7 @@ function makePalette(colors: ThemeColors): Palette {
   const disabledText = withAlpha(colors.text, DISABLED_ALPHA);
   const disabledDanger = withAlpha(colors.danger, DISABLED_ALPHA);
   return {
-    container: colors.bg3,
+    container: colors.surfaceContainer,
     label: colors.text2,
     item: {
       textColor: colors.text,
@@ -147,11 +147,11 @@ function makePalette(colors: ThemeColors): Palette {
     },
     selectable: {
       textColor: colors.text,
-      containerColor: colors.bg3,
+      containerColor: colors.surfaceContainer,
       leadingIconColor: colors.text2,
       trailingContentColor: colors.text2,
       disabledTextColor: disabledText,
-      disabledContainerColor: colors.bg3,
+      disabledContainerColor: colors.surfaceContainer,
       disabledLeadingIconColor: disabledText,
       disabledTrailingContentColor: disabledText,
       selectedTextColor: colors.onSelectionBg,
@@ -161,11 +161,11 @@ function makePalette(colors: ThemeColors): Palette {
     },
     destructiveSelectable: {
       textColor: colors.danger,
-      containerColor: colors.bg3,
+      containerColor: colors.surfaceContainer,
       leadingIconColor: colors.danger,
       trailingContentColor: colors.danger,
       disabledTextColor: disabledDanger,
-      disabledContainerColor: colors.bg3,
+      disabledContainerColor: colors.surfaceContainer,
       disabledLeadingIconColor: disabledDanger,
       disabledTrailingContentColor: disabledDanger,
       selectedTextColor: colors.danger,

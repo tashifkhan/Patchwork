@@ -108,7 +108,7 @@ function MaterialNativeTabs() {
       // labels" in Look and feel labels every tab.
       // (Android-only knob; iOS always labels its native tab bar.)
       labelVisibilityMode={tabBarLabels ? 'labeled' : 'selected'}
-      backgroundColor={colors.bg2}
+      backgroundColor={colors.surfaceContainer}
       tintColor={colors.accent}
       iconColor={{ default: inactiveColor, selected: colors.onSelectionBg }}
       indicatorColor={colors.selectionBg}

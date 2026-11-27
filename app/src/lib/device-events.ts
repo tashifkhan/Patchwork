@@ -116,3 +116,25 @@ export async function openDeviceEvent(eventId: string): Promise<void> {
     // The event may have been deleted since the list was read.
   }
 }
+
+/**
+ * Opens the system's new-event form on the phone's default calendar, filled
+ * with `start` to `end`. The user can still switch calendars in the form.
+ * Resolves false when there is no calendar access or nowhere to write.
+ */
+export async function createDeviceEvent(start: Date, end: Date): Promise<boolean> {
+  const Calendar = await getCalendar();
+  if (!Calendar || !(await requestCalendarAccess())) return false;
+  let calendar: InstanceType<typeof Calendar.ExpoCalendar> | null = null;
+  if (process.env.EXPO_OS === 'ios') {
+    calendar = Calendar.getDefaultCalendarSync();
+  } else {
+    // Android has no single default: take a primary calendar of an account,
+    // else the first one that can be written to.
+    const writable = (await Calendar.getCalendars(Calendar.EntityTypes.EVENT)).filter((c) => c.allowsModifications);
+    calendar = writable.find((c) => c.isPrimary) ?? writable[0] ?? null;
+  }
+  if (!calendar) return false;
+  await calendar.addEventWithForm({ startDate: start, endDate: end });
+  return true;
+}

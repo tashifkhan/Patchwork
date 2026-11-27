@@ -19,7 +19,8 @@ import Animated, {
 import { useHeaderHeight } from 'expo-router/react-navigation';
 
 import { useTheme } from '@/components/theme/context';
-import { Fab } from '@/components/ui/fab';
+import { FabMenu } from '@/components/ui/fab-menu';
+import { NativeAlert } from '@/components/ui/native-alert';
 import { GlassIconButton, GlassPillButton } from '@/components/ui/glass-button';
 import { haptics } from '@/lib/haptics';
 import { PAISA } from '@/lib/motion';
@@ -131,7 +132,7 @@ export function CalendarScreen() {
       <ScrollView
         ref={scrollRef}
         contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={{ paddingBottom: fabBottom + (model.canCreate ? 68 : 56) }}>
+        contentContainerStyle={{ paddingBottom: fabBottom + (model.createItems.length ? 68 : 56) }}>
 
         {allDay.length ? (
           <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: colors.separator }}>
@@ -167,7 +168,13 @@ export function CalendarScreen() {
           <GlassPillButton label="Today" height={44} onPress={() => select(todayKey)} />
         </View>
       ) : null}
-      {model.canCreate ? <Fab accessibilityLabel="Add task" onPress={() => model.create()} /> : null}
+      {model.createItems.length ? <FabMenu items={model.createItems} accessibilityLabel="Add task or event" /> : null}
+      <NativeAlert
+        visible={model.eventError != null}
+        title="New event"
+        message={model.eventError ?? ''}
+        onDismiss={model.clearEventError}
+      />
     </View>
   );
 }

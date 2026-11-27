@@ -30,6 +30,7 @@ import { listTone } from '@/lib/smart-lists';
 import { withAlpha } from '@/lib/theme';
 import { blockMinutes, formatLength, withEnd, withStart } from '@/lib/time-block';
 import { atDay } from '@/features/tasks/when';
+import { useAdaptiveLayout } from '@/hooks/use-adaptive-layout';
 import { ScrollView, Text, View } from '@/tw';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -60,6 +61,8 @@ export interface TaskComposerProps {
   onList: (id: string) => void;
   /** Opens the full destination picker (other accounts, GitHub repositories). */
   onMoreDestinations: () => void;
+  /** Makes a list in the chosen list's account and selects it. False when it failed. */
+  onCreateList: (name: string) => Promise<boolean>;
   tags: string[];
   onPickTags: () => void;
   dueAt: string | null;
@@ -98,7 +101,10 @@ export function TaskComposer(props: TaskComposerProps) {
   const { fill, ink } = listTone(colors, dark, listIndex);
   const [picking, setPicking] = useState<'date' | 'start' | 'end' | null>(null);
   const [more, setMore] = useState(false);
+  const [addingList, setAddingList] = useState(false);
   const footer = useKeyboardLift(insets.bottom, 0);
+  // Tablets and unfolded foldables lay the form out in two columns.
+  const wide = useAdaptiveLayout().twoPane;
 
   // The header eases into the new list's colour.
   const headerStyle = useAnimatedStyle(() => ({ backgroundColor: withTiming(fill, { duration: 320 }) }), [fill]);
@@ -125,27 +131,23 @@ export function TaskComposer(props: TaskComposerProps) {
     props.onSchedule(next);
   }
 
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <KeyboardScrollView
-        bottomOffset={80 + FIELD_CLEARANCE}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
+  const header = (
+      <>
         {/* Header block */}
         <Animated.View
           style={[
             {
-              paddingTop: insets.top + 8,
+              paddingTop: wide ? 20 : insets.top + 8,
               paddingHorizontal: 24,
               paddingBottom: 28,
-              borderBottomLeftRadius: 44,
-              borderBottomRightRadius: 44,
+              ...(wide ? { borderRadius: 32 } : { borderBottomLeftRadius: 44, borderBottomRightRadius: 44 }),
               borderCurve: 'continuous',
             },
             headerStyle,
           ]}>
-          <RoundButton icon="arrow-left" label="Back" ink={ink} onPress={() => router.back()} />
+          {wide ? null : <RoundButton icon="arrow-left" label="Back" ink={ink} onPress={() => router.back()} />}
           <RiseIn>
-            <Text style={{ fontSize: 34, lineHeight: 40, fontWeight: '800', letterSpacing: -0.8, color: ink, marginTop: 18 }}>
+            <Text style={{ fontSize: 34, lineHeight: 40, fontWeight: '800', letterSpacing: -0.8, color: ink, marginTop: wide ? 0 : 18 }}>
               Create new task
             </Text>
           </RiseIn>
@@ -203,8 +205,11 @@ export function TaskComposer(props: TaskComposerProps) {
           </View>
         </Animated.View>
 
-        {/* Body */}
-        <View style={{ paddingHorizontal: 24, paddingTop: 26, gap: 26 }}>
+      </>
+  );
+  // Times, the AI tools and the notes: what the task is and when.
+  const schedule = (
+      <>
           <View style={{ flexDirection: 'row', gap: 24 }}>
             <TimeColumn label="Start time" date={start} onPress={() => setPicking('start')} />
             <TimeColumn label="End time" date={end} onPress={() => setPicking('end')} />
@@ -235,6 +240,11 @@ export function TaskComposer(props: TaskComposerProps) {
           </View>
           <DescriptionField value={props.notes} onChange={props.onNotes} />
 
+      </>
+  );
+  // Where it goes and the rest.
+  const sorting = (
+      <>
           <View style={{ gap: 12 }}>
             <Text style={{ fontSize: 16, color: colors.text2 }}>Category</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -248,7 +258,19 @@ export function TaskComposer(props: TaskComposerProps) {
                 />
               ))}
               <CategoryChip label="More" icon="dots-horizontal" index={-1} selected={false} onPress={props.onMoreDestinations} />
+              {!addingList ? (
+                <CategoryChip label="New" icon="plus" index={-1} selected={false} onPress={() => setAddingList(true)} />
+              ) : null}
             </View>
+            {addingList ? (
+              <NewCategoryField
+                onCancel={() => setAddingList(false)}
+                onCreate={async (name) => {
+                  const ok = await props.onCreateList(name);
+                  if (ok) setAddingList(false);
+                }}
+              />
+            ) : null}
           </View>
 
           <View style={{ gap: 12 }}>
@@ -273,7 +295,7 @@ export function TaskComposer(props: TaskComposerProps) {
           </View>
 
           {/* More options */}
-          <Animated.View layout={expandLayout()} style={{ borderRadius: 28, backgroundColor: colors.bg3, overflow: 'hidden' }}>
+          <Animated.View layout={expandLayout()} style={{ borderRadius: 28, backgroundColor: colors.surfaceContainer, overflow: 'hidden' }}>
             <Pressable
               onPress={() => {
                 haptics.tap();
@@ -332,25 +354,63 @@ export function TaskComposer(props: TaskComposerProps) {
               </Animated.View>
             ) : null}
           </Animated.View>
+      </>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {/* Wide windows: a top bar with back and Create, like an M3 full-screen dialog. */}
+      {wide ? (
+        <View style={{ paddingTop: insets.top + 8, paddingBottom: 8, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <RoundButton icon="arrow-left" label="Back" ink={colors.text} onPress={() => router.back()} />
+          <View style={{ flex: 1 }} />
+          <CreateButton compact disabled={!props.canSubmit} submitting={props.submitting} onPress={props.onSubmit} />
         </View>
+      ) : null}
+      <KeyboardScrollView
+        bottomOffset={(wide ? 24 : 80) + FIELD_CLEARANCE}
+        contentContainerStyle={{ paddingBottom: insets.bottom + (wide ? 32 : 100) }}>
+        {wide ? (
+          // Two columns: the header card and the schedule on the leading side,
+          // category, tags and more on the trailing side.
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 32, paddingHorizontal: 24, paddingTop: 8, width: '100%', maxWidth: 1200, alignSelf: 'center' }}>
+            <View style={{ flex: 1.15, gap: 26 }}>
+              {header}
+              <View style={{ paddingHorizontal: 8, gap: 26 }}>{schedule}</View>
+            </View>
+            <View style={{ flex: 1, gap: 26, paddingTop: 8 }}>{sorting}</View>
+          </View>
+        ) : (
+          <>
+            {header}
+            <View style={{ paddingHorizontal: 24, paddingTop: 26, gap: 26 }}>
+              {schedule}
+              {sorting}
+            </View>
+          </>
+        )}
       </KeyboardScrollView>
 
-      {footer.marker}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: insets.bottom,
-            paddingHorizontal: 24,
-            paddingVertical: 12,
-            backgroundColor: colors.bg,
-          },
-          footer.style,
-        ]}>
-        <CreateButton disabled={!props.canSubmit} submitting={props.submitting} onPress={props.onSubmit} />
-      </Animated.View>
+      {wide ? null : (
+        <>
+          {footer.marker}
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: insets.bottom,
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                backgroundColor: colors.bg,
+              },
+              footer.style,
+            ]}>
+            <CreateButton disabled={!props.canSubmit} submitting={props.submitting} onPress={props.onSubmit} />
+          </Animated.View>
+        </>
+      )}
 
       {picking === 'date' ? (
         <DateTimePicker
@@ -436,7 +496,7 @@ function DescriptionField({ value, onChange }: { value: string; onChange: (value
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text style={{ flex: 1, fontSize: 13, color: colors.text2 }}>Description</Text>
-        <View style={{ flexDirection: 'row', borderRadius: 16, backgroundColor: colors.bg3, padding: 2 }}>
+        <View style={{ flexDirection: 'row', borderRadius: 16, backgroundColor: colors.surfaceContainerHighest, padding: 2 }}>
           {(['write', 'preview'] as const).map((m) => (
             <Pressable
               key={m}
@@ -497,7 +557,7 @@ function DescriptionField({ value, onChange }: { value: string; onChange: (value
           </ScrollView>
         </Animated.View>
       ) : (
-        <Animated.View key="preview" entering={FadeIn.duration(160)} style={{ minHeight: 52, borderRadius: 20, backgroundColor: colors.bg3, padding: 16 }}>
+        <Animated.View key="preview" entering={FadeIn.duration(160)} style={{ minHeight: 52, borderRadius: 20, backgroundColor: colors.surfaceContainerLow, padding: 16 }}>
           {value.trim() ? (
             <MarkdownViewer markdown={value} />
           ) : (
@@ -662,7 +722,7 @@ function CategoryChip({
               flexDirection: 'row',
               alignItems: 'center',
               overflow: 'hidden',
-              backgroundColor: selected && swatch ? swatch.fill : colors.bg3,
+              backgroundColor: selected && swatch ? swatch.fill : colors.surfaceContainerLow,
               borderWidth: selected ? 0 : 1,
               borderColor: colors.separator,
             },
@@ -674,6 +734,86 @@ function CategoryChip({
           {icon ? <MaterialCommunityIcons name={icon} size={18} color={colors.text2} style={{ marginRight: 4 }} /> : null}
           <Text style={{ fontSize: 14, fontWeight: '600', color: ink }}>{label}</Text>
         </Animated.View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/**
+ * Inline "new category" row under the chips: an underlined name field with a
+ * tonal Add button. Enter adds too; the field closes once the list exists.
+ */
+function NewCategoryField({ onCreate, onCancel }: { onCreate: (name: string) => Promise<void>; onCancel: () => void }) {
+  const { colors } = useTheme();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const focused = useSharedValue(0);
+  const line = useAnimatedStyle(() => ({ height: 1 + focused.value, opacity: 0.25 + 0.75 * focused.value }));
+  const canAdd = name.trim().length > 0 && !busy;
+
+  async function submit() {
+    if (!canAdd) return;
+    haptics.tap();
+    setBusy(true);
+    try {
+      await onCreate(name.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Animated.View entering={EXPAND_IN} exiting={COLLAPSE_OUT} layout={expandLayout()} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+      <View style={{ flex: 1 }}>
+        <RNTextInput
+          value={name}
+          onChangeText={setName}
+          autoFocus
+          editable={!busy}
+          placeholder="New category name"
+          placeholderTextColor={colors.text3}
+          accessibilityLabel="New category name"
+          returnKeyType="done"
+          onSubmitEditing={submit}
+          onFocus={() => focused.set(withTiming(1, { duration: 180 }))}
+          onBlur={() => focused.set(withTiming(0, { duration: 180 }))}
+          style={{ fontSize: 17, color: colors.text, paddingVertical: 8, paddingHorizontal: 0 }}
+        />
+        <Animated.View style={[{ backgroundColor: colors.text }, line]} />
+      </View>
+      <Pressable
+        onPress={() => {
+          haptics.tap();
+          onCancel();
+        }}
+        disabled={busy}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Cancel new category"
+        android_ripple={{ color: withAlpha(colors.text, 0.1), borderless: true, radius: 20 }}
+        style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+        <MaterialCommunityIcons name="close" size={20} color={colors.text2} />
+      </Pressable>
+      <Pressable
+        onPress={submit}
+        disabled={!canAdd}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canAdd, busy }}
+        accessibilityLabel="Add category"
+        android_ripple={{ color: withAlpha(colors.onSelectionBg, 0.12) }}
+        style={({ pressed }) => ({
+          height: 40,
+          paddingHorizontal: 16,
+          borderRadius: pressed ? 12 : 20,
+          overflow: 'hidden',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          backgroundColor: colors.selectionBg,
+          opacity: canAdd || busy ? 1 : 0.45,
+        })}>
+        {busy ? <LoadingSpinner size={16} /> : <MaterialCommunityIcons name="plus" size={18} color={colors.onSelectionBg} />}
+        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.onSelectionBg }}>Add</Text>
       </Pressable>
     </Animated.View>
   );
@@ -701,7 +841,7 @@ function AiAction({ icon, label, onPress, showLabel }: { icon: IconName; label: 
         justifyContent: 'center',
         gap: 6,
         overflow: 'hidden',
-        backgroundColor: showLabel ? colors.selectionBg : colors.bg3,
+        backgroundColor: showLabel ? colors.selectionBg : colors.surfaceContainerHigh,
       })}>
       <MaterialCommunityIcons name={icon} size={showLabel ? 18 : 22} color={ink} />
       {showLabel ? <Text style={{ fontSize: 14, fontWeight: '500', color: ink }}>{label}</Text> : null}
@@ -724,10 +864,11 @@ function Turning({ open }: { open: boolean }) {
 }
 
 /** The wide filled Create task button. Its corners tighten while held (M3 Expressive). */
-function CreateButton({ disabled, submitting, onPress }: { disabled: boolean; submitting: boolean; onPress: () => void }) {
+function CreateButton({ disabled, submitting, onPress, compact = false }: { disabled: boolean; submitting: boolean; onPress: () => void; compact?: boolean }) {
   const { colors } = useTheme();
   const press = useElasticPress({ maxStretch: 0.02, maxTranslate: 1.5, pressedScale: 0.97 });
-  const corner = useAnimatedStyle(() => ({ borderRadius: 30 - 14 * press.glow.value }));
+  const size = compact ? 48 : 60;
+  const corner = useAnimatedStyle(() => ({ borderRadius: size / 2 - (compact ? 10 : 14) * press.glow.value }));
   return (
     <Animated.View {...press.handlers} style={press.style}>
       <Pressable
@@ -744,7 +885,8 @@ function CreateButton({ disabled, submitting, onPress }: { disabled: boolean; su
         <Animated.View
           style={[
             {
-              height: 60,
+              height: size,
+              paddingHorizontal: compact ? 24 : 0,
               overflow: 'hidden',
               backgroundColor: colors.accent,
               opacity: disabled ? 0.45 : 1,
@@ -755,9 +897,9 @@ function CreateButton({ disabled, submitting, onPress }: { disabled: boolean; su
             },
             corner,
           ]}>
-          <PressGlow press={press} color={withAlpha('#FFFFFF', 0.2)} radius={30} size={60} />
-          {submitting ? <LoadingSpinner size={22} /> : null}
-          <Text style={{ color: colors.onAccent, fontSize: 18, fontWeight: '700' }}>{submitting ? 'Creating…' : 'Create task'}</Text>
+          <PressGlow press={press} color={withAlpha('#FFFFFF', 0.2)} radius={size / 2} size={size} />
+          {submitting ? <LoadingSpinner size={compact ? 18 : 22} /> : null}
+          <Text style={{ color: colors.onAccent, fontSize: compact ? 16 : 18, fontWeight: '700' }}>{submitting ? 'Creating…' : 'Create task'}</Text>
         </Animated.View>
       </Pressable>
     </Animated.View>

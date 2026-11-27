@@ -24,7 +24,7 @@ export function useSheetPanel(extraBottom = 12): { style: ViewStyle; background:
   if (!IOS) {
     return {
       style: {
-        backgroundColor: colors.bg2,
+        backgroundColor: colors.surfaceContainerLow,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         borderCurve: 'continuous',

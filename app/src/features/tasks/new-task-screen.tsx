@@ -25,7 +25,7 @@ import { HeaderTextButton } from '@/components/settings/settings-list';
 import { useDeviceCalendars } from '@/hooks/use-calendars';
 import { useCreateGitHubIssue, useGitHubIssues } from '@/features/github/queries';
 import { useTaskLists, useTasks } from '@/features/tasks/queries';
-import { useCreateTaskWithChecklist } from '@/features/tasks/mutations';
+import { useCreateTaskList, useCreateTaskWithChecklist } from '@/features/tasks/mutations';
 import { addTaskToCalendar } from '@/lib/calendar';
 import { haptics } from '@/lib/haptics';
 import { DURATION, SPRING } from '@/lib/motion';
@@ -75,6 +75,7 @@ export default function NewTaskScreen() {
   const listsQuery = useTaskLists();
   const tasksQuery = useTasks();
   const { mutateAsync: createWithChecklist } = useCreateTaskWithChecklist();
+  const { mutateAsync: createList } = useCreateTaskList();
   const selectedListId = useUiStore((state) => state.selectedListId);
   const selectedTag = useUiStore((state) => state.selectedTag);
   const openTagPicker = useTagPickerStore((s) => s.open);
@@ -529,6 +530,19 @@ export default function NewTaskScreen() {
           onMoreDestinations={() => {
             haptics.tap();
             setListPickerOpen(true);
+          }}
+          onCreateList={async (name) => {
+            // The new list lives with the one picked now, or on the first account.
+            const accountId = (lists.find((l) => l.id === listId) ?? lists[0])?.account_id;
+            try {
+              const list = await createList({ name, account_id: accountId });
+              haptics.success();
+              setListId(list.id);
+              return true;
+            } catch (error) {
+              setErrorMessage(error instanceof Error && error.message ? error.message : 'Could not create the category.');
+              return false;
+            }
           }}
           tags={tags}
           onPickTags={pickTags}

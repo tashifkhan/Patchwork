@@ -1,7 +1,7 @@
 {
   "name": "patchwork",
   "main": "./index.js",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/google": "^3.0.80",
@@ -9,6 +9,7 @@
     "@ai-sdk/openai-compatible": "^2.0.48",
     "@expo/ui": "~58.0.27",
     "@expo/vector-icons": "^15.0.2",
+    "@material/material-color-utilities": "0.3.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.2.1",
     "@tailwindcss/postcss": "^4.3.0",
